@@ -1,0 +1,17 @@
+database:
+  # Production PostgreSQL is on a Tailscale-internal host (Debian primary).
+  # 真实凭据写进 config/settings.yaml（gitignored，明文即可，单机惯例）。
+  host: 100.65.111.79
+  port: 5432
+  name: market_monitor
+  user: admin
+  password: replace_me
+  # 也支持 password_env 间接（common/config.py 的 *_env 展开），非必需。
+
+test_database:
+  # 本地沙箱库；cta_gtja 读取层强制 schema=public，use_test 仅切换连接目标。
+  host: localhost
+  port: 55432
+  name: stock_selector_test
+  user: test
+  password: replace_me
