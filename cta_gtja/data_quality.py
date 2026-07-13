@@ -177,6 +177,81 @@ def summarize_continuous_contract_quality(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+DEFAULT_MAX_LAG_DAYS = 10
+
+
+def _symbols_matching(report: pd.DataFrame, mask: pd.Series) -> str:
+    symbols = report.loc[mask, "base_symbol"].astype(str).unique()
+    return ",".join(sorted(symbols))
+
+
+def _positive_count(report: pd.DataFrame, column: str) -> pd.Series:
+    values = report.get(column, pd.Series(0, index=report.index))
+    return pd.to_numeric(values, errors="coerce").fillna(0) > 0
+
+
+def strict_failure_reasons(
+    report: pd.DataFrame,
+    *,
+    as_of: date,
+    max_lag_days: int = DEFAULT_MAX_LAG_DAYS,
+) -> list[str]:
+    """Return strict failures; diagnostic-only fields never enter this policy."""
+    if max_lag_days < 0:
+        raise ValueError("max_lag_days must be non-negative")
+    if report.empty:
+        return ["no symbols returned"]
+
+    reasons: list[str] = []
+
+    corrupt = report["status"].fillna("unknown") != "ok"
+    if corrupt.any():
+        reasons.append(
+            f"adjustment corruption: {_symbols_matching(report, corrupt)}"
+        )
+
+    for lineage in _LINEAGES:
+        invalid = _positive_count(
+            report, f"{lineage}_ohlc_nonpos"
+        ) | _positive_count(report, f"{lineage}_ohlc_infinite")
+        if invalid.any():
+            reasons.append(
+                f"{lineage} OHLC invalid: {_symbols_matching(report, invalid)}"
+            )
+
+    daily_invalid = _positive_count(report, "daily_return_invalid")
+    if daily_invalid.any():
+        reasons.append(
+            "daily_return invalid (<= -1 or infinite): "
+            + _symbols_matching(report, daily_invalid)
+        )
+
+    index_invalid = _positive_count(report, "return_index_invalid")
+    if index_invalid.any():
+        reasons.append(
+            "return_index invalid (<= 0 or infinite): "
+            + _symbols_matching(report, index_invalid)
+        )
+
+    last_trade_date = pd.to_datetime(
+        report["last_trade_date"], errors="coerce"
+    ).max()
+    if pd.isna(last_trade_date):
+        reasons.append("table freshness unavailable: no valid last_trade_date")
+    else:
+        lag_days = int(
+            (pd.Timestamp(as_of).normalize() - last_trade_date.normalize()).days
+        )
+        if lag_days > max_lag_days:
+            reasons.append(
+                "table stale: "
+                f"last_trade_date={last_trade_date.date().isoformat()} "
+                f"lag_days={lag_days} max_lag_days={max_lag_days}"
+            )
+
+    return reasons
+
+
 def build_adjustment_audit(
     quality_report: pd.DataFrame,
     *,

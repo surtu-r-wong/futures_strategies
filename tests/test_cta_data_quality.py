@@ -7,6 +7,7 @@ import pandas as pd
 
 from cta_gtja.data_quality import (
     build_adjustment_audit,
+    strict_failure_reasons,
     summarize_adjustment_quality,
     summarize_continuous_contract_quality,
     summarize_continuous_health,
@@ -41,6 +42,99 @@ def _health_row(
         for field in ("open", "high", "low", "close"):
             row[f"{field}_{lineage}"] = Decimal(str(value))
     return row
+
+
+def _strict_report(**overrides) -> pd.DataFrame:
+    row = {
+        "base_symbol": "BR",
+        "n_rows": 1,
+        "raw_nonpos": 0,
+        "ba_nonpos": 0,
+        "fa_nonpos": 0,
+        "recommended_adj": "fa",
+        "status": "ok",
+        "raw_ohlc_nonpos": 0,
+        "raw_ohlc_incomplete": 0,
+        "raw_ohlc_infinite": 0,
+        "ba_ohlc_nonpos": 0,
+        "ba_ohlc_incomplete": 0,
+        "ba_ohlc_infinite": 0,
+        "fa_ohlc_nonpos": 0,
+        "fa_ohlc_incomplete": 0,
+        "fa_ohlc_infinite": 0,
+        "suspicious_bar_count": 0,
+        "daily_return_invalid": 0,
+        "return_index_invalid": 0,
+        "last_trade_date": date(2026, 7, 10),
+        "lag_to_rule_max_days": 0,
+        "missing_trade_dates": 0,
+    }
+    row.update(overrides)
+    return pd.DataFrame([row])
+
+
+def test_strict_policy_accepts_healthy_report_at_ten_day_boundary():
+    reasons = strict_failure_reasons(
+        _strict_report(),
+        as_of=date(2026, 7, 20),
+        max_lag_days=10,
+    )
+
+    assert reasons == []
+
+
+def test_strict_policy_ignores_incomplete_gaps_and_symbol_lag():
+    report = _strict_report(
+        raw_ohlc_incomplete=783,
+        ba_ohlc_incomplete=783,
+        fa_ohlc_incomplete=783,
+        lag_to_rule_max_days=9724,
+        missing_trade_dates=100,
+    )
+
+    reasons = strict_failure_reasons(
+        report,
+        as_of=date(2026, 7, 20),
+        max_lag_days=10,
+    )
+
+    assert reasons == []
+
+
+def test_strict_policy_rejects_corruption_impossible_values_and_staleness():
+    report = _strict_report(
+        status="fa_corrupt",
+        raw_ohlc_nonpos=1,
+        fa_ohlc_infinite=1,
+        suspicious_bar_count=1,
+        daily_return_invalid=1,
+        return_index_invalid=1,
+    )
+
+    reasons = strict_failure_reasons(
+        report,
+        as_of=date(2026, 7, 22),
+        max_lag_days=10,
+    )
+
+    assert reasons == [
+        "adjustment corruption: BR",
+        "raw OHLC invalid: BR",
+        "fa OHLC invalid: BR",
+        "daily_return invalid (<= -1 or infinite): BR",
+        "return_index invalid (<= 0 or infinite): BR",
+        "table stale: last_trade_date=2026-07-10 lag_days=12 max_lag_days=10",
+    ]
+
+
+def test_strict_policy_rejects_empty_report():
+    reasons = strict_failure_reasons(
+        pd.DataFrame(),
+        as_of=date(2026, 7, 20),
+        max_lag_days=10,
+    )
+
+    assert reasons == ["no symbols returned"]
 
 
 def test_summarize_flags_corrupt_adjustment_column_per_symbol():
