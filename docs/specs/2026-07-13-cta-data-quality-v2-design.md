@@ -20,6 +20,20 @@ problem accurately without writing the database or changing historical
 backtest behavior. The wider EOD chain is also stale: `futures_daily` and both
 continuous-contract rule types currently end on 2026-04-29.
 
+The adjusted lineages do not make an invalid source bar trustworthy. On the
+same `standard` BR roll date, the selected forward-adjusted close is positive
+but still creates an artificial approximately -38%/+67% move across adjacent
+days. Any lineage with a non-positive or infinite OHLC value therefore marks
+the underlying trade-date bar as suspicious across all lineages. The V2 report
+must make that relationship explicit even when the selected lineage remains
+positive and finite.
+
+Historical null bars are a separate condition. The live table contains 783
+`standard` and 579 `nanhua` rows with at least one null OHLC value, concentrated
+in old or inactive products such as `RU`, `ZC`, `WR`, `FU`, and `OI`. These
+rows are diagnostic historical incompleteness, not an actionable reason for a
+permanently failing scheduler gate.
+
 Wind WSD quota is unavailable, so this slice is intentionally limited to
 read-only audit logic, deterministic tests, and documentation.
 
@@ -27,9 +41,10 @@ read-only audit logic, deterministic tests, and documentation.
 
 - Audit all available OHLC fields for raw, backward-adjusted, and
   forward-adjusted price lineages.
-- Report non-finite derived return/index values.
-- Report table and per-symbol freshness using a configurable calendar-day
-  threshold.
+- Report missing and infinite OHLC values as distinct conditions.
+- Report impossible as well as infinite derived return/index values.
+- Report table freshness against a configurable calendar-day threshold and
+  per-symbol lag as a diagnostic.
 - Report inferred missing trade dates inside each symbol's observed lifetime.
 - Add an opt-in strict mode suitable for schedulers and CI.
 - Preserve existing adjustment-selection behavior for historical strategy
@@ -76,7 +91,9 @@ selection semantics stay unchanged:
 
 The V2 scan adds separate full-OHLC columns instead of broadening the old
 columns. This prevents a zero high/low value from silently changing the price
-lineage selected by existing historical backtests.
+lineage selected by existing historical backtests. It also adds a cross-lineage
+suspicious-bar count so a positive adjusted price is not presented as evidence
+that an invalid source bar is safe.
 
 ## Per-Symbol Audit
 
@@ -93,22 +110,34 @@ columns. It adds:
 
 - `{lineage}_ohlc_nonpos`: rows where any available OHLC value is less than or
   equal to zero.
-- `{lineage}_ohlc_nonfinite`: rows where any available OHLC value is NaN,
-  positive infinity, or negative infinity.
-- `daily_return_nonfinite`: non-null daily returns that are positive or
+- `{lineage}_ohlc_incomplete`: rows where any OHLC value is null or NaN.
+- `{lineage}_ohlc_infinite`: rows where any non-null OHLC value is positive or
   negative infinity.
-- `return_index_nonfinite`: non-null return-index values that are positive or
-  negative infinity.
+- `suspicious_bar_count`: unique trade dates where any lineage has a
+  non-positive or infinite OHLC value. A suspicious date applies to the whole
+  source bar, not only to the lineage that exposed it.
+- `daily_return_invalid`: non-null daily returns that are positive/negative
+  infinity or less than or equal to -1. A simple daily return at or below
+  -100% is arithmetically impossible for a positive price series.
+- `return_index_invalid`: non-null return-index values that are
+  positive/negative infinity or less than or equal to zero.
 - `first_trade_date` and `last_trade_date`.
 - `lag_to_rule_max_days`: calendar days between the symbol's final row and the
   final row for the scanned rule type.
 - `missing_trade_dates`: dates present in the rule-type calendar, bounded by
   the symbol's own first and last dates, but absent for that symbol.
 
-Null return values are not counted as non-finite because the first observation
-of a calculated return series may legitimately be null. Full-OHLC nulls are
-counted as non-finite because a price bar is not usable without all four
-fields.
+Null return values are not counted as invalid because the first observation of
+a calculated return series may legitimately be null. Full-OHLC nulls are
+counted only as `incomplete` and remain diagnostic; they do not fail strict
+mode. This prevents known historical null bars from making the scheduler gate
+permanently red.
+
+PostgreSQL `numeric` columns arrive through psycopg2 as `Decimal` objects.
+Before infinity checks or vectorized comparisons, the pure pandas helper must
+coerce audited numeric columns to floating-point values. Missingness must be
+captured before or during coercion so database NULL/NaN values remain
+`incomplete` rather than being conflated with infinity.
 
 The inferred missing-date count is diagnostic only. Without an authoritative
 exchange calendar, it can include legitimate listing, delisting, or
@@ -121,10 +150,13 @@ Freshness uses calendar days so it requires no WSD or exchange-calendar call.
 - The CLI uses the host's current date as `as_of`.
 - Pure helper functions accept an explicit `as_of` date for deterministic
   tests.
-- The default maximum lag is five calendar days.
+- The default maximum lag is ten calendar days, avoiding routine false alarms
+  during Spring Festival and National Day closures.
 - `--max-lag-days N` overrides the threshold for a scan.
 - Table lag is `as_of - rule_max_trade_date`.
-- Per-symbol lag is `rule_max_trade_date - symbol_last_trade_date`.
+- Per-symbol lag is `rule_max_trade_date - symbol_last_trade_date` and remains
+  diagnostic only. Without product lifecycle metadata, an inactive or delisted
+  symbol cannot be distinguished reliably from a broken updater.
 
 Freshness applies only to the quality-scan command. It is not added to
 `load_public_cta_data()`, so an explicitly bounded historical backtest remains
@@ -154,13 +186,15 @@ following is true:
 
 - the query returns no symbols;
 - an adjusted lineage has an existing corruption status;
-- any lineage has a full-OHLC non-positive or non-finite row;
-- `daily_return` or `return_index` contains infinity;
-- the rule-type table is more than `max_lag_days` behind `as_of`;
-- any symbol is more than `max_lag_days` behind the rule-type maximum date.
+- any lineage has a full-OHLC non-positive or infinite row;
+- `daily_return` is infinite or less than or equal to -1;
+- `return_index` is infinite or less than or equal to zero;
+- the rule-type table is more than `max_lag_days` behind `as_of`.
 
-Inferred missing trade dates are printed and written to CSV but do not, by
-themselves, fail strict mode.
+Incomplete OHLC rows, per-symbol lag, and inferred missing trade dates are
+printed and written to CSV but do not, by themselves, fail strict mode. All
+three are ambiguous without authoritative lifecycle and exchange-calendar
+metadata.
 
 Database connection and SQL errors continue to propagate in both modes and
 therefore return a non-zero process status. Default reporting does not mask
@@ -185,14 +219,19 @@ Extend `tests/test_cta_data_quality.py` with focused synthetic cases:
 
 - A zero `high` or `low` is caught by the V2 OHLC audit while the legacy
   open/close status contract remains unchanged.
-- OHLC NaN/infinity is counted as non-finite.
-- Return/index infinity is counted, while an expected null return is not.
+- OHLC null/NaN is counted as incomplete, while infinity is counted separately.
+- A legacy incomplete bar does not produce a strict failure.
+- Return/index infinity and impossible finite values are counted, while an
+  expected null return is not.
+- A defect in any lineage increments the cross-lineage suspicious-bar count.
 - First/last dates and per-symbol lag are correct.
 - Missing dates are counted only inside the symbol's observed lifetime.
-- A fixed `as_of` date exercises the five-day boundary.
+- A fixed `as_of` date exercises the ten-day boundary.
 - A healthy report yields no strict failures.
-- Empty, corrupt, non-finite, stale-table, and lagging-symbol reports yield
+- Empty, corrupt, infinite, impossible-derived, and stale-table reports yield
   explicit strict failure reasons.
+- Incomplete and lagging-symbol reports remain diagnostic without producing
+  strict failure reasons.
 
 The existing PG-source and strategy tests must remain green. CLI behavior can
 be tested through the pure policy/formatting helpers rather than requiring a
@@ -205,6 +244,9 @@ live database in pytest.
 - Update `README.md` to state that both continuous rule types have caught up to
   `futures_daily` through 2026-04-29, while the whole EOD chain remains stopped
   on that date.
+- Update the `Futures Strategies` section in the parent
+  `/home/elfbob/claude-code/CLAUDE.md`, which still states that continuous data
+  ends on 2026-03-06.
 - Add a dated status note to the historical CTA replication plan instead of
   rewriting its original checkboxes.
 
@@ -230,19 +272,25 @@ Run strict scans:
 .venv/bin/python -m cta_gtja.data_quality --rule-type nanhua --strict
 ```
 
-Given the database state on 2026-07-13, strict scans are expected to exit 1
-because the table is stale. The `nanhua` scan must additionally identify the
-known `BR` anomaly. These expected live failures demonstrate enforcement; the
-synthetic unit tests prove the corresponding clean strict path.
+Given the database state on 2026-07-13, both strict scans are expected to exit
+1 because the table is stale and because the `BR` source bar makes at least one
+lineage non-positive. The `nanhua` scan must additionally report its
+`daily_return <= -1` and `return_index <= 0`. Incomplete historical bars and
+inactive-symbol lag must appear in diagnostics without adding strict failure
+reasons. These expected live failures demonstrate enforcement; synthetic unit
+tests prove the corresponding clean strict path.
 
 ## Acceptance Criteria
 
 - Existing adjustment-selection behavior and columns remain compatible.
-- Full OHLC, return/index, freshness, and inferred gap fields are present in
-  the per-symbol report.
+- Full OHLC incompleteness/infinity/non-positive counts, cross-lineage
+  suspicious-bar counts, impossible return/index values, freshness, and
+  inferred gap fields are present in the per-symbol report.
 - Default scans report findings without failing.
 - Strict scans return status 1 with actionable reasons for current stale or
   corrupt data.
+- Historical incomplete bars and inactive-symbol lag remain diagnostic and do
+  not make strict mode permanently fail.
 - All local tests pass.
 - Documentation reflects the current 2026-04-29 data boundary and the new CLI
   policy.
