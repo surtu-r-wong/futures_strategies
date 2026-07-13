@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 import sys
 
@@ -342,3 +342,212 @@ def test_main_strict_prints_reasons_and_exits_one(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "strict failures:" in output
     assert "raw OHLC invalid: BR" in output
+
+
+def test_main_default_reports_derived_only_findings(monkeypatch, capsys):
+    report = _strict_report(
+        daily_return_invalid=1,
+        return_index_invalid=0,
+        suspicious_bar_count=0,
+    )
+    monkeypatch.setattr(
+        data_quality,
+        "scan_continuous_contract_quality",
+        lambda **kwargs: report,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["data_quality", "--rule-type", "standard"],
+    )
+
+    data_quality.main()
+
+    output = capsys.readouterr().out
+    assert "invalid derived values:" in output
+    assert "BR" in output
+    assert "daily_return_invalid" in output
+    assert "\nsuspicious source bars (" not in output
+
+
+def test_main_strict_writes_csv_before_exit(monkeypatch, tmp_path):
+    report = _strict_report(
+        raw_ohlc_nonpos=1,
+        suspicious_bar_count=1,
+        last_trade_date=date.today(),
+    )
+    csv_path = tmp_path / "quality.csv"
+    monkeypatch.setattr(
+        data_quality,
+        "scan_continuous_contract_quality",
+        lambda **kwargs: report,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "data_quality",
+            "--rule-type",
+            "standard",
+            "--strict",
+            "--csv",
+            str(csv_path),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        data_quality.main()
+
+    assert exc.value.code == 1
+    assert csv_path.exists()
+    written = pd.read_csv(csv_path)
+    assert written.loc[0, "base_symbol"] == "BR"
+    assert "raw_ohlc_nonpos" in written.columns
+
+
+def test_main_strict_healthy_report_honors_custom_max_lag(
+    monkeypatch, capsys
+):
+    report = _strict_report(
+        last_trade_date=date.today() - timedelta(days=11),
+    )
+    monkeypatch.setattr(
+        data_quality,
+        "scan_continuous_contract_quality",
+        lambda **kwargs: report,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "data_quality",
+            "--rule-type",
+            "standard",
+            "--strict",
+            "--max-lag-days",
+            "11",
+        ],
+    )
+
+    data_quality.main()
+
+    output = capsys.readouterr().out
+    assert "strict failures:" not in output
+
+
+def test_main_rejects_negative_max_lag_before_scanning(monkeypatch, capsys):
+    def fail_scan(**kwargs):
+        raise AssertionError("scanner must not run")
+
+    monkeypatch.setattr(
+        data_quality,
+        "scan_continuous_contract_quality",
+        fail_scan,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["data_quality", "--max-lag-days", "-1"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        data_quality.main()
+
+    assert exc.value.code == 2
+    assert "non-negative" in capsys.readouterr().err
+
+
+def test_main_default_handles_empty_combined_report(monkeypatch, capsys):
+    report = _strict_report().iloc[0:0]
+    monkeypatch.setattr(
+        data_quality,
+        "scan_continuous_contract_quality",
+        lambda **kwargs: report,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["data_quality", "--rule-type", "standard"],
+    )
+
+    data_quality.main()
+
+    output = capsys.readouterr().out
+    assert "health: no symbols" in output
+    assert "symbols scanned: 0" in output
+
+
+def test_scan_queries_full_v2_read_only_contract(monkeypatch):
+    from common import config as common_config
+    from common import db as common_db
+
+    ohlc_columns = [
+        f"{field}_{lineage}"
+        for lineage in ("raw", "ba", "fa")
+        for field in ("open", "high", "low", "close")
+    ]
+    source_columns = [
+        "base_symbol",
+        "trade_date",
+        *ohlc_columns,
+        "daily_return",
+        "return_index",
+    ]
+    captured = {}
+    connection = object()
+
+    class ConnectionContext:
+        def __enter__(self):
+            return connection
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    def fake_get_connection(pg):
+        captured["pg"] = pg
+        return ConnectionContext()
+
+    def fake_read_sql_query(sql, conn, params):
+        captured["sql"] = sql
+        captured["params"] = params
+        assert conn is connection
+        return pd.DataFrame(columns=source_columns)
+
+    monkeypatch.setattr(
+        common_config,
+        "resolve_settings_path",
+        lambda: "settings.yaml",
+    )
+    monkeypatch.setattr(
+        common_config,
+        "load_config",
+        lambda path: {"database": {}},
+    )
+    monkeypatch.setattr(
+        common_db,
+        "pg_config_from",
+        lambda cfg, use_test=False: {"name": "quality"},
+    )
+    monkeypatch.setattr(
+        common_db,
+        "get_connection",
+        fake_get_connection,
+    )
+    monkeypatch.setattr(pd, "read_sql_query", fake_read_sql_query)
+
+    report = data_quality.scan_continuous_contract_quality(
+        rule_type="standard"
+    )
+
+    normalized_sql = " ".join(captured["sql"].split())
+    upper_sql = normalized_sql.upper()
+    assert upper_sql.startswith("SELECT")
+    for statement in ("INSERT", "UPDATE", "DELETE"):
+        assert statement not in upper_sql
+    for column in source_columns:
+        assert column in normalized_sql
+    assert "ORDER BY base_symbol, trade_date" in normalized_sql
+    assert captured["params"] == {"rule_type": "standard"}
+    assert captured["pg"]["schema"] == "public"
+    assert report.empty
+    assert {"status", "suspicious_bar_count"}.issubset(report.columns)

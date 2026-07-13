@@ -454,6 +454,19 @@ def main() -> None:
             "(any lineage flags the whole trade date):"
         )
         print(suspicious[columns].to_string(index=False))
+
+    derived = report[
+        _positive_count(report, "daily_return_invalid")
+        | _positive_count(report, "return_index_invalid")
+    ]
+    if not derived.empty:
+        columns = [
+            "base_symbol",
+            "daily_return_invalid",
+            "return_index_invalid",
+        ]
+        print("\ninvalid derived values:")
+        print(derived[columns].to_string(index=False))
     if not affected.empty:
         print("\naffected symbols (use 'recommended_adj' until upstream is fixed):")
         print(affected.to_string(index=False))
