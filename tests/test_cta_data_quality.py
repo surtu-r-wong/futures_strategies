@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+import sys
 
 import pandas as pd
+import pytest
 
+import cta_gtja.data_quality as data_quality
 from cta_gtja.data_quality import (
     build_adjustment_audit,
+    format_health_summary,
     strict_failure_reasons,
     summarize_adjustment_quality,
     summarize_continuous_contract_quality,
@@ -284,3 +288,57 @@ def test_combined_quality_keeps_legacy_status_when_only_low_is_zero():
     assert report.loc["BR", "raw_nonpos"] == 0
     assert report.loc["BR", "raw_ohlc_nonpos"] == 1
     assert report.loc["BR", "suspicious_bar_count"] == 1
+
+
+def test_main_default_reports_suspicious_bars_without_exiting(
+    monkeypatch, capsys
+):
+    report = _strict_report(
+        raw_ohlc_nonpos=1,
+        raw_ohlc_incomplete=5,
+        suspicious_bar_count=1,
+        missing_trade_dates=2,
+    )
+    monkeypatch.setattr(
+        data_quality,
+        "scan_continuous_contract_quality",
+        lambda **kwargs: report,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["data_quality", "--rule-type", "standard"],
+    )
+
+    data_quality.main()
+
+    output = capsys.readouterr().out
+    assert "suspicious source bars" in output
+    assert "any lineage flags the whole trade date" in output
+    assert "incomplete OHLC lineage-rows: 5" in output
+
+
+def test_main_strict_prints_reasons_and_exits_one(monkeypatch, capsys):
+    report = _strict_report(
+        raw_ohlc_nonpos=1,
+        suspicious_bar_count=1,
+        last_trade_date=date.today(),
+    )
+    monkeypatch.setattr(
+        data_quality,
+        "scan_continuous_contract_quality",
+        lambda **kwargs: report,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["data_quality", "--rule-type", "standard", "--strict"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        data_quality.main()
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "strict failures:" in output
+    assert "raw OHLC invalid: BR" in output

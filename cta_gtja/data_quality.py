@@ -305,9 +305,9 @@ def build_adjustment_audit(
 def scan_continuous_contract_quality(
     *, rule_type: str = "standard", config_path=None, use_test: bool = False
 ) -> pd.DataFrame:
-    """Load ``continuous_contract_ohlc`` from the ``public`` schema and classify
-    each symbol's adjustment quality.  Thin DB wrapper around
-    :func:`summarize_adjustment_quality`.
+    """Load the public continuous table and return the compatible adjustment
+    report merged with V2 diagnostics.  This is a thin read-only DB wrapper
+    around :func:`summarize_continuous_contract_quality`.
     """
     import warnings
 
@@ -318,11 +318,17 @@ def scan_continuous_contract_quality(
     pg = pg_config_from(cfg, use_test=use_test).copy()
     pg["schema"] = "public"
     sql = """
-        SELECT base_symbol,
-               open_raw, open_ba, open_fa,
-               close_raw, close_ba, close_fa
+        SELECT
+            base_symbol,
+            trade_date,
+            open_raw, high_raw, low_raw, close_raw,
+            open_ba, high_ba, low_ba, close_ba,
+            open_fa, high_fa, low_fa, close_fa,
+            daily_return,
+            return_index
         FROM public.continuous_contract_ohlc
         WHERE rule_type = %(rule_type)s
+        ORDER BY base_symbol, trade_date
     """
     with get_connection(pg) as conn:
         with warnings.catch_warnings():
@@ -332,7 +338,67 @@ def scan_continuous_contract_quality(
                 category=UserWarning,
             )
             df = pd.read_sql_query(sql, conn, params={"rule_type": rule_type})
-    return summarize_adjustment_quality(df)
+    return summarize_continuous_contract_quality(df)
+
+
+def format_health_summary(
+    report: pd.DataFrame,
+    *,
+    as_of: date,
+) -> list[str]:
+    if report.empty:
+        return ["  health: no symbols"]
+
+    last_trade_date = pd.to_datetime(
+        report["last_trade_date"], errors="coerce"
+    ).max()
+    if pd.isna(last_trade_date):
+        rule_max = "unknown"
+        table_lag = "unknown"
+    else:
+        rule_max = last_trade_date.date().isoformat()
+        table_lag = str(
+            int(
+                (
+                    pd.Timestamp(as_of).normalize()
+                    - last_trade_date.normalize()
+                ).days
+            )
+        )
+
+    suspicious = int(
+        pd.to_numeric(
+            report["suspicious_bar_count"], errors="coerce"
+        ).fillna(0).sum()
+    )
+    incomplete = sum(
+        int(
+            pd.to_numeric(
+                report[f"{lineage}_ohlc_incomplete"], errors="coerce"
+            ).fillna(0).sum()
+        )
+        for lineage in _LINEAGES
+    )
+    lagging = int(
+        (
+            pd.to_numeric(
+                report["lag_to_rule_max_days"], errors="coerce"
+            ).fillna(0)
+            > 0
+        ).sum()
+    )
+    missing = int(
+        pd.to_numeric(
+            report["missing_trade_dates"], errors="coerce"
+        ).fillna(0).sum()
+    )
+
+    return [
+        f"  rule max date: {rule_max}   table lag days: {table_lag}",
+        f"  suspicious source bars: {suspicious}",
+        f"  incomplete OHLC lineage-rows: {incomplete}",
+        f"  lagging symbols: {lagging}   inferred missing dates: {missing}",
+    ]
 
 
 def main() -> None:
@@ -342,7 +408,22 @@ def main() -> None:
     parser.add_argument("--rule-type", default="standard")
     parser.add_argument("--use-test", action="store_true")
     parser.add_argument("--csv", default=None, help="optional path to write the full report")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit 1 on actionable corruption or table staleness",
+    )
+    parser.add_argument(
+        "--max-lag-days",
+        type=int,
+        default=DEFAULT_MAX_LAG_DAYS,
+        help="maximum table lag in calendar days for --strict (default: 10)",
+    )
     args = parser.parse_args()
+    if args.max_lag_days < 0:
+        parser.error("--max-lag-days must be non-negative")
+
+    as_of = date.today()
 
     report = scan_continuous_contract_quality(rule_type=args.rule_type, use_test=args.use_test)
     affected = report[report["status"] != "ok"].sort_values("fa_nonpos", ascending=False)
@@ -350,6 +431,29 @@ def main() -> None:
     print(f"continuous_contract_ohlc adjustment quality  (rule_type={args.rule_type!r})")
     print(f"  symbols scanned: {len(report)}   affected: {len(affected)}")
     print(f"  status breakdown: {report['status'].value_counts().to_dict()}")
+    for line in format_health_summary(report, as_of=as_of):
+        print(line)
+
+    suspicious = report[
+        pd.to_numeric(
+            report["suspicious_bar_count"], errors="coerce"
+        ).fillna(0) > 0
+    ]
+    if not suspicious.empty:
+        columns = [
+            "base_symbol",
+            "suspicious_bar_count",
+            "raw_ohlc_nonpos",
+            "ba_ohlc_nonpos",
+            "fa_ohlc_nonpos",
+            "daily_return_invalid",
+            "return_index_invalid",
+        ]
+        print(
+            "\nsuspicious source bars "
+            "(any lineage flags the whole trade date):"
+        )
+        print(suspicious[columns].to_string(index=False))
     if not affected.empty:
         print("\naffected symbols (use 'recommended_adj' until upstream is fixed):")
         print(affected.to_string(index=False))
@@ -361,6 +465,18 @@ def main() -> None:
     if args.csv:
         report.to_csv(args.csv, index=False)
         print(f"\nfull report written to {args.csv}")
+
+    if args.strict:
+        reasons = strict_failure_reasons(
+            report,
+            as_of=as_of,
+            max_lag_days=args.max_lag_days,
+        )
+        if reasons:
+            print("\nstrict failures:")
+            for reason in reasons:
+                print(f"  - {reason}")
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":
