@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
+
 import pandas as pd
 
-from cta_gtja.data_quality import build_adjustment_audit, summarize_adjustment_quality
+from cta_gtja.data_quality import (
+    build_adjustment_audit,
+    summarize_adjustment_quality,
+    summarize_continuous_contract_quality,
+    summarize_continuous_health,
+)
 
 
 def _row(symbol, raw, ba, fa):
@@ -11,6 +19,28 @@ def _row(symbol, raw, ba, fa):
         "open_raw": raw, "open_ba": ba, "open_fa": fa,
         "close_raw": raw, "close_ba": ba, "close_fa": fa,
     }
+
+
+def _health_row(
+    symbol: str,
+    trade_date: str,
+    *,
+    raw=10,
+    ba=11,
+    fa=12,
+    daily_return=0.01,
+    return_index=100,
+):
+    row = {
+        "base_symbol": symbol,
+        "trade_date": trade_date,
+        "daily_return": daily_return,
+        "return_index": return_index,
+    }
+    for lineage, value in (("raw", raw), ("ba", ba), ("fa", fa)):
+        for field in ("open", "high", "low", "close"):
+            row[f"{field}_{lineage}"] = Decimal(str(value))
+    return row
 
 
 def test_summarize_flags_corrupt_adjustment_column_per_symbol():
@@ -102,3 +132,61 @@ def test_adjustment_audit_allows_explicit_raw_fallback():
     assert bool(audit.loc["RU", "raw_fallback"])
     assert audit.loc["RU", "exclusion_reason"] == ""
 
+
+def test_full_ohlc_health_separates_incomplete_infinite_and_suspicious():
+    zero_high = _health_row(
+        "BR", "2026-01-07", daily_return=Decimal("-1.012815"),
+        return_index=Decimal("-13.9470"),
+    )
+    zero_high["high_raw"] = Decimal("0")
+
+    incomplete_and_infinite = _health_row(
+        "BR", "2026-01-08", daily_return=None, return_index=Decimal("100"),
+    )
+    incomplete_and_infinite["low_raw"] = None
+    incomplete_and_infinite["high_ba"] = Decimal("Infinity")
+
+    health = summarize_continuous_health(
+        pd.DataFrame([zero_high, incomplete_and_infinite])
+    ).set_index("base_symbol")
+
+    assert health.loc["BR", "raw_ohlc_nonpos"] == 1
+    assert health.loc["BR", "raw_ohlc_incomplete"] == 1
+    assert health.loc["BR", "raw_ohlc_infinite"] == 0
+    assert health.loc["BR", "ba_ohlc_infinite"] == 1
+    assert health.loc["BR", "suspicious_bar_count"] == 2
+    assert health.loc["BR", "daily_return_invalid"] == 1
+    assert health.loc["BR", "return_index_invalid"] == 1
+
+
+def test_continuous_health_reports_lifetime_gaps_and_symbol_lag():
+    rows = [
+        _health_row("A", "2026-01-02"),
+        _health_row("A", "2026-01-04"),
+        _health_row("B", "2026-01-01"),
+        _health_row("B", "2026-01-02"),
+        _health_row("B", "2026-01-03"),
+    ]
+
+    health = summarize_continuous_health(pd.DataFrame(rows)).set_index("base_symbol")
+
+    assert health.loc["A", "first_trade_date"] == date(2026, 1, 2)
+    assert health.loc["A", "last_trade_date"] == date(2026, 1, 4)
+    assert health.loc["A", "missing_trade_dates"] == 1
+    assert health.loc["A", "lag_to_rule_max_days"] == 0
+    assert health.loc["B", "missing_trade_dates"] == 0
+    assert health.loc["B", "lag_to_rule_max_days"] == 1
+
+
+def test_combined_quality_keeps_legacy_status_when_only_low_is_zero():
+    row = _health_row("BR", "2026-01-07")
+    row["low_raw"] = Decimal("0")
+
+    report = summarize_continuous_contract_quality(
+        pd.DataFrame([row])
+    ).set_index("base_symbol")
+
+    assert report.loc["BR", "status"] == "ok"
+    assert report.loc["BR", "raw_nonpos"] == 0
+    assert report.loc["BR", "raw_ohlc_nonpos"] == 1
+    assert report.loc["BR", "suspicious_bar_count"] == 1

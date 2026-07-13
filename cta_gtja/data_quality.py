@@ -9,9 +9,32 @@ adjustment factors and full-rebuild replacement to avoid stale invalid rows.
 """
 from __future__ import annotations
 
+from datetime import date
+
+import numpy as np
 import pandas as pd
 
 _LINEAGES = ("raw", "ba", "fa")
+_OHLC_FIELDS = ("open", "high", "low", "close")
+_HEALTH_COLUMNS = [
+    "base_symbol",
+    "raw_ohlc_nonpos",
+    "raw_ohlc_incomplete",
+    "raw_ohlc_infinite",
+    "ba_ohlc_nonpos",
+    "ba_ohlc_incomplete",
+    "ba_ohlc_infinite",
+    "fa_ohlc_nonpos",
+    "fa_ohlc_incomplete",
+    "fa_ohlc_infinite",
+    "suspicious_bar_count",
+    "daily_return_invalid",
+    "return_index_invalid",
+    "first_trade_date",
+    "last_trade_date",
+    "lag_to_rule_max_days",
+    "missing_trade_dates",
+]
 
 
 def summarize_adjustment_quality(df: pd.DataFrame) -> pd.DataFrame:
@@ -55,6 +78,102 @@ def summarize_adjustment_quality(df: pd.DataFrame) -> pd.DataFrame:
             "base_symbol", "n_rows", "raw_nonpos", "ba_nonpos", "fa_nonpos",
             "status", "recommended_adj",
         ],
+    )
+
+
+def summarize_continuous_health(df: pd.DataFrame) -> pd.DataFrame:
+    """Summarize full-OHLC and date health without changing lineage selection."""
+    if df.empty:
+        return pd.DataFrame(columns=_HEALTH_COLUMNS)
+
+    work = df.copy()
+    work["trade_date"] = pd.to_datetime(
+        work["trade_date"], errors="coerce"
+    ).dt.normalize()
+    rule_calendar = pd.DatetimeIndex(
+        work["trade_date"].dropna().unique()
+    ).sort_values()
+    rule_max = rule_calendar.max() if len(rule_calendar) else pd.NaT
+
+    records = []
+    for symbol, group in work.groupby("base_symbol", sort=True):
+        group = group.copy()
+        suspicious = np.zeros(len(group), dtype=bool)
+        record: dict[str, object] = {"base_symbol": symbol}
+
+        for lineage in _LINEAGES:
+            columns = [f"{field}_{lineage}" for field in _OHLC_FIELDS]
+            numeric = group[columns].apply(
+                pd.to_numeric, errors="coerce"
+            ).astype(float)
+            values = numeric.to_numpy(dtype=float)
+
+            incomplete = np.isnan(values).any(axis=1)
+            infinite = np.isinf(values).any(axis=1)
+            nonpos = ((values <= 0) & np.isfinite(values)).any(axis=1)
+
+            record[f"{lineage}_ohlc_nonpos"] = int(nonpos.sum())
+            record[f"{lineage}_ohlc_incomplete"] = int(incomplete.sum())
+            record[f"{lineage}_ohlc_infinite"] = int(infinite.sum())
+            suspicious |= nonpos | infinite
+
+        daily_return = pd.to_numeric(
+            group["daily_return"], errors="coerce"
+        ).astype(float).to_numpy()
+        return_index = pd.to_numeric(
+            group["return_index"], errors="coerce"
+        ).astype(float).to_numpy()
+
+        daily_invalid = np.isinf(daily_return) | (
+            np.isfinite(daily_return) & (daily_return <= -1)
+        )
+        index_invalid = np.isinf(return_index) | (
+            np.isfinite(return_index) & (return_index <= 0)
+        )
+
+        symbol_dates = pd.DatetimeIndex(
+            group["trade_date"].dropna().unique()
+        ).sort_values()
+        first = symbol_dates.min() if len(symbol_dates) else pd.NaT
+        last = symbol_dates.max() if len(symbol_dates) else pd.NaT
+
+        if pd.isna(first) or pd.isna(last) or pd.isna(rule_max):
+            lag_days = None
+            missing_dates = 0
+        else:
+            active_calendar = rule_calendar[
+                (rule_calendar >= first) & (rule_calendar <= last)
+            ]
+            missing_dates = len(active_calendar.difference(symbol_dates))
+            lag_days = int((rule_max - last).days)
+
+        record.update(
+            {
+                "suspicious_bar_count": int(
+                    group.loc[suspicious, "trade_date"].nunique()
+                ),
+                "daily_return_invalid": int(daily_invalid.sum()),
+                "return_index_invalid": int(index_invalid.sum()),
+                "first_trade_date": first.date() if not pd.isna(first) else None,
+                "last_trade_date": last.date() if not pd.isna(last) else None,
+                "lag_to_rule_max_days": lag_days,
+                "missing_trade_dates": int(missing_dates),
+            }
+        )
+        records.append(record)
+
+    return pd.DataFrame.from_records(records, columns=_HEALTH_COLUMNS)
+
+
+def summarize_continuous_contract_quality(df: pd.DataFrame) -> pd.DataFrame:
+    """Combine the compatible adjustment report with V2 health diagnostics."""
+    adjustment = summarize_adjustment_quality(df)
+    health = summarize_continuous_health(df)
+    return adjustment.merge(
+        health,
+        on="base_symbol",
+        how="outer",
+        validate="one_to_one",
     )
 
 
