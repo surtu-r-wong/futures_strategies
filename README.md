@@ -16,9 +16,10 @@
 （主力连续，raw/ba/fa 三线 + 数据质量审计）、`spot_prices`、`inventory`。上游生产链是
 data-collecter + 连续合约生成器（用户领域，已归档 `~/claude-code/_archive/2026H1_root_scripts/continuous/`）。
 
-⚠️ 截至 2026-07-11 的已知停摆（见 `market-monitor/DATABASE_INVENTORY.md`）：`futures_daily`
-冻结在 2026-04-29，`continuous_contract_ohlc` 冻结在 2026-03-06（EOD 日更链停）。做 Carry
-历史回测前需先恢复上游日更。
+⚠️ 截至 2026-07-13 的已知停摆（见 `market-monitor/DATABASE_INVENTORY.md`）：`futures_daily`
+与 `continuous_contract_ohlc` 的 `standard`/`nanhua` 两套规则均冻结在 2026-04-29，连续合约已追平
+分合约行情，但整个 EOD 日更链仍停摆。历史回测可显式截止 2026-04-29，且不受 `--strict` 扫描影响；
+需要覆盖后续区间或投入调度/实盘前，需先恢复上游日更。
 
 ## 配置
 

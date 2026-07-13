@@ -2,6 +2,10 @@
 
 > **迁移注**（2026-07-11）：本文档随 CTA 剥离迁自 stock_selector；文中 `cta/`、`tests/test_cta_*`、`docs/superpowers/*` 等路径为当时原仓路径（历史记录，不改写），现行代码对应本仓 `cta_gtja/`、`tests/`、`docs/plans|specs/`。
 
+> **状态更新（2026-07-13）**：乘法复权改造和 2026-03-06 至 2026-04-29 的连续合约回填已经完成，
+> `standard`/`nanhua` 均追平 `futures_daily` 至 2026-04-29；整个 EOD 链仍停在该日。量价 guarded
+> 路径可运行，当前推进 Data Quality V2；基本面标准化与 WSD 回填不在本阶段范围。
+
 日期：2026-05-31
 
 ## 目标

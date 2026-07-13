@@ -95,3 +95,26 @@ Excel 包含 `metrics`、`period_returns`、`weights`、`factor_allocations`、`
 
 输出 Excel 包含 `data_quality` sheet，用于审计每个品种的 `selected_adj`、`status`、
 `raw_fallback` 和剔除原因。
+
+## 连续合约数据质量扫描
+
+普通扫描只读数据库、完整报告问题并返回 0：
+
+```bash
+.venv/bin/python -m cta_gtja.data_quality --rule-type standard
+.venv/bin/python -m cta_gtja.data_quality --rule-type nanhua
+```
+
+调度器或 CI 使用 `--strict`；默认允许表级最新日期落后 10 个自然日，长假或特殊场景可显式覆盖：
+
+```bash
+.venv/bin/python -m cta_gtja.data_quality --rule-type standard --strict
+.venv/bin/python -m cta_gtja.data_quality --rule-type nanhua --strict --max-lag-days 12
+```
+
+`--strict` 仅阻断全 OHLC 非正/无限值、不可能的 `daily_return`/`return_index`、调整线损坏、
+空结果和表级过期。NULL/NaN OHLC、单品种落后以及推断缺失交易日仅诊断，不单独阻断，
+因为当前没有权威品种生命周期和交易日历。
+
+`raw`/`ba`/`fa` 都派生自同一根源 bar；任一 lineage 出现非正或无限 OHLC 时，该交易日整根 bar
+均视为可疑，即使策略选用的 `fa`/`ba` 价格仍为正。修复仍应在上游分合约数据或连续合约生成器完成。
