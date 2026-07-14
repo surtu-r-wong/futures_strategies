@@ -96,7 +96,7 @@ PostgreSQL 源一次查询请求范围和预热范围内的商品期货合约，
 
 状态、正式权重和未缩放权重从预热期连续进入 `report_start_date`。`report_start_date` 只把报告权益基准重置为 1，并开始纳入绩效、交易和成本；已有仓位在 `positions` 中标记为 `carried_in`，不假设在 `report_start_date` 无成本重新开仓。若 `report_start_date` 当日尚不具备完整波动率缩放窗口，运行抛出 `WarmupInsufficientError`，不得静默推迟有效样本或使用缩短窗口。
 
-在 `report_start_date` 开盘，先结清但不纳入报告的预热期最后一个开盘到开盘收益，再把报告权益重置为 1，随后处理该开盘订单。该开盘实际发生的交易和成本计入正式报告；未发生权重变化的继承持仓不重复收费。
+在 `report_start_date` 开盘，先结清但不纳入报告的预热期最后一个开盘到开盘收益，再把报告权益重置为 1，随后处理该开盘订单。该开盘实际发生的交易和成本计入正式报告；未发生权重变化的继承持仓不重复收费。具体地，报告先以该开盘调仓前的继承权重为 `carried_weight`，再计算 `initial_turnover = sum(abs(weight[c, report_start_date] - carried_weight[c]))`。首个报告行只记 `gross_return = 0`、`net_return = -initial_turnover * 13 / 10000` 和相应权益；被截断的预热末段 gross 不与这笔初始化成本合并。
 
 ## 6. 合约解析、交易池和曲线
 
@@ -260,6 +260,8 @@ PostgreSQL 源一次查询请求范围和预热范围内的商品期货合约，
 
 `equity[t+1] = equity[t] * (1 + net_return[t+1])`
 
+上述恒等式适用于 `report_start_date` 之后的普通区间。报告边界仅有一次初始化例外：先在该日开盘调仓前把报告权益基准重置为 1，再以 `initial_turnover` 单独扣除该开盘成本，因此首个报告行满足 `gross_return[report_start_date] = 0`、`net_return[report_start_date] = -initial_turnover * 13 / 10000`、`equity[report_start_date] = 1 + net_return[report_start_date]`。下一交易日起恢复普通区间恒等式。
+
 正式权重是当前复利账户权益上的分数权重；权益随净收益几何复利。影子收益使用同一恒等式，但将 `weight` 换成未缩放权重，并按未缩放换手扣除同样的 13 bps 成本。
 
 换月在合约维度同时产生旧合约平仓和新合约开仓，二者都进入换手。收益按具体持有合约的开盘到开盘收益和成交后权重计算。v1 不计现金利息，不用合约乘数换算张数，也不额外模拟 13 bps 之外的滑点。
@@ -355,6 +357,7 @@ Excel 至少包含：
 
 - 从预热到首个有效信号。
 - 730 日历日预热、状态和仓位继承、`report_start_date` 权益重置及预热不足失败。
+- `report_start_date` 首行只计实际初始化换手成本，不混入被截断的预热末段 gross；下一交易日起恢复普通恒等式。
 - 多空横截面和半仓。
 - 主力切换及旧平新开成本。
 - 未复权主力序列跨换月拼接对 10 日动量均线的确定性影响。
@@ -370,7 +373,7 @@ Excel 至少包含：
 - 同一输入运行两次，结构化结果完全一致。
 - 任意有效日总绝对权重不超过 4。
 - 任意完全止损周期不会在同方向信号持续时重入。
-- 每日权益严格满足 `equity[t+1] / equity[t] - 1 = gross_return[t+1] - cost[t+1]`。
+- 除显式定义的 `report_start_date` 初始化行外，每日权益严格满足 `equity[t+1] / equity[t] - 1 = gross_return[t+1] - cost[t+1]`；初始化行满足独立的首行恒等式。
 - 只读 PostgreSQL 小窗口冒烟测试作为显式集成检查，不成为离线单元测试前置条件。
 
 ## 14. 与 spread_analyzer 的边界
