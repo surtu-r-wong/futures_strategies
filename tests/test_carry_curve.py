@@ -42,6 +42,12 @@ def test_parse_contract_resolves_delivery_date_from_trade_date(
     assert parse_contract(symbol, trade_date) == expected
 
 
+def test_parse_contract_prefers_nearest_three_digit_delivery_year() -> None:
+    parsed = parse_contract("TA001.CZC", date(2020, 1, 15))
+
+    assert parsed.delivery_yyyymm == 202001
+
+
 def test_contract_id_is_frozen_and_exposes_delivery_yyyymm() -> None:
     contract = ContractId("RB", "SHF", 2024, 10, "RB2410.SHF")
 

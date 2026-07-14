@@ -63,12 +63,19 @@ def parse_contract(symbol: str, trade_date: date) -> ContractId:
     if not 1 <= delivery_month <= 12:
         raise ContractParseError(f"invalid delivery month in contract: {symbol!r}")
 
-    candidates = [
-        year
+    candidates = sorted(
+        (delta, year)
         for year in _candidate_years(digits, trade_date)
-        if 0 <= _months_from_trade_date(year, delivery_month, trade_date) <= 120
-    ]
-    if len(candidates) != 1:
+        if 0
+        <= (delta := _months_from_trade_date(year, delivery_month, trade_date))
+        <= 120
+    )
+    if not candidates:
+        raise ContractParseError(
+            f"delivery year is not uniquely resolvable for contract: {symbol!r}"
+        )
+    nearest_delta, delivery_year = candidates[0]
+    if len(candidates) > 1 and candidates[1][0] == nearest_delta:
         raise ContractParseError(
             f"delivery year is not uniquely resolvable for contract: {symbol!r}"
         )
@@ -80,7 +87,7 @@ def parse_contract(symbol: str, trade_date: date) -> ContractId:
     return ContractId(
         product=product,
         exchange_suffix=exchange,
-        delivery_year=candidates[0],
+        delivery_year=delivery_year,
         delivery_month=delivery_month,
         normalized=normalized,
     )
