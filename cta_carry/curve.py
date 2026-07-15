@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import date
 import re
 
+import pandas as pd
+
 
 _CONTRACT_PATTERN = re.compile(
     r"(?P<product>[A-Za-z]+)(?P<digits>[0-9]{3}|[0-9]{4})"
@@ -91,3 +93,271 @@ def parse_contract(symbol: str, trade_date: date) -> ContractId:
         delivery_month=delivery_month,
         normalized=normalized,
     )
+
+
+CURVE_AUDIT_COLUMNS = (
+    "trade_date",
+    "product",
+    "contract",
+    "in_pool",
+    "role",
+    "selected",
+    "reason",
+    "liquidity_mean",
+)
+_CURVE_COLUMNS = (
+    "trade_date",
+    "product",
+    "main_contract",
+    "secondary_contract",
+    "main_delivery_yyyymm",
+    "secondary_delivery_yyyymm",
+    "month_gap",
+    "main_close",
+    "secondary_close",
+    "main_volume",
+    "main_oi",
+    "product_turnover",
+    "liquidity_mean",
+    "carry_raw",
+    "carry_ma",
+)
+_LIQUIDITY_COLUMNS = (
+    "trade_date",
+    "product",
+    "product_turnover",
+    "liquidity_mean",
+    "in_pool",
+)
+
+
+@dataclass(frozen=True)
+class CurveResult:
+    curve: pd.DataFrame
+    audit: pd.DataFrame
+
+
+def aggregate_product_liquidity(prices: pd.DataFrame, config) -> pd.DataFrame:
+    """Aggregate product turnover and apply shifted liquidity eligibility."""
+    if prices.empty:
+        return pd.DataFrame(columns=_LIQUIDITY_COLUMNS)
+
+    liquidity = (
+        prices.groupby(
+            ["product", "trade_date"],
+            as_index=False,
+            sort=False,
+        )["turnover"]
+        .sum()
+        .rename(columns={"turnover": "product_turnover"})
+    )
+    liquidity = liquidity.sort_values(
+        ["product", "trade_date"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    liquidity["liquidity_mean"] = liquidity.groupby(
+        "product",
+        sort=False,
+    )["product_turnover"].transform(
+        lambda values: values.rolling(
+            config.liquidity_window,
+            min_periods=config.liquidity_window,
+        )
+        .mean()
+        .shift(1)
+    )
+    liquidity["in_pool"] = (
+        liquidity["liquidity_mean"].notna()
+        & (
+            liquidity["liquidity_mean"]
+            >= config.liquidity_threshold
+        )
+    )
+    return liquidity.loc[:, _LIQUIDITY_COLUMNS].sort_values(
+        ["trade_date", "product"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _month_gap(near_delivery_yyyymm, far_delivery_yyyymm):
+    near_year, near_month = divmod(int(near_delivery_yyyymm), 100)
+    far_year, far_month = divmod(int(far_delivery_yyyymm), 100)
+    gap = (far_year - near_year) * 12 + far_month - near_month
+    if gap <= 0:
+        raise ValueError("far delivery must be strictly later than near delivery")
+    return gap
+
+
+def _empty_curve():
+    return pd.DataFrame(columns=_CURVE_COLUMNS)
+
+
+def _empty_curve_audit():
+    return pd.DataFrame(columns=CURVE_AUDIT_COLUMNS)
+
+
+def _append_audit(
+    audit_rows,
+    candidates,
+    *,
+    in_pool,
+    liquidity_mean,
+    reason,
+):
+    for candidate in candidates.itertuples(index=False):
+        audit_rows.append(
+            {
+                "trade_date": candidate.trade_date,
+                "product": candidate.product,
+                "contract": candidate.contract,
+                "in_pool": in_pool,
+                "role": "candidate",
+                "selected": False,
+                "reason": reason,
+                "liquidity_mean": liquidity_mean,
+            }
+        )
+
+
+def build_curve(prices: pd.DataFrame, config) -> CurveResult:
+    """Build deterministic main/secondary contract Carry curves."""
+    if prices.empty:
+        return CurveResult(curve=_empty_curve(), audit=_empty_curve_audit())
+
+    liquidity = aggregate_product_liquidity(prices, config)
+    candidates_by_day = prices.merge(
+        liquidity,
+        on=["trade_date", "product"],
+        how="left",
+        validate="many_to_one",
+    )
+    candidates_by_day = candidates_by_day.sort_values(
+        ["trade_date", "product", "contract"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+    curve_rows = []
+    audit_rows = []
+    for _, candidates in candidates_by_day.groupby(
+        ["trade_date", "product"],
+        sort=False,
+    ):
+        liquidity_mean = candidates["liquidity_mean"].iloc[0]
+        in_pool = bool(candidates["in_pool"].iloc[0])
+        if not in_pool:
+            reason = (
+                "liquidity_history_incomplete"
+                if pd.isna(liquidity_mean)
+                else "below_liquidity_threshold"
+            )
+            _append_audit(
+                audit_rows,
+                candidates,
+                in_pool=False,
+                liquidity_mean=liquidity_mean,
+                reason=reason,
+            )
+            continue
+
+        ranked = candidates.sort_values(
+            ["oi", "volume", "contract"],
+            ascending=[False, False, True],
+            kind="mergesort",
+        )
+        main = ranked.iloc[0]
+        later = ranked.loc[
+            ranked["delivery_yyyymm"]
+            > main["delivery_yyyymm"]
+        ]
+        if later.empty:
+            _append_audit(
+                audit_rows,
+                candidates,
+                in_pool=True,
+                liquidity_mean=liquidity_mean,
+                reason="no_strictly_later_contract",
+            )
+            continue
+
+        secondary = later.iloc[0]
+        month_gap = _month_gap(
+            main["delivery_yyyymm"],
+            secondary["delivery_yyyymm"],
+        )
+        carry_raw = (
+            (main["close"] / secondary["close"] - 1.0)
+            * 12.0
+            / month_gap
+        )
+        curve_rows.append(
+            {
+                "trade_date": main["trade_date"],
+                "product": main["product"],
+                "main_contract": main["contract"],
+                "secondary_contract": secondary["contract"],
+                "main_delivery_yyyymm": main["delivery_yyyymm"],
+                "secondary_delivery_yyyymm": secondary[
+                    "delivery_yyyymm"
+                ],
+                "month_gap": month_gap,
+                "main_close": main["close"],
+                "secondary_close": secondary["close"],
+                "main_volume": main["volume"],
+                "main_oi": main["oi"],
+                "product_turnover": main["product_turnover"],
+                "liquidity_mean": liquidity_mean,
+                "carry_raw": carry_raw,
+            }
+        )
+
+        for candidate in candidates.itertuples(index=False):
+            if candidate.contract == main["contract"]:
+                role = "main"
+                selected = True
+                reason = "highest_oi"
+            elif candidate.contract == secondary["contract"]:
+                role = "secondary"
+                selected = True
+                reason = "later_highest_oi"
+            else:
+                role = "candidate"
+                selected = False
+                reason = "not_selected"
+            audit_rows.append(
+                {
+                    "trade_date": candidate.trade_date,
+                    "product": candidate.product,
+                    "contract": candidate.contract,
+                    "in_pool": True,
+                    "role": role,
+                    "selected": selected,
+                    "reason": reason,
+                    "liquidity_mean": liquidity_mean,
+                }
+            )
+
+    curve = pd.DataFrame(curve_rows, columns=_CURVE_COLUMNS)
+    if not curve.empty:
+        curve = curve.sort_values(
+            ["trade_date", "product"],
+            kind="mergesort",
+        ).reset_index(drop=True)
+        curve["carry_ma"] = curve.groupby(
+            "product",
+            sort=False,
+        )["carry_raw"].transform(
+            lambda values: values.rolling(
+                config.carry_window,
+                min_periods=config.carry_window,
+            ).mean()
+        )
+        curve = curve.loc[:, _CURVE_COLUMNS]
+
+    audit = pd.DataFrame(audit_rows, columns=CURVE_AUDIT_COLUMNS)
+    if not audit.empty:
+        audit = audit.sort_values(
+            ["trade_date", "product", "contract"],
+            kind="mergesort",
+        ).reset_index(drop=True)
+
+    return CurveResult(curve=curve, audit=audit)
