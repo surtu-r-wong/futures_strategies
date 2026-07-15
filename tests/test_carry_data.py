@@ -33,6 +33,57 @@ def _valid_row(**overrides):
     return row
 
 
+def test_carry_dataset_default_data_quality_uses_audit_columns():
+    dataset = CarryDataSet(pd.DataFrame())
+
+    assert dataset.data_quality.columns.tolist() == AUDIT_COLUMNS
+
+
+def test_carry_dataset_slice_empty_products_preserves_all():
+    dataset = normalize_contract_daily(
+        pd.DataFrame(
+            [
+                _valid_row(),
+                _valid_row(
+                    trade_date="2024-01-03",
+                    contract="TA405.CZC",
+                    open=200.0,
+                    high=204.0,
+                    low=199.0,
+                    close=202.0,
+                ),
+            ]
+        )
+    )
+
+    sliced = dataset.slice(products=[])
+
+    assert sliced.prices.equals(dataset.prices)
+
+
+def test_carry_dataset_slice_resets_filtered_price_index():
+    dataset = normalize_contract_daily(
+        pd.DataFrame(
+            [
+                _valid_row(),
+                _valid_row(
+                    trade_date="2024-01-03",
+                    contract="TA405.CZC",
+                    open=200.0,
+                    high=204.0,
+                    low=199.0,
+                    close=202.0,
+                ),
+            ]
+        )
+    )
+
+    sliced = dataset.slice(products=["TA"])
+
+    assert sliced.prices["contract"].tolist() == ["TA405.CZC"]
+    assert sliced.prices.index.tolist() == [0]
+
+
 def test_normalize_contract_daily_deduplicates_and_derives_contract_fields():
     row = _valid_row()
 

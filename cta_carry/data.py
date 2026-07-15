@@ -43,7 +43,9 @@ class CarryDataSet:
     """Normalized contract bars and their row-level exclusion audit."""
 
     prices: pd.DataFrame
-    data_quality: pd.DataFrame = field(default_factory=pd.DataFrame)
+    data_quality: pd.DataFrame = field(
+        default_factory=lambda: pd.DataFrame(columns=AUDIT_COLUMNS)
+    )
 
     @classmethod
     def from_dir(cls, root: str | Path) -> "CarryDataSet":
@@ -72,7 +74,7 @@ class CarryDataSet:
         end: date | None = None,
     ) -> "CarryDataSet":
         mask = pd.Series(True, index=self.prices.index)
-        if products is not None:
+        if products:
             selected = {str(product).strip().upper() for product in products}
             mask &= self.prices["product"].isin(selected)
         if start is not None:
@@ -80,7 +82,7 @@ class CarryDataSet:
         if end is not None:
             mask &= self.prices["trade_date"] <= end
         return CarryDataSet(
-            prices=self.prices.loc[mask].copy(),
+            prices=self.prices.loc[mask].copy().reset_index(drop=True),
             data_quality=self.data_quality.copy(),
         )
 

@@ -28,6 +28,28 @@ def _valid_row():
     }
 
 
+def test_contract_query_discards_blank_products():
+    sql, params = _contract_query(
+        query_start=date(2022, 1, 1),
+        end=date(2024, 1, 1),
+        products=[" ", "rb", ""],
+    )
+
+    assert "%(products)s" in sql
+    assert params["products"] == ["RB"]
+
+
+def test_contract_query_omits_filter_for_only_blank_products():
+    sql, params = _contract_query(
+        query_start=date(2022, 1, 1),
+        end=date(2024, 1, 1),
+        products=[" ", ""],
+    )
+
+    assert "products" not in params
+    assert "%(products)s" not in sql
+
+
 def test_contract_query_filters_products_and_always_excludes_financials():
     query_start = date(2022, 1, 1)
     end = date(2024, 1, 1)

@@ -60,10 +60,12 @@ def _contract_query(
         "end": end,
         "excluded_products": sorted(FINANCIAL_FUTURES),
     }
-    if products:
-        normalized_products = sorted(
-            {str(product).strip().upper() for product in products}
-        )
+    normalized_products = (
+        sorted({str(p).strip().upper() for p in products if str(p).strip()})
+        if products
+        else []
+    )
+    if normalized_products:
         clauses.append(f"{_PRODUCT_EXPRESSION} = ANY(%(products)s)")
         params["products"] = normalized_products
 
