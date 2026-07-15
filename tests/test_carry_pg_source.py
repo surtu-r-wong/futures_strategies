@@ -28,6 +28,18 @@ def _valid_row():
     }
 
 
+def test_contract_query_keeps_symbols_without_extractable_product():
+    sql, _ = _contract_query(
+        query_start=date(2022, 1, 1),
+        end=date(2024, 1, 1),
+        products=None,
+    )
+
+    normalized_sql = " ".join(sql.split())
+    assert "COALESCE(NOT (" in normalized_sql
+    assert "= ANY(%(excluded_products)s)), TRUE)" in normalized_sql
+
+
 def test_contract_query_discards_blank_products():
     sql, params = _contract_query(
         query_start=date(2022, 1, 1),

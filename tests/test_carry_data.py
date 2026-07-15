@@ -61,6 +61,14 @@ def test_carry_dataset_slice_empty_products_preserves_all():
     assert sliced.prices.equals(dataset.prices)
 
 
+def test_carry_dataset_slice_blank_products_preserves_all():
+    dataset = normalize_contract_daily(pd.DataFrame([_valid_row()]))
+
+    sliced = dataset.slice(products=[" "])
+
+    assert sliced.prices.equals(dataset.prices)
+
+
 def test_carry_dataset_slice_resets_filtered_price_index():
     dataset = normalize_contract_daily(
         pd.DataFrame(
@@ -82,6 +90,69 @@ def test_carry_dataset_slice_resets_filtered_price_index():
 
     assert sliced.prices["contract"].tolist() == ["TA405.CZC"]
     assert sliced.prices.index.tolist() == [0]
+
+
+def test_normalize_contract_daily_parses_mixed_trade_date_formats():
+    date_values = [20240102, "2024-01-03", "20240104"]
+    frame = pd.DataFrame(
+        [_valid_row(trade_date=value) for value in date_values]
+    )
+
+    dataset = normalize_contract_daily(frame)
+
+    assert dataset.prices["trade_date"].tolist() == [
+        date(2024, 1, 2),
+        date(2024, 1, 3),
+        date(2024, 1, 4),
+    ]
+
+
+def test_normalize_contract_daily_audits_each_unparseable_trade_date():
+    frame = pd.DataFrame(
+        [
+            _valid_row(trade_date="not-a-date"),
+            _valid_row(trade_date="still-not-a-date"),
+        ]
+    )
+
+    dataset = normalize_contract_daily(frame)
+
+    assert dataset.prices.empty
+    assert dataset.data_quality.columns.tolist() == AUDIT_COLUMNS
+    assert len(dataset.data_quality) == 2
+    assert dataset.data_quality["check"].tolist() == ["trade_date"] * 2
+    assert dataset.data_quality["reason"].tolist() == [
+        "unparseable_trade_date"
+    ] * 2
+
+
+def test_normalize_contract_daily_audits_nullable_ohlc():
+    frame = pd.DataFrame([_valid_row()])
+    frame["open"] = pd.Series([pd.NA], dtype="Float64")
+
+    dataset = normalize_contract_daily(frame)
+
+    assert dataset.prices.empty
+    assert dataset.data_quality["check"].tolist() == ["ohlc_integrity"]
+
+
+def test_normalize_contract_daily_audits_nullable_activity():
+    frame = pd.DataFrame([_valid_row()])
+    frame["volume"] = pd.Series([pd.NA], dtype="Float64")
+
+    dataset = normalize_contract_daily(frame)
+
+    assert dataset.prices.empty
+    assert dataset.data_quality["check"].tolist() == ["activity_fields"]
+
+
+def test_normalize_contract_daily_is_idempotent():
+    once = normalize_contract_daily(pd.DataFrame([_valid_row()]))
+
+    twice = normalize_contract_daily(once.prices)
+
+    assert twice.prices.columns.is_unique
+    pd.testing.assert_frame_equal(twice.prices, once.prices)
 
 
 def test_normalize_contract_daily_deduplicates_and_derives_contract_fields():

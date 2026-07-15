@@ -75,8 +75,13 @@ class CarryDataSet:
     ) -> "CarryDataSet":
         mask = pd.Series(True, index=self.prices.index)
         if products:
-            selected = {str(product).strip().upper() for product in products}
-            mask &= self.prices["product"].isin(selected)
+            selected = {
+                str(product).strip().upper()
+                for product in products
+                if str(product).strip()
+            }
+            if selected:
+                mask &= self.prices["product"].isin(selected)
         if start is not None:
             mask &= self.prices["trade_date"] >= start
         if end is not None:
@@ -95,7 +100,9 @@ def normalize_contract_daily(frame: pd.DataFrame) -> CarryDataSet:
 
     normalized = frame.drop_duplicates().copy()
     normalized["trade_date"] = pd.to_datetime(
-        normalized["trade_date"], errors="coerce"
+        normalized["trade_date"].astype("string").str.strip(),
+        format="mixed",
+        errors="coerce",
     ).dt.date
     normalized["contract"] = (
         normalized["contract"].astype(str).str.strip().str.upper()
@@ -104,7 +111,22 @@ def normalize_contract_daily(frame: pd.DataFrame) -> CarryDataSet:
     if "settle" in normalized.columns:
         numeric_columns.append("settle")
     for column in numeric_columns:
-        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+        normalized[column] = pd.to_numeric(
+            normalized[column], errors="coerce"
+        ).astype("float64")
+
+    audit: list[dict[str, object]] = []
+    invalid_trade_dates = normalized["trade_date"].isna()
+    for _, row in normalized.loc[invalid_trade_dates].iterrows():
+        audit.append(
+            _exclusion(
+                object_id=row["contract"],
+                trade_date=row["trade_date"],
+                check="trade_date",
+                reason="unparseable_trade_date",
+            )
+        )
+    normalized = normalized.loc[~invalid_trade_dates].copy()
 
     duplicates = normalized.duplicated(
         subset=["trade_date", "contract"], keep=False
@@ -120,7 +142,6 @@ def normalize_contract_daily(frame: pd.DataFrame) -> CarryDataSet:
         )
 
     accepted: list[dict[str, object]] = []
-    audit: list[dict[str, object]] = []
     for _, row in normalized.iterrows():
         contract = row["contract"]
         trade_date = row["trade_date"]
@@ -169,7 +190,10 @@ def normalize_contract_daily(frame: pd.DataFrame) -> CarryDataSet:
         accepted.append(record)
 
     derived_columns = ["product", "exchange_suffix", "delivery_yyyymm"]
-    price_columns = [*normalized.columns, *derived_columns]
+    price_columns = [
+        column for column in normalized.columns if column not in derived_columns
+    ]
+    price_columns.extend(derived_columns)
     prices = pd.DataFrame(accepted, columns=price_columns)
     prices = prices.sort_values(
         ["trade_date", "product", "contract"]

@@ -53,7 +53,8 @@ def _contract_query(
     clauses = [
         "trade_date >= %(query_start)s",
         "trade_date <= %(end)s",
-        f"NOT ({_PRODUCT_EXPRESSION} = ANY(%(excluded_products)s))",
+        f"COALESCE(NOT ({_PRODUCT_EXPRESSION} = "
+        "ANY(%(excluded_products)s)), TRUE)",
     ]
     params: dict[str, object] = {
         "query_start": query_start,
