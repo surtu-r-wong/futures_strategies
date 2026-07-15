@@ -377,3 +377,118 @@ def test_active_chandelier_rejects_invalid_market_inputs(values) -> None:
 
     with pytest.raises(ValueError):
         apply_chandelier(state, *values, _config())
+
+
+def test_contract_atr_propagates_invalid_ohlc_and_previous_close() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=6).date.tolist()
+    prices = pd.DataFrame(
+        [
+            {
+                "trade_date": dates[0],
+                "contract": "A",
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.0,
+            },
+            {
+                "trade_date": dates[1],
+                "contract": "A",
+                "high": float("nan"),
+                "low": 100.0,
+                "close": 101.0,
+            },
+            {
+                "trade_date": dates[2],
+                "contract": "A",
+                "high": 103.0,
+                "low": 101.0,
+                "close": float("nan"),
+            },
+            {
+                "trade_date": dates[3],
+                "contract": "A",
+                "high": 104.0,
+                "low": 102.0,
+                "close": 103.0,
+            },
+            {
+                "trade_date": dates[4],
+                "contract": "A",
+                "high": 105.0,
+                "low": 103.0,
+                "close": 104.0,
+            },
+            {
+                "trade_date": dates[5],
+                "contract": "A",
+                "high": 106.0,
+                "low": 104.0,
+                "close": 105.0,
+            },
+        ]
+    )
+
+    result = compute_contract_atr(prices, _config())
+
+    assert result.loc[0, "tr"] == 2.0
+    assert result["tr"].isna().tolist() == [
+        False,
+        True,
+        True,
+        True,
+        False,
+        False,
+    ]
+    assert result["atr"].isna().tolist() == [
+        True,
+        True,
+        True,
+        True,
+        True,
+        False,
+    ]
+    assert result.loc[5, "atr"] == 2.0
+
+
+def test_scale_weights_caps_extreme_opposite_weights_without_overflow() -> None:
+    scaled = scale_weights(
+        {"A": 1e308, "B": -1e308},
+        vol_scale=1.0,
+        config=_config(max_gross_leverage=4.0),
+    )
+
+    assert scaled["A"] == pytest.approx(2.0)
+    assert scaled["B"] == pytest.approx(-2.0)
+    assert all(np.isfinite(weight) for weight in scaled.values())
+    assert sum(abs(weight) for weight in scaled.values()) == pytest.approx(4.0)
+
+
+def test_raw_target_weight_rejects_nonfinite_formula_result() -> None:
+    with pytest.raises(ValueError, match="raw target weight"):
+        raw_target_weight(
+            direction=1,
+            strength=1.0,
+            close=1e308,
+            atr=1e-308,
+            tranches_remaining=3,
+            config=_config(),
+        )
+
+
+def test_risk_direction_inputs_reject_numpy_booleans() -> None:
+    with pytest.raises(ValueError, match="direction"):
+        raw_target_weight(
+            direction=np.bool_(True),
+            strength=1.0,
+            close=100.0,
+            atr=2.0,
+            tranches_remaining=3,
+            config=_config(),
+        )
+    with pytest.raises(ValueError, match="direction"):
+        transition_signal(
+            PositionState(),
+            np.bool_(True),
+            "RB2405.SHF",
+            _config(),
+        )

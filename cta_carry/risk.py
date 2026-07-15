@@ -32,6 +32,17 @@ def compute_contract_atr(prices: pd.DataFrame, config) -> pd.DataFrame:
         "contract",
         sort=False,
     )["close"].shift(1)
+    observation_number = ordered.groupby(
+        "contract",
+        sort=False,
+    ).cumcount()
+    current_is_valid = np.isfinite(
+        ordered[["high", "low", "close"]]
+    ).all(axis=1)
+    previous_is_valid = observation_number.eq(0) | np.isfinite(
+        previous_close
+    )
+    true_range_is_valid = current_is_valid & previous_is_valid
     true_range_components = pd.concat(
         [
             ordered["high"] - ordered["low"],
@@ -40,7 +51,9 @@ def compute_contract_atr(prices: pd.DataFrame, config) -> pd.DataFrame:
         ],
         axis=1,
     )
-    ordered["tr"] = true_range_components.max(axis=1)
+    ordered["tr"] = true_range_components.max(axis=1).where(
+        true_range_is_valid
+    )
     ordered["atr"] = ordered.groupby(
         "contract",
         sort=False,
@@ -65,7 +78,7 @@ def raw_target_weight(
     config,
 ) -> float:
     """Compute the unscaled risk-budget target weight."""
-    if isinstance(direction, bool) or direction not in (-1, 0, 1):
+    if isinstance(direction, (bool, np.bool_)) or direction not in (-1, 0, 1):
         raise ValueError("direction must be -1, 0, or 1")
     if not _is_finite_number(strength) or not 0.0 <= strength <= 1.0:
         raise ValueError("strength must be finite and in [0, 1]")
@@ -82,41 +95,90 @@ def raw_target_weight(
             "tranches_remaining must be an integer in [0, stop_tranches]"
         )
 
-    return (
-        direction
-        * strength
-        * config.atr_risk_budget
-        * close
-        / atr
-        * tranches_remaining
-        / config.stop_tranches
-    )
+    try:
+        raw_weight = (
+            direction
+            * strength
+            * config.atr_risk_budget
+            * close
+            / atr
+            * tranches_remaining
+            / config.stop_tranches
+        )
+    except (FloatingPointError, OverflowError) as exc:
+        raise ValueError("raw target weight must be finite") from exc
+    if not _is_finite_number(raw_weight):
+        raise ValueError("raw target weight must be finite")
+    return float(raw_weight)
 
 
 def scale_weights(raw_weights, vol_scale, config) -> dict:
     """Apply volatility scaling and a proportional gross leverage cap."""
     if not _is_finite_number(vol_scale) or vol_scale <= 0.0:
         raise ValueError("vol_scale must be finite and positive")
+    scale = float(vol_scale)
 
-    scaled = {}
+    finite_weights = {}
     for contract, raw_weight in raw_weights.items():
         if not _is_finite_number(raw_weight):
             raise ValueError("raw weight must be finite")
-        scaled_weight = float(raw_weight) * float(vol_scale)
-        if not math.isfinite(scaled_weight):
-            raise ValueError("scaled weight must be finite")
-        if scaled_weight != 0.0:
-            scaled[contract] = scaled_weight
+        weight = float(raw_weight)
+        if not math.isfinite(weight):
+            raise ValueError("raw weight must be finite")
+        if weight != 0.0:
+            finite_weights[contract] = weight
+    if not finite_weights:
+        return {}
 
-    gross = sum(abs(weight) for weight in scaled.values())
-    if gross > config.max_gross_leverage:
-        adjustment = config.max_gross_leverage / gross
+    max_abs = max(abs(weight) for weight in finite_weights.values())
+    normalized_gross = math.fsum(
+        abs(weight) / max_abs
+        for weight in finite_weights.values()
+    )
+    gross_cap = float(config.max_gross_leverage)
+    max_uncapped_scale = gross_cap / normalized_gross / max_abs
+    if scale > max_uncapped_scale:
+        capped_normalized_gross = gross_cap / normalized_gross
+        scaled = {
+            contract: weight / max_abs * capped_normalized_gross
+            for contract, weight in finite_weights.items()
+        }
+    else:
+        scaled = {
+            contract: weight * scale
+            for contract, weight in finite_weights.items()
+        }
+
+    if not all(math.isfinite(weight) for weight in scaled.values()):
+        raise ValueError("scaled weight must be finite")
+    gross = math.fsum(abs(weight) for weight in scaled.values())
+    if not math.isfinite(gross):
+        raise ValueError("scaled gross leverage must be finite")
+    if gross > gross_cap:
+        adjustment = gross_cap / gross
         scaled = {
             contract: weight * adjustment
             for contract, weight in scaled.items()
-            if weight * adjustment != 0.0
         }
-    return scaled
+        gross = math.fsum(abs(weight) for weight in scaled.values())
+    if gross > gross_cap:
+        adjustment = math.nextafter(gross_cap, 0.0) / gross
+        scaled = {
+            contract: weight * adjustment
+            for contract, weight in scaled.items()
+        }
+        gross = math.fsum(abs(weight) for weight in scaled.values())
+    if (
+        not all(math.isfinite(weight) for weight in scaled.values())
+        or not math.isfinite(gross)
+        or gross > gross_cap
+    ):
+        raise ValueError("scaled weights must satisfy the gross leverage cap")
+    return {
+        contract: weight
+        for contract, weight in scaled.items()
+        if weight != 0.0
+    }
 
 
 @dataclass(frozen=True)
@@ -191,7 +253,7 @@ def transition_signal(
     config,
 ) -> PositionState:
     """Transition a position on a new directional signal or contract roll."""
-    if isinstance(direction, bool) or direction not in (-1, 0, 1):
+    if isinstance(direction, (bool, np.bool_)) or direction not in (-1, 0, 1):
         raise ValueError("direction must be -1, 0, or 1")
     if direction == 0:
         return PositionState()
