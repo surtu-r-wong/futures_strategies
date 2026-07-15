@@ -125,18 +125,27 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
                 continue
 
             direction = signals.at[index, "rank_direction"]
-            if (
+            main_close = signals.at[index, "main_close"]
+            price_ma = signals.at[index, "price_ma"]
+            trend_aligned = (
                 direction == 1
-                and signals.at[index, "main_close"]
-                > signals.at[index, "price_ma"]
+                and main_close > price_ma
             ) or (
                 direction == -1
-                and signals.at[index, "main_close"]
-                < signals.at[index, "price_ma"]
-            ):
+                and main_close < price_ma
+            )
+            trend_opposed = (
+                direction == 1
+                and main_close < price_ma
+            ) or (
+                direction == -1
+                and main_close > price_ma
+            )
+            if trend_aligned:
                 strength = 1.0
             elif (
-                signals.at[index, "main_volume"]
+                trend_opposed
+                and signals.at[index, "main_volume"]
                 < signals.at[index, "volume_ma"]
                 and signals.at[index, "main_oi"]
                 < signals.at[index, "oi_ma"]

@@ -276,3 +276,25 @@ def test_empty_signal_result_is_frozen_and_has_stable_columns() -> None:
     assert result.signal_ready_date is None
     with pytest.raises(FrozenInstanceError):
         result.signal_ready_date = date(2024, 1, 2)
+
+
+def test_equal_price_ma_blocks_half_strength_despite_double_contraction() -> None:
+    frame, _ = _two_day_cross_section(
+        {"A": -0.5, "B": -0.2, "C": 0.0, "D": 0.2, "E": 0.5},
+        latest={
+            "A": {
+                "main_close": 100.0,
+                "main_volume": 80.0,
+                "main_oi": 80.0,
+            }
+        },
+    )
+
+    row = _latest_by_product(build_signals(frame, _config())).loc["A"]
+
+    assert row["rank_direction"] == 1
+    assert row["main_close"] == row["price_ma"]
+    assert row["main_volume"] < row["volume_ma"]
+    assert row["main_oi"] < row["oi_ma"]
+    assert row["strength"] == 0.0
+    assert row["effective_direction"] == 0
