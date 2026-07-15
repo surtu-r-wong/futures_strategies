@@ -492,3 +492,46 @@ def test_risk_direction_inputs_reject_numpy_booleans() -> None:
             "RB2405.SHF",
             _config(),
         )
+
+
+def test_contract_atr_rejects_nullable_ohlc_and_previous_close() -> None:
+    dates = pd.bdate_range("2024-02-01", periods=6).date.tolist()
+    prices = pd.DataFrame(
+        {
+            "trade_date": dates,
+            "contract": ["A"] * 6,
+            "high": pd.Series(
+                [101.0, pd.NA, 103.0, 104.0, 105.0, 106.0],
+                dtype="Float64",
+            ),
+            "low": pd.Series(
+                [99.0, 100.0, 101.0, 102.0, 103.0, 104.0],
+                dtype="Float64",
+            ),
+            "close": pd.Series(
+                [100.0, 101.0, pd.NA, 103.0, 104.0, 105.0],
+                dtype="Float64",
+            ),
+        }
+    )
+
+    result = compute_contract_atr(prices, _config())
+
+    assert result.loc[0, "tr"] == 2.0
+    assert result["tr"].isna().tolist() == [
+        False,
+        True,
+        True,
+        True,
+        False,
+        False,
+    ]
+    assert result["atr"].isna().tolist() == [
+        True,
+        True,
+        True,
+        True,
+        True,
+        False,
+    ]
+    assert result.loc[5, "atr"] == 2.0

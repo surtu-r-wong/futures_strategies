@@ -38,10 +38,10 @@ def compute_contract_atr(prices: pd.DataFrame, config) -> pd.DataFrame:
     ).cumcount()
     current_is_valid = np.isfinite(
         ordered[["high", "low", "close"]]
-    ).all(axis=1)
+    ).fillna(False).all(axis=1)
     previous_is_valid = observation_number.eq(0) | np.isfinite(
         previous_close
-    )
+    ).fillna(False)
     true_range_is_valid = current_is_valid & previous_is_valid
     true_range_components = pd.concat(
         [
