@@ -48,6 +48,8 @@ class ReportWriteError(RuntimeError):
         rows: int | None = None,
         columns: int | None = None,
         path: str | Path | None = None,
+        recovery_paths: tuple[str | Path, ...] = (),
+        secondary_errors: tuple[str, ...] = (),
     ) -> None:
         self.stage = stage
         self.reason = reason
@@ -55,6 +57,8 @@ class ReportWriteError(RuntimeError):
         self.rows = rows
         self.columns = columns
         self.path = Path(path) if path is not None else None
+        self.recovery_paths = tuple(Path(item) for item in recovery_paths)
+        self.secondary_errors = tuple(secondary_errors)
         details = []
         if sheet is not None:
             details.append(f"sheet={sheet}")
@@ -64,9 +68,30 @@ class ReportWriteError(RuntimeError):
             details.append(f"columns={columns}")
         if path is not None:
             details.append(f"path={path}")
+        if self.recovery_paths:
+            details.append(
+                "recovery_paths=" + "|".join(str(item) for item in self.recovery_paths)
+            )
+        if self.secondary_errors:
+            details.append("secondary_errors=" + " | ".join(self.secondary_errors))
         suffix = f" [{', '.join(details)}]" if details else ""
         super().__init__(
             f"Carry report publication failed at {stage}: {reason}{suffix}"
+        )
+
+    def with_secondary_errors(
+        self,
+        errors: tuple[str, ...],
+    ) -> ReportWriteError:
+        return ReportWriteError(
+            stage=self.stage,
+            reason=self.reason,
+            sheet=self.sheet,
+            rows=self.rows,
+            columns=self.columns,
+            path=self.path,
+            recovery_paths=self.recovery_paths,
+            secondary_errors=self.secondary_errors + errors,
         )
 
 
@@ -83,10 +108,25 @@ def curve_selection_excel_view(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame(columns=_CURVE_EXCEL_COLUMNS)
 
-    ordered = frame.sort_values(
-        ["trade_date", "product", "contract"],
-        kind="mergesort",
-    ).copy()
+    ordered = (
+        frame.loc[
+            :,
+            [
+                "trade_date",
+                "product",
+                "contract",
+                "role",
+                "reason",
+                "in_pool",
+                "liquidity_mean",
+            ],
+        ]
+        .sort_values(
+            ["trade_date", "product", "contract"],
+            kind="mergesort",
+        )
+        .copy()
+    )
     ordered["_contract_text"] = ordered["contract"].astype(str)
     ordered["_main_contract"] = ordered["_contract_text"].where(
         ordered["role"].eq("main"),
@@ -187,9 +227,18 @@ def _temporary_path(final_path: Path, suffix: str) -> Path:
     return Path(raw_path)
 
 
-def _safe_unlink(path: Path | None) -> None:
-    if path is not None:
-        path.unlink(missing_ok=True)
+def _cleanup_paths(
+    paths: tuple[Path | None, ...],
+) -> tuple[str, ...]:
+    errors: list[str] = []
+    for path in paths:
+        if path is None:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except Exception as exc:
+            errors.append(f"cleanup path={path}: {type(exc).__name__}: {exc}")
+    return tuple(errors)
 
 
 def _write_workbook(
@@ -233,18 +282,61 @@ def _publish_outputs(
         for temporary_path, final_path in pairs:
             os.replace(temporary_path, final_path)
             published.append(final_path)
-    except Exception:
+    except Exception as publish_exc:
+        rollback_errors: list[str] = []
+        recovery_paths: list[Path] = []
         for final_path in reversed(published):
             backup = backups[final_path]
             if backup is None:
-                final_path.unlink(missing_ok=True)
+                try:
+                    final_path.unlink(missing_ok=True)
+                except Exception as rollback_exc:
+                    rollback_errors.append(
+                        "rollback remove "
+                        f"path={final_path}: "
+                        f"{type(rollback_exc).__name__}: {rollback_exc}"
+                    )
             else:
-                os.replace(backup, final_path)
-                backups[final_path] = None
-        raise
-    finally:
-        for backup in backups.values():
-            _safe_unlink(backup)
+                try:
+                    os.replace(backup, final_path)
+                except Exception as rollback_exc:
+                    rollback_errors.append(
+                        "rollback restore "
+                        f"path={final_path} from={backup}: "
+                        f"{type(rollback_exc).__name__}: {rollback_exc}"
+                    )
+                    recovery_paths.append(backup)
+                else:
+                    backups[final_path] = None
+
+        recoverable = set(recovery_paths)
+        cleanup_errors = _cleanup_paths(
+            tuple(
+                backup
+                for backup in backups.values()
+                if backup is not None and backup not in recoverable
+            )
+        )
+        raise ReportWriteError(
+            stage="publish",
+            reason=f"{type(publish_exc).__name__}: {publish_exc}",
+            recovery_paths=tuple(recovery_paths),
+            secondary_errors=tuple(rollback_errors) + cleanup_errors,
+        ) from publish_exc
+
+    cleanup_errors = _cleanup_paths(tuple(backups.values()))
+    if cleanup_errors:
+        leftover_backups = tuple(
+            backup
+            for backup in backups.values()
+            if backup is not None and backup.exists()
+        )
+        raise ReportWriteError(
+            stage="cleanup",
+            reason="outputs published but backup cleanup failed",
+            recovery_paths=leftover_backups,
+            secondary_errors=cleanup_errors,
+        )
 
 
 def write_carry_outputs(
@@ -255,16 +347,24 @@ def write_carry_outputs(
     prefix = Path(output_prefix)
     xlsx_path = Path(f"{prefix}.xlsx")
     png_path = Path(f"{prefix}_overview.png")
-    sheets = _report_sheets(result)
-    _preflight_sheet_bounds(sheets)
-
     temporary_xlsx: Path | None = None
     temporary_png: Path | None = None
     stage = "prepare"
     active_path: Path | None = None
+    error: ReportWriteError | None = None
+    error_cause: Exception | None = None
     try:
+        sheets = _report_sheets(result)
+
+        stage = "preflight"
+        _preflight_sheet_bounds(sheets)
+
+        stage = "prepare"
+        active_path = prefix.parent
         prefix.parent.mkdir(parents=True, exist_ok=True)
+        active_path = xlsx_path
         temporary_xlsx = _temporary_path(xlsx_path, ".tmp.xlsx")
+        active_path = png_path
         temporary_png = _temporary_path(png_path, ".tmp.png")
 
         stage = "excel_write"
@@ -291,17 +391,32 @@ def write_carry_outputs(
                 (temporary_png, png_path),
             )
         )
-    except ReportWriteError:
-        raise
+    except ReportWriteError as exc:
+        error = exc
     except Exception as exc:
-        raise ReportWriteError(
+        error_cause = exc
+        error = ReportWriteError(
             stage=stage,
-            reason=str(exc),
+            reason=f"{type(exc).__name__}: {exc}",
             path=active_path,
-        ) from exc
-    finally:
-        _safe_unlink(temporary_xlsx)
-        _safe_unlink(temporary_png)
+        )
+
+    cleanup_errors = _cleanup_paths((temporary_xlsx, temporary_png))
+    if error is not None:
+        if cleanup_errors:
+            original_error = error
+            error = error.with_secondary_errors(cleanup_errors)
+            if error_cause is None:
+                error_cause = original_error
+        if error_cause is not None:
+            raise error from error_cause
+        raise error
+    if cleanup_errors:
+        raise ReportWriteError(
+            stage="cleanup",
+            reason="output temporary cleanup failed",
+            secondary_errors=cleanup_errors,
+        )
     return xlsx_path, png_path
 
 

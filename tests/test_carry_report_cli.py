@@ -471,3 +471,128 @@ def test_publish_backup_failure_preserves_sentinels_and_cleans_temps(
     assert xlsx.read_bytes() == b"old-xlsx"
     assert png.read_bytes() == b"old-png"
     assert set(tmp_path.iterdir()) == {xlsx, png}
+
+
+def test_second_publish_failure_restores_both_sentinels(
+    tmp_path,
+    monkeypatch,
+):
+    prefix = tmp_path / "carry"
+    xlsx, png = _sentinel_outputs(prefix)
+    real_replace = carry_report.os.replace
+
+    def fail_second_publish(source, destination):
+        source_path = Path(source)
+        if Path(destination) == png and source_path.name.endswith(".tmp.png"):
+            raise OSError("second publish failed")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(carry_report.os, "replace", fail_second_publish)
+
+    with pytest.raises(ReportWriteError) as exc_info:
+        write_carry_outputs(_result(), prefix)
+
+    assert exc_info.value.stage == "publish"
+    assert xlsx.read_bytes() == b"old-xlsx"
+    assert png.read_bytes() == b"old-png"
+    assert set(tmp_path.iterdir()) == {xlsx, png}
+
+
+def test_rollback_failure_preserves_recovery_backup(
+    tmp_path,
+    monkeypatch,
+):
+    prefix = tmp_path / "carry"
+    xlsx, png = _sentinel_outputs(prefix)
+    real_replace = carry_report.os.replace
+
+    def fail_publish_and_rollback(source, destination):
+        source_path = Path(source)
+        destination_path = Path(destination)
+        if destination_path == png and source_path.name.endswith(".tmp.png"):
+            raise OSError("second publish failed")
+        if destination_path == xlsx and source_path.name.endswith(".backup"):
+            raise OSError("rollback failed")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(
+        carry_report.os,
+        "replace",
+        fail_publish_and_rollback,
+    )
+
+    with pytest.raises(ReportWriteError) as exc_info:
+        write_carry_outputs(_result(), prefix)
+
+    error = exc_info.value
+    assert error.stage == "publish"
+    assert any("rollback failed" in item for item in error.secondary_errors)
+    assert len(error.recovery_paths) == 1
+    recovery_path = error.recovery_paths[0]
+    assert recovery_path.exists()
+    assert recovery_path.read_bytes() == b"old-xlsx"
+    assert xlsx.read_bytes() != b"old-xlsx"
+    assert png.read_bytes() == b"old-png"
+    assert set(tmp_path.iterdir()) == {xlsx, png, recovery_path}
+
+
+def test_primary_report_error_survives_temporary_cleanup_failure(
+    tmp_path,
+    monkeypatch,
+):
+    prefix = tmp_path / "carry"
+    real_unlink = Path.unlink
+
+    def fail_xlsx_temp_cleanup(path, *args, **kwargs):
+        if path.name.endswith(".tmp.xlsx"):
+            raise PermissionError("temp cleanup failed")
+        return real_unlink(path, *args, **kwargs)
+
+    def fail_chart(_result, _path):
+        raise OSError("png failed")
+
+    monkeypatch.setattr(Path, "unlink", fail_xlsx_temp_cleanup)
+    monkeypatch.setattr(carry_report, "_write_overview_png", fail_chart)
+
+    with pytest.raises(ReportWriteError) as exc_info:
+        write_carry_outputs(_result(), prefix)
+
+    error = exc_info.value
+    assert error.stage == "png_write"
+    assert any("temp cleanup failed" in item for item in error.secondary_errors)
+
+
+def test_backup_cleanup_failure_is_structured(
+    tmp_path,
+    monkeypatch,
+):
+    prefix = tmp_path / "carry"
+    _sentinel_outputs(prefix)
+    real_unlink = Path.unlink
+
+    def fail_backup_cleanup(path, *args, **kwargs):
+        if path.name.endswith(".backup"):
+            raise PermissionError("backup cleanup failed")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_backup_cleanup)
+
+    with pytest.raises(ReportWriteError) as exc_info:
+        write_carry_outputs(_result(), prefix)
+
+    error = exc_info.value
+    assert error.stage == "cleanup"
+    assert any("backup cleanup failed" in item for item in error.secondary_errors)
+
+
+def test_sheet_preparation_failure_is_structured(tmp_path, monkeypatch):
+    def fail_sheets(_result):
+        raise KeyError("broken report shape")
+
+    monkeypatch.setattr(carry_report, "_report_sheets", fail_sheets)
+
+    with pytest.raises(ReportWriteError) as exc_info:
+        write_carry_outputs(_result(), tmp_path / "carry")
+
+    assert exc_info.value.stage == "prepare"
+    assert "broken report shape" in str(exc_info.value)
