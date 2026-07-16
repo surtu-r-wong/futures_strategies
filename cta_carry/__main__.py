@@ -11,11 +11,25 @@ import sys
 
 import pandas as pd
 
-from .backtest import CarryBacktester
+from .backtest import (
+    CarryBacktester,
+    EquityDepletedError,
+    ExecutionPriceError,
+    SignalInputError,
+    WarmupInsufficientError,
+)
 from .config import CarryConfig
 from .data import CarryDataSet
 from .pg_source import load_public_carry_data
-from .report import console_summary, write_carry_outputs
+from .report import (
+    ReportWriteError,
+    console_summary,
+    write_carry_outputs,
+)
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_GIT_TIMEOUT_SECONDS = 5.0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -88,6 +102,22 @@ def _parse_products(value: str | None) -> list[str] | None:
     return sorted(products) or None
 
 
+def _validate_data_coverage(
+    data: CarryDataSet,
+    *,
+    start: date,
+    end: date,
+) -> None:
+    eligible_dates = data.prices.loc[
+        data.prices["trade_date"] <= end,
+        "trade_date",
+    ].dropna()
+    if eligible_dates.empty:
+        raise ValueError("no Carry prices on or before end")
+    if not (eligible_dates >= start).any():
+        raise ValueError("no strategy trading day on or after start")
+
+
 def _git_version() -> str:
     try:
         return subprocess.run(
@@ -95,8 +125,14 @@ def _git_version() -> str:
             check=True,
             capture_output=True,
             text=True,
+            cwd=_REPO_ROOT,
+            timeout=_GIT_TIMEOUT_SECONDS,
         ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ):
         return "unknown"
 
 
@@ -133,7 +169,14 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         config = _config_from_args(args)
-        products = _parse_products(args.products)
+        if args.start > args.end:
+            raise ValueError("start must be on or before end")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    products = _parse_products(args.products)
+    try:
         if args.source == "files":
             if not args.data_dir:
                 raise ValueError("--data-dir is required when --source files")
@@ -152,38 +195,55 @@ def main(argv: list[str] | None = None) -> int:
                 config_path=args.settings,
                 use_test=args.use_test,
             )
+        _validate_data_coverage(data, start=args.start, end=args.end)
+    except (OSError, KeyError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
+    try:
         result = CarryBacktester(
             data,
             config=config,
             start=args.start,
             end=args.end,
         ).run()
-        result = replace(
-            result,
-            run_config=pd.concat(
-                [
-                    result.run_config,
-                    _runtime_config(
-                        source=args.source,
-                        products=products,
-                        data=data,
-                    ),
-                ],
-                ignore_index=True,
-            ),
-        )
+    except (
+        EquityDepletedError,
+        ExecutionPriceError,
+        SignalInputError,
+        WarmupInsufficientError,
+    ) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    result = replace(
+        result,
+        run_config=pd.concat(
+            [
+                result.run_config,
+                _runtime_config(
+                    source=args.source,
+                    products=products,
+                    data=data,
+                ),
+            ],
+            ignore_index=True,
+        ),
+    )
+
+    try:
         xlsx, png = write_carry_outputs(
             result,
             Path(args.output_prefix),
         )
-        print(console_summary(result))
-        print(f"xlsx={xlsx.resolve()}")
-        print(f"chart={png.resolve()}")
-        return 0
-    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+    except ReportWriteError as exc:
         print(str(exc), file=sys.stderr)
-        return 2
+        return 3
+
+    print(console_summary(result))
+    print(f"xlsx={xlsx.resolve()}")
+    print(f"chart={png.resolve()}")
+    return 0
 
 
 if __name__ == "__main__":

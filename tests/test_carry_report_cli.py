@@ -1,11 +1,18 @@
 """Excel, chart, and CLI integration tests for Carry."""
 
 from dataclasses import replace
+from pathlib import Path
+import subprocess
+from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
+import cta_carry.__main__ as carry_cli
+import cta_carry.report as carry_report
 from cta_carry.backtest import CarryBacktester
 from cta_carry.report import (
+    ReportWriteError,
     console_summary,
     curve_selection_excel_view,
     write_carry_outputs,
@@ -89,6 +96,138 @@ def test_console_summary_includes_readiness_audit_cost_and_metrics():
         "max_gross=",
     ):
         assert field in summary
+
+
+def _sentinel_outputs(prefix):
+    xlsx = Path(f"{prefix}.xlsx")
+    png = Path(f"{prefix}_overview.png")
+    xlsx.write_bytes(b"old-xlsx")
+    png.write_bytes(b"old-png")
+    return xlsx, png
+
+
+def test_report_preflights_excel_row_limit_before_opening_writer(
+    tmp_path,
+    monkeypatch,
+):
+    result = replace(
+        _result(),
+        positions=pd.DataFrame(index=pd.RangeIndex(1_048_576)),
+    )
+    writer_called = False
+
+    def unexpected_writer(*args, **kwargs):
+        nonlocal writer_called
+        writer_called = True
+        raise OSError("writer must not be opened")
+
+    monkeypatch.setattr(carry_report.pd, "ExcelWriter", unexpected_writer)
+
+    with pytest.raises(ReportWriteError) as exc_info:
+        write_carry_outputs(result, tmp_path / "oversized")
+
+    error = exc_info.value
+    assert error.stage == "preflight"
+    assert error.sheet == "positions"
+    assert error.rows == 1_048_576
+    assert not writer_called
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_excel_failure_preserves_sentinels_and_cleans_temporary_files(
+    tmp_path,
+    monkeypatch,
+):
+    prefix = tmp_path / "carry"
+    xlsx, png = _sentinel_outputs(prefix)
+
+    def failing_writer(path, *args, **kwargs):
+        Path(path).write_bytes(b"partial-xlsx")
+        raise OSError("excel failed")
+
+    monkeypatch.setattr(carry_report.pd, "ExcelWriter", failing_writer)
+
+    with pytest.raises(ReportWriteError) as exc_info:
+        write_carry_outputs(_result(), prefix)
+
+    assert exc_info.value.stage == "excel_write"
+    assert xlsx.read_bytes() == b"old-xlsx"
+    assert png.read_bytes() == b"old-png"
+    assert set(tmp_path.iterdir()) == {xlsx, png}
+
+
+def test_png_failure_preserves_sentinels_and_cleans_temporary_files(
+    tmp_path,
+    monkeypatch,
+):
+    prefix = tmp_path / "carry"
+    xlsx, png = _sentinel_outputs(prefix)
+
+    def failing_chart(result, path):
+        Path(path).write_bytes(b"partial-png")
+        raise OSError("png failed")
+
+    monkeypatch.setattr(carry_report, "_write_overview_png", failing_chart)
+
+    with pytest.raises(ReportWriteError) as exc_info:
+        write_carry_outputs(_result(), prefix)
+
+    assert exc_info.value.stage == "png_write"
+    assert xlsx.read_bytes() == b"old-xlsx"
+    assert png.read_bytes() == b"old-png"
+    assert set(tmp_path.iterdir()) == {xlsx, png}
+
+
+def test_dotted_output_prefix_is_preserved_verbatim(tmp_path):
+    prefix = tmp_path / "carry.v1"
+
+    xlsx, png = write_carry_outputs(_result(), prefix)
+
+    assert xlsx == Path(f"{prefix}.xlsx")
+    assert png == Path(f"{prefix}_overview.png")
+    assert xlsx.exists()
+    assert png.exists()
+
+
+def test_console_pool_counts_do_not_rebuild_curve_excel_view(monkeypatch):
+    def unexpected_view(frame):
+        raise AssertionError("console summary must use direct pool counts")
+
+    monkeypatch.setattr(
+        carry_report,
+        "curve_selection_excel_view",
+        unexpected_view,
+    )
+
+    summary = carry_report.console_summary(_result())
+
+    assert "in_pool_product_days=" in summary
+    assert "excluded_product_days=" in summary
+
+
+def test_git_version_uses_repo_root_and_timeout(monkeypatch):
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return SimpleNamespace(stdout="abc123\n")
+
+    monkeypatch.setattr(carry_cli.subprocess, "run", fake_run)
+
+    assert carry_cli._git_version() == "abc123"
+    assert captured["command"] == ["git", "rev-parse", "HEAD"]
+    assert captured["cwd"] == Path(carry_cli.__file__).resolve().parents[1]
+    assert captured["timeout"] > 0
+
+
+def test_git_version_returns_unknown_on_timeout(monkeypatch):
+    def time_out(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(carry_cli.subprocess, "run", time_out)
+
+    assert carry_cli._git_version() == "unknown"
 
 
 def _small_cli_args(
@@ -250,3 +389,85 @@ def test_cli_returns_nonzero_and_writes_no_success_report_on_warmup_error(
     assert "risk scaling not ready" in capsys.readouterr().err
     assert not prefix.with_suffix(".xlsx").exists()
     assert not prefix.with_name("carry_failed_overview.png").exists()
+
+
+def test_cli_report_failure_returns_three_and_writes_no_outputs(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    data = make_carry_panel()
+    data_dir = tmp_path / "input"
+    data_dir.mkdir()
+    data.prices.to_csv(data_dir / "prices.csv", index=False)
+    prefix = tmp_path / "failed_report"
+
+    def fail_report(*args, **kwargs):
+        raise ReportWriteError(
+            stage="excel_write",
+            reason="writer failed",
+        )
+
+    monkeypatch.setattr(carry_cli, "write_carry_outputs", fail_report)
+
+    exit_code = carry_cli.main(
+        _small_cli_args(
+            data_dir,
+            prefix,
+            data.dates[12],
+            data.dates[-1],
+        )
+    )
+
+    assert exit_code == 3
+    assert "writer failed" in capsys.readouterr().err
+    assert not Path(f"{prefix}.xlsx").exists()
+    assert not Path(f"{prefix}_overview.png").exists()
+
+
+def test_cli_does_not_swallow_unexpected_runtime_errors(
+    tmp_path,
+    monkeypatch,
+):
+    data = make_carry_panel()
+    data_dir = tmp_path / "input"
+    data_dir.mkdir()
+    data.prices.to_csv(data_dir / "prices.csv", index=False)
+    prefix = tmp_path / "unexpected_failure"
+
+    def explode(_self):
+        raise RuntimeError("programming defect")
+
+    monkeypatch.setattr(carry_cli.CarryBacktester, "run", explode)
+
+    with pytest.raises(RuntimeError, match="programming defect"):
+        carry_cli.main(
+            _small_cli_args(
+                data_dir,
+                prefix,
+                data.dates[12],
+                data.dates[-1],
+            )
+        )
+
+
+def test_publish_backup_failure_preserves_sentinels_and_cleans_temps(
+    tmp_path,
+    monkeypatch,
+):
+    prefix = tmp_path / "carry"
+    xlsx, png = _sentinel_outputs(prefix)
+
+    def failing_copy(_source, destination):
+        Path(destination).write_bytes(b"partial-backup")
+        raise OSError("backup failed")
+
+    monkeypatch.setattr(carry_report.shutil, "copy2", failing_copy)
+
+    with pytest.raises(ReportWriteError) as exc_info:
+        write_carry_outputs(_result(), prefix)
+
+    assert exc_info.value.stage == "publish"
+    assert xlsx.read_bytes() == b"old-xlsx"
+    assert png.read_bytes() == b"old-png"
+    assert set(tmp_path.iterdir()) == {xlsx, png}
