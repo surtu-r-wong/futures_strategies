@@ -36,10 +36,13 @@ def _candidate_years(digits: str, trade_date: date) -> list[int]:
     if len(digits) == 4:
         year_in_century = int(digits[:2])
         trade_century = trade_date.year // 100 * 100
+        # Two century candidates per design spec 6.1 (1900 and 2000 in the
+        # current era); the caller keeps only reasonable, not-earlier delivery
+        # months, and a third (+100) century is never the nearest valid pick
+        # within the 10-year cap for any supported trade date.
         return [
             trade_century - 100 + year_in_century,
             trade_century + year_in_century,
-            trade_century + 100 + year_in_century,
         ]
 
     year_digit = int(digits[0])

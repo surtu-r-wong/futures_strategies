@@ -213,13 +213,22 @@ def _apply_adjustment_policy(prices: pd.DataFrame, quality: pd.DataFrame) -> pd.
     out = merged[base_cols].copy()
     out = out.rename(columns={"selected_adj": "adjustment_lineage"})
 
+    selected = merged["selected_adj"].to_numpy()
     for field in ("open", "high", "low", "close"):
-        if not any(f"{field}_{lineage}" in merged.columns for lineage in ("raw", "ba", "fa")):
+        lineage_columns = {
+            lineage: f"{field}_{lineage}"
+            for lineage in ("raw", "ba", "fa")
+            if f"{field}_{lineage}" in merged.columns
+        }
+        if not lineage_columns:
             continue
-        values = []
-        for _, row in merged.iterrows():
-            values.append(row[f"{field}_{row['selected_adj']}"])
-        out[field] = values
+        # Vectorized equivalent of picking merged[f"{field}_{selected_adj}"] per
+        # row: write each lineage's column into the rows that selected it.
+        picked = pd.Series(index=merged.index, dtype="float64")
+        for lineage, column in lineage_columns.items():
+            mask = selected == lineage
+            picked.loc[mask] = merged.loc[mask, column].to_numpy()
+        out[field] = picked.to_numpy()
     return out.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
 
 
