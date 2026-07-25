@@ -128,6 +128,16 @@ def normalize_contract_daily(frame: pd.DataFrame) -> CarryDataSet:
         )
     normalized = normalized.loc[~invalid_trade_dates].copy()
 
+    # Spec 11.1: records identical after normalization are exact duplicates and
+    # dedupe to one row.  Dedupe on the normalized strategy identity (excluding
+    # the unused ``settle``) so valid rows differing only in raw formatting --
+    # contract case, trade-date format -- collapse here instead of tripping the
+    # conflict check below; only a genuine value disagreement on the same
+    # (trade_date, contract) then survives to abort.  Run after the invalid-date
+    # audit so each unparseable raw record is still reported individually.
+    identity_columns = ["trade_date", "contract", *_NUMERIC_COLUMNS]
+    normalized = normalized.drop_duplicates(subset=identity_columns).copy()
+
     duplicates = normalized.duplicated(
         subset=["trade_date", "contract"], keep=False
     )

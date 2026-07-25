@@ -37,19 +37,37 @@ _HEALTH_COLUMNS = [
 ]
 
 
+def _unusable_price_count(group: pd.DataFrame, lineage: str) -> int:
+    """Count rows whose adjusted open/close is not a usable positive price.
+
+    A lineage is unusable when any open/close is non-positive OR non-finite
+    (NaN/inf); both make continuous-series returns explode.  ``NaN <= 0`` and
+    ``inf <= 0`` are both False, so a plain ``<= 0`` test alone silently admits
+    an all-NaN/inf lineage as "clean".
+    """
+    open_px = pd.to_numeric(group[f"open_{lineage}"], errors="coerce")
+    close_px = pd.to_numeric(group[f"close_{lineage}"], errors="coerce")
+    unusable = (
+        ~np.isfinite(open_px)
+        | (open_px <= 0)
+        | ~np.isfinite(close_px)
+        | (close_px <= 0)
+    )
+    return int(unusable.sum())
+
+
 def summarize_adjustment_quality(df: pd.DataFrame) -> pd.DataFrame:
     """Per-symbol classification of continuous-contract adjustment quality.
 
     ``df`` is long-form with a ``base_symbol`` column and ``open_<lineage>`` /
     ``close_<lineage>`` columns for lineage in {raw, ba, fa}.  A lineage is
-    "corrupt" for a symbol when any row has a non-positive open or close.
+    "corrupt" for a symbol when any row has a non-positive or non-finite
+    (NaN/inf) open or close.
     """
     records = []
     for symbol, g in df.groupby("base_symbol", sort=True):
         counts = {
-            f"{lineage}_nonpos": int(
-                ((g[f"open_{lineage}"] <= 0) | (g[f"close_{lineage}"] <= 0)).sum()
-            )
+            f"{lineage}_nonpos": _unusable_price_count(g, lineage)
             for lineage in _LINEAGES
         }
         fa_ok = counts["fa_nonpos"] == 0

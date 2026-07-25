@@ -179,6 +179,23 @@ def test_normalize_contract_daily_rejects_conflicting_duplicate_keys():
         normalize_contract_daily(pd.DataFrame(rows))
 
 
+def test_normalize_contract_daily_deduplicates_format_divergent_identical_bars():
+    """Rows identical after normalization but differing only in raw formatting
+    (contract case, trade-date format) are exact duplicates per spec 11.1 and
+    must dedupe to one row, not abort as a conflict."""
+    rows = [
+        _valid_row(contract="rb2405.shf", trade_date="2024-01-02"),
+        _valid_row(contract="RB2405.SHF", trade_date="20240102"),
+    ]
+
+    dataset = normalize_contract_daily(pd.DataFrame(rows))
+
+    assert len(dataset.prices) == 1
+    assert dataset.prices.iloc[0]["contract"] == "RB2405.SHF"
+    assert dataset.prices.iloc[0]["trade_date"] == date(2024, 1, 2)
+    assert dataset.data_quality.empty
+
+
 def test_normalize_contract_daily_audits_parse_and_ohlc_exclusions_once():
     rows = [
         _valid_row(),

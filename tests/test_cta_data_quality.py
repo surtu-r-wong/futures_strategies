@@ -10,7 +10,6 @@ import pytest
 import cta_gtja.data_quality as data_quality
 from cta_gtja.data_quality import (
     build_adjustment_audit,
-    format_health_summary,
     strict_failure_reasons,
     summarize_adjustment_quality,
     summarize_continuous_contract_quality,
@@ -176,6 +175,23 @@ def test_summarize_falls_back_to_raw_when_both_adjustments_corrupt():
 
     assert rep.loc["D", "status"] == "both_corrupt"
     assert rep.loc["D", "recommended_adj"] == "raw"
+
+
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf")])
+def test_summarize_flags_nonfinite_adjustment_lineage_as_corrupt(bad_value):
+    """A lineage whose adjusted prices are NaN or +inf is unusable -- it makes
+    continuous-series returns explode -- and must be flagged corrupt, even
+    though NaN/inf are neither strictly <= 0."""
+    df = pd.DataFrame([
+        _row("E", 50, 51, bad_value),  # forward-adjusted non-finite -> fa corrupt
+        _row("E", 52, 53, 54),
+    ])
+
+    rep = summarize_adjustment_quality(df).set_index("base_symbol")
+
+    assert rep.loc["E", "fa_nonpos"] >= 1
+    assert rep.loc["E", "status"] == "fa_corrupt"
+    assert rep.loc["E", "recommended_adj"] == "ba"
 
 
 def test_adjustment_audit_excludes_raw_fallback_by_default():
