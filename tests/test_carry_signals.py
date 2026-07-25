@@ -85,6 +85,34 @@ def _latest_by_product(result):
     ].set_index("product")
 
 
+def test_momentum_ma_rolls_over_curve_rows_and_spans_missing_days() -> None:
+    """Documented deviation (design spec 7, '选中的主力观测序列'): momentum MAs roll
+    over the days a product actually has a curve row -- pooled AND with a
+    strictly-later secondary.  A pooled day with a main but no secondary yields
+    no curve row, so a later window spans that gap rather than resetting on it or
+    reading a value for the missing day.  Locks the chosen (kept) behavior.
+    """
+    all_dates = pd.bdate_range("2024-01-02", periods=5).date.tolist()
+    present = [all_dates[0], all_dates[1], all_dates[2], all_dates[4]]  # index 3 absent
+    closes = [100.0, 110.0, 120.0, 130.0]
+    frame = pd.DataFrame(
+        [
+            _row(trade_date, "RB", -0.5, main_close=close)
+            for trade_date, close in zip(present, closes)
+        ]
+    )
+
+    result = build_signals(frame, _config(momentum_window=3))
+    price_ma = result.signals.set_index("trade_date")["price_ma"]
+
+    assert pd.isna(price_ma[all_dates[0]])
+    assert pd.isna(price_ma[all_dates[1]])
+    assert price_ma[all_dates[2]] == pytest.approx((100.0 + 110.0 + 120.0) / 3)
+    # The window on the 4th present row spans the absent day -- mean(110,120,130) --
+    # it is not reset by the gap and reads no value for the missing day.
+    assert price_ma[all_dates[4]] == pytest.approx((110.0 + 120.0 + 130.0) / 3)
+
+
 def test_five_product_ranks_and_trend_filters_start_on_second_day() -> None:
     frame, dates = _two_day_cross_section(
         {"A": -0.5, "B": -0.2, "C": 0.0, "D": 0.2, "E": 0.5},

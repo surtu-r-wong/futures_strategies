@@ -53,6 +53,10 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
         ["product", "trade_date"],
         kind="mergesort",
     ).copy()
+    # Momentum MAs roll over each product's curve rows (days it is pooled and has
+    # a strictly-later secondary).  A pooled day with a main but no secondary has
+    # no curve row, so a later window spans that gap rather than resetting on it --
+    # see design spec 7 and test_momentum_ma_rolls_over_curve_rows_and_spans_missing_days.
     for source, target in (
         ("main_close", "price_ma"),
         ("main_volume", "volume_ma"),
