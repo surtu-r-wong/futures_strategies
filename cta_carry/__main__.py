@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
+from dataclasses import fields, replace
 from datetime import date, timedelta
 from pathlib import Path
 import subprocess
 import sys
 
 import pandas as pd
+import psycopg2
 
 from .backtest import (
     CarryBacktester,
@@ -49,50 +50,36 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-prefix",
         default="output/carry_daily",
     )
-    parser.add_argument("--liquidity-window", type=int, default=120)
-    parser.add_argument(
-        "--liquidity-threshold",
-        type=float,
-        default=5_000_000_000.0,
-    )
-    parser.add_argument("--carry-window", type=int, default=10)
-    parser.add_argument("--selection-fraction", type=float, default=0.20)
-    parser.add_argument("--momentum-window", type=int, default=10)
-    parser.add_argument("--atr-window", type=int, default=20)
-    parser.add_argument("--atr-risk-budget", type=float, default=0.005)
-    parser.add_argument("--vol-window", type=int, default=252)
-    parser.add_argument("--min-shadow-active-days", type=int, default=126)
-    parser.add_argument("--target-vol", type=float, default=0.15)
-    parser.add_argument("--max-gross-leverage", type=float, default=4.0)
-    parser.add_argument(
-        "--chandelier-atr-multiple",
-        type=float,
-        default=2.5,
-    )
-    parser.add_argument("--stop-tranches", type=int, default=3)
-    parser.add_argument("--cost-bps", type=float, default=13.0)
-    parser.add_argument("--prewarm-calendar-days", type=int, default=730)
+    # Research parameters intentionally carry no argparse default: CarryConfig is
+    # the single source of truth for their defaults (see _config_from_args), so
+    # the CLI cannot drift from it.  Only flags the user passes override it.
+    parser.add_argument("--liquidity-window", type=int)
+    parser.add_argument("--liquidity-threshold", type=float)
+    parser.add_argument("--carry-window", type=int)
+    parser.add_argument("--selection-fraction", type=float)
+    parser.add_argument("--momentum-window", type=int)
+    parser.add_argument("--atr-window", type=int)
+    parser.add_argument("--atr-risk-budget", type=float)
+    parser.add_argument("--vol-window", type=int)
+    parser.add_argument("--min-shadow-active-days", type=int)
+    parser.add_argument("--target-vol", type=float)
+    parser.add_argument("--max-gross-leverage", type=float)
+    parser.add_argument("--chandelier-atr-multiple", type=float)
+    parser.add_argument("--stop-tranches", type=int)
+    parser.add_argument("--cost-bps", type=float)
+    parser.add_argument("--prewarm-calendar-days", type=int)
     return parser
 
 
 def _config_from_args(args: argparse.Namespace) -> CarryConfig:
-    return CarryConfig(
-        liquidity_window=args.liquidity_window,
-        liquidity_threshold=args.liquidity_threshold,
-        carry_window=args.carry_window,
-        selection_fraction=args.selection_fraction,
-        momentum_window=args.momentum_window,
-        atr_window=args.atr_window,
-        atr_risk_budget=args.atr_risk_budget,
-        vol_window=args.vol_window,
-        min_shadow_active_days=args.min_shadow_active_days,
-        target_vol=args.target_vol,
-        max_gross_leverage=args.max_gross_leverage,
-        chandelier_atr_multiple=args.chandelier_atr_multiple,
-        stop_tranches=args.stop_tranches,
-        cost_bps=args.cost_bps,
-        prewarm_calendar_days=args.prewarm_calendar_days,
-    )
+    # CarryConfig owns the defaults; apply only the flags the user set so the CLI
+    # never restates (and cannot drift from) those defaults.
+    overrides = {
+        field.name: getattr(args, field.name)
+        for field in fields(CarryConfig)
+        if getattr(args, field.name, None) is not None
+    }
+    return CarryConfig(**overrides)
 
 
 def _parse_products(value: str | None) -> list[str] | None:
@@ -196,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
                 use_test=args.use_test,
             )
         _validate_data_coverage(data, start=args.start, end=args.end)
-    except (OSError, KeyError, ValueError) as exc:
+    except (OSError, KeyError, ValueError, psycopg2.Error) as exc:
         print(str(exc), file=sys.stderr)
         return 2
 

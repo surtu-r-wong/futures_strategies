@@ -18,6 +18,7 @@ from cta_carry.report import (
     write_carry_outputs,
 )
 from cta_carry.__main__ import _config_from_args, build_parser, main
+from cta_carry.config import CarryConfig
 from tests.carry_fixtures import make_carry_panel, small_config
 
 
@@ -299,6 +300,15 @@ def test_cli_parser_exposes_every_carry_config_field(tmp_path):
     assert _config_from_args(args) == small_config()
 
 
+def test_cli_config_defaults_come_from_carry_config():
+    """CLI research-parameter defaults are not duplicated: omitting every flag
+    yields exactly CarryConfig()'s defaults, so a future default change in one
+    place cannot silently diverge from the other."""
+    args = build_parser().parse_args(["--start", "2020-01-01", "--end", "2020-12-31"])
+
+    assert _config_from_args(args) == CarryConfig()
+
+
 def test_file_cli_runs_writes_outputs_and_runtime_metadata(tmp_path):
     data = make_carry_panel()
     data_dir = tmp_path / "input"
@@ -364,6 +374,32 @@ def test_public_pg_cli_forwards_products_config_and_connection_options(
         "config_path": "settings.yaml",
         "use_test": True,
     }
+
+
+def test_cli_returns_two_when_database_load_fails(tmp_path, capsys, monkeypatch):
+    """A psycopg2 connection/query error is an expected failure mode: exit 2
+    with a clean message, not an uncaught traceback."""
+    import psycopg2
+
+    def boom(**kwargs):
+        raise psycopg2.OperationalError("could not connect to server")
+
+    monkeypatch.setattr(carry_cli, "load_public_carry_data", boom)
+    data = make_carry_panel()
+    prefix = tmp_path / "db_failed"
+    args = _small_cli_args(
+        None,
+        prefix,
+        data.dates[12],
+        data.dates[-1],
+        source="public-pg",
+    )
+
+    exit_code = carry_cli.main(args)
+
+    assert exit_code == 2
+    assert "could not connect" in capsys.readouterr().err
+    assert not prefix.with_suffix(".xlsx").exists()
 
 
 def test_cli_returns_nonzero_and_writes_no_success_report_on_warmup_error(
