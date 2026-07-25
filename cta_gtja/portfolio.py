@@ -71,7 +71,12 @@ def factor_momentum_allocations(
     names = list(factor_returns.columns)
     out = pd.DataFrame(0.0, index=factor_returns.index, columns=names)
     equal = pd.Series(1.0 / len(names), index=names)
-    trailing = (1.0 + factor_returns.fillna(0.0)).rolling(lookback_days, min_periods=max(5, lookback_days // 3)).apply(np.prod, raw=True) - 1.0
+    # ``factor_returns[d]`` is the open(d+1)->open(d+2) forward return, unknowable
+    # until open(d+2).  Lag by two days before ranking so an allocation formed at
+    # close(d) only ranks sleeves on returns realized through open(d); without this
+    # the rotation selects on the very interval the position is about to earn.
+    lagged_returns = factor_returns.shift(2)
+    trailing = (1.0 + lagged_returns.fillna(0.0)).rolling(lookback_days, min_periods=max(5, lookback_days // 3)).apply(np.prod, raw=True) - 1.0
     for d, row in trailing.iterrows():
         valid = row.dropna()
         if valid.empty:

@@ -141,6 +141,46 @@ def test_long_cross_momentum_regresses_through_gaps():
     assert last == pytest.approx(daily_drift, rel=1e-6)
 
 
+def test_future_prices_cannot_change_past_high_composite_decisions():
+    """No look-ahead: perturbing prices strictly after a cutoff must not change
+    any target weight or factor allocation decided on or before that cutoff.
+
+    The rotation sleeve ranks factor sleeves by trailing return, and the vol
+    target scales by trailing realized vol; both read a forward-indexed return
+    series (``open(t+2)/open(t+1)``), so they must lag it far enough to use only
+    information available at the close of the decision day.
+    """
+    data = _sample_cta_data()
+    dates = data.dates
+    cutoff = dates[200]
+
+    baseline = run_high_composite(data, symbols=data.symbols, cost_bps=1.0)
+
+    perturbed_prices = data.prices.copy()
+    future = perturbed_prices["trade_date"] > cutoff
+    # Ratio-breaking, strictly-positive multipliers (a constant factor would
+    # leave open(t+2)/open(t+1) unchanged and never exercise the leak).
+    multipliers = 1.5 + 0.5 * np.cos(np.arange(int(future.sum())))
+    for column in ("open", "close", "volume"):
+        perturbed_prices.loc[future, column] = (
+            perturbed_prices.loc[future, column].to_numpy() * multipliers
+        )
+    perturbed = run_high_composite(
+        CTADataSet(prices=perturbed_prices, fundamentals=data.fundamentals.copy()),
+        symbols=data.symbols,
+        cost_bps=1.0,
+    )
+
+    for frame_name in ("factor_allocations", "weights"):
+        base_frame = getattr(baseline, frame_name)
+        pert_frame = getattr(perturbed, frame_name)
+        pd.testing.assert_frame_equal(
+            base_frame.loc[base_frame.index <= cutoff],
+            pert_frame.loc[pert_frame.index <= cutoff],
+            obj=frame_name,
+        )
+
+
 def test_data_slice_filters_symbols_and_dates():
     data = _sample_cta_data().slice(
         symbols=["CU", "RB"],

@@ -139,7 +139,10 @@ def apply_vol_target(
 ) -> pd.DataFrame:
     raw_returns = portfolio_returns(weights, asset_returns).fillna(0.0)
     realized = raw_returns.rolling(window_days, min_periods=max(10, window_days // 3)).std(ddof=0) * np.sqrt(TRADING_DAYS_PER_YEAR)
-    scale = target_vol / realized.shift(1)
+    # ``raw_returns[t]`` is the open(t+1)->open(t+2) forward return, so ``realized[t]``
+    # is unknowable until open(t+2).  Lag by two days so the scale applied to
+    # ``weights[t]`` (formed at close(t)) only uses vol realized through open(t).
+    scale = target_vol / realized.shift(2)
     scale = scale.replace([np.inf, -np.inf], np.nan).fillna(1.0)
     if max_leverage is not None:
         scale = scale.clip(lower=0.0, upper=max_leverage)
