@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-27
 
-**Status:** Draft for written review
+**Status:** Approved for implementation planning
 
 **Scope:** Wind-backed basis, inventory, and profit inputs for the GTJA CTA
 replication
@@ -142,7 +142,7 @@ the actual API request.
 
 Core fields:
 
-- `series_id`: stable human-readable identifier and primary key.
+- `series_id`: stable human-readable identifier within a catalog version.
 - `catalog_version`
 - `source`: fixed to `wind` in the first delivery.
 - `source_code`
@@ -151,6 +151,9 @@ Core fields:
 - `metric_role`: `spot`, `inventory`, `profit_direct`,
   `profit_component`, or `conversion_component`.
 - `frequency`
+- `api_method`: `edb` or `wsd`
+- `field_name`, required for `wsd` and null for `edb`
+- `wind_options`
 - `source_unit`, `target_unit`, `currency`
 - `scale_multiplier`
 - `aggregation_rule`
@@ -163,8 +166,11 @@ Core fields:
 - `config_hash`
 - `updated_at`
 
-Catalog validation rejects an active row without a source code, units,
-date semantics, an explicit release rule, and a staleness limit.
+Catalog validation rejects an active row without a source code, supported API
+method, required WSD field, units, date semantics, an explicit release rule,
+and a staleness limit.
+The primary key is `(catalog_version, series_id)`, allowing the same logical
+identifier to appear in a later immutable catalog version.
 Published catalog rows are immutable. A mapping, timing, or conversion change
 creates a new `catalog_version`; it does not update an already published
 version in place.
@@ -176,27 +182,23 @@ version.
 
 ### 5.3 `commodity_research.ingest_run`
 
-One row per caller-stable extraction and publication attempt.
+One row per caller-stable source extraction and upload run.
 
 Core fields:
 
 - `run_id`: UUID primary key reused by retries.
-- `mode`: `backfill`, `incremental`, `audit`, or `rebuild`.
+- `mode`: `backfill`, `incremental`, or `audit`.
 - `catalog_version`, `config_hash`
 - `requested_start`, `requested_end`
 - `started_at`, `finished_at`
-- `status`: `running`, `raw_complete`, `validated`, `published`, or `failed`.
-- requested, received, rejected, and published row counts.
+- `status`: `running`, `raw_complete`, `validated`, or `failed`.
+- requested, received, rejected, and stored row counts.
 - `recovery_artifact_checksum`
 - `error_summary`
-- `build_version`
-- `is_current`
 - `updated_at`
 
-Only one successfully published run can be current. Promotion switches the
-current run within the same transaction that completes the publication.
-The DDL enforces this invariant with a partial unique index over the current
-row.
+An ingest run describes source capture only. It never doubles as a standard
+data build or publication pointer.
 
 ### 5.4 `commodity_research.observation_vintage`
 
@@ -206,6 +208,7 @@ Core fields:
 
 - surrogate primary key
 - `run_id`
+- `catalog_version`
 - `series_id`
 - `observation_date`
 - `published_at`, nullable when Wind does not provide it
@@ -218,9 +221,11 @@ Core fields:
 - `payload_hash`
 - `created_at`, `updated_at`
 
-The idempotency key is `(run_id, series_id, observation_date)`. Replaying a
-run cannot create duplicates. A later run may append a different value for the
-same series and observation date, thereby preserving a captured revision.
+The idempotency key is
+`(run_id, catalog_version, series_id, observation_date)`. The pair
+`(catalog_version, series_id)` references the immutable catalog row. Replaying
+a run cannot create duplicates. A later run may append a different value for
+the same series and observation date, thereby preserving a captured revision.
 Raw values are never overwritten by the standard-data builder.
 
 ### 5.5 `commodity_research.profit_formula`
@@ -242,9 +247,32 @@ Core fields:
 
 The version-controlled catalog/formula files are the review authority. The
 database rows are immutable snapshots of the approved version used by a
-particular build.
+particular build. The primary key is `(formula_id, formula_version)`.
 
-### 5.6 `commodity_research.fundamental_daily`
+### 5.6 `commodity_research.fundamental_build`
+
+One row per reproducible standard-data build.
+
+Core fields:
+
+- `build_version`: primary key
+- `catalog_version`
+- `pit_mode`: `conservative` or `strict`
+- `source_recorded_cutoff`
+- `started_at`, `finished_at`, `published_at`
+- `status`: `running`, `validated`, `published`, or `failed`
+- input, output, rejected, and coverage row counts
+- `config_hash`
+- `error_summary`
+- `is_current`
+- `updated_at`
+
+At most one published build is current for each PIT mode. A partial unique
+index on `pit_mode` where `is_current` is true enforces that invariant.
+Publication switches the selected mode from its previous build to the new
+build in one transaction.
+
+### 5.7 `commodity_research.fundamental_daily`
 
 Rebuildable long-form strategy input.
 
@@ -264,8 +292,9 @@ Core fields:
 - `created_at`
 
 The unique key is `(build_version, trade_date, product_code, metric)`.
-A read-only current view selects the `build_version` belonging to the current
-published `ingest_run`.
+The build version references `fundamental_build`. A read-only current view
+selects the current published build for the requested PIT mode. Conservative
+and strict current builds can coexist.
 
 ## 6. Point-in-time policy
 
@@ -466,11 +495,13 @@ automatically republishing them.
 
 ### 10.3 Publication
 
-1. Complete and validate raw ingestion.
-2. Build a new version of `fundamental_daily`.
-3. Run schema, value, lineage, coverage, and staleness checks.
-4. Compare the new build with the current build.
-5. In one transaction, mark the new run published and current.
+1. Complete and validate all source ingest runs included by the build cutoff.
+2. Create a `fundamental_build` row for one explicit PIT mode.
+3. Build a new version of `fundamental_daily`.
+4. Run schema, value, lineage, coverage, and staleness checks.
+5. Compare the new build with the current build for the same PIT mode.
+6. In one transaction, mark the new build published and current for that
+   mode.
 
 Failed builds remain non-current and can be inspected or rebuilt. A partial
 build can never replace the current published view.
