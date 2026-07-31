@@ -2,9 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **2026-07-31 trimmed per workspace anti-redundancy ruling** (vertical slice
+> first; deferred items listed at bottom of Plans 2 and 3); original scope in
+> git history at `e31e1e5`. This plan is kept essentially as-is: data capture
+> is the irreplaceable part (Wind quota principle — unused quota is wasted).
+> Only the process-tier note below and the cross-references to the trimmed
+> Plans 2/3 changed.
+
 **Goal:** Build a Windows-compatible, catalog-driven Wind WSD/EDB capture package that produces a reviewed versioned series catalog and resumable raw recovery artifacts for `M, RB, CU, AL, TA, PP, MA, BU, RU`.
 
 **Architecture:** A pure-Python core validates immutable YAML catalog versions and normalizes Wind responses behind an injected gateway. The Windows-only adapter imports `WindPy` lazily, while Linux tests use a fake gateway. Every successful source/year chunk is written atomically to a gzip JSONL recovery package before any database upload is attempted.
+
+**Review tiers:** Across the three plans: PIT vintage selection + basis calculation = Tier 1 (full review); other code = Tier 2 (single combined review); docs/config = Tier 3 (self-verify). For this plan specifically — it contains neither vintage selection nor basis calculation — that means: capture/normalization code (models, catalog, adapter, availability, preflight, recovery, capture) = **Tier 2** (single review); catalog YAML validation = **Tier 2**; pure docs (runbook) = **Tier 3** (self-verify).
 
 **Tech Stack:** Python 3.11+/3.13, dataclasses, `decimal`, PyYAML, WindPy on the Windows data machine, gzip JSONL, SHA-256, pytest
 
@@ -17,7 +26,10 @@
 
 **This plan stops before database DDL or writes.** Its output is an approved
 `catalog.v1.yaml`, a preflight report, and a small recovery-package smoke
-artifact. The next plan owns PostgreSQL ingestion and standardization.
+artifact. The next plan (the trimmed
+`2026-07-27-commodity-fundamentals-store-materialize.md`: append-only
+observation store keyed by capture `run_id`, single conservative PIT mode,
+one materialized daily build) owns PostgreSQL ingestion and standardization.
 
 ## File map
 
@@ -2009,5 +2021,7 @@ Windows recovery package run_id
 Windows recovery package manifest SHA-256
 ```
 
-Plan 2 must reject any catalog or artifact whose values differ from this
-handoff.
+The trimmed Plan 2 consumes these values as immutable inputs: its
+`load-catalog` step loads exactly this catalog version and hash, its
+uploader uploads exactly the recorded recovery package, and its Linux-side
+count verification checks the stored rows against this manifest.
