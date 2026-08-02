@@ -328,3 +328,52 @@ def test_data_quality_summary_counts_retained_excluded_and_raw():
 
     assert _data_quality_summary(quality) == "symbols retained=2 excluded=1 raw_fallback=1"
 
+
+
+def test_data_slice_filters_fundamental_quality_and_copies_metadata():
+    data = _sample_cta_data()
+    fundamental_quality = pd.DataFrame(
+        [
+            {"product_code": "CU", "metric": "basis_rate", "status": "ok"},
+            {"product_code": "RB", "metric": "inventory", "status": "ok"},
+            {"product_code": "TA", "metric": "profit", "status": "ok"},
+        ]
+    )
+    metadata = {
+        "source": "standard",
+        "pit_mode": "conservative",
+        "build_version": "build-c-1",
+        "catalog_version": "v1",
+        "materialized_daily": True,
+    }
+    data = CTADataSet(
+        prices=data.prices,
+        fundamentals=data.fundamentals,
+        fundamental_quality=fundamental_quality,
+        fundamental_metadata=metadata,
+    )
+
+    sliced = data.slice(symbols=["CU", "RB"])
+
+    assert sorted(
+        sliced.fundamental_quality["product_code"].tolist()
+    ) == ["CU", "RB"]
+    assert sliced.fundamental_metadata == metadata
+    assert sliced.fundamental_metadata is not metadata
+
+
+def test_file_dataset_marks_fundamentals_unverified(tmp_path):
+    data = _sample_cta_data(n=5)
+    data.prices.to_csv(tmp_path / "prices.csv", index=False)
+    data.fundamentals.to_csv(
+        tmp_path / "fundamentals.csv",
+        index=False,
+    )
+
+    loaded = CTADataSet.from_dir(tmp_path)
+
+    assert loaded.fundamental_quality.empty
+    assert loaded.fundamental_metadata == {
+        "source": "files-unverified",
+        "materialized_daily": False,
+    }
