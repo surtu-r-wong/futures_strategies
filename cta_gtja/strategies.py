@@ -150,11 +150,16 @@ def build_factor_sleeves(
         raise ValueError("CTA strategy needs at least one symbol")
 
     factor_names = {factor.name for factor in factors}
+    scores_by_factor = {
+        factor.name: factor.compute(data, symbols)
+        for factor in factors
+    }
     fundamental_matrices = {
-        metric: data.fundamental_matrix(metric, symbols=symbols).reindex(
-            index=data.dates,
-            columns=symbols,
-        )
+        metric: (
+            scores_by_factor[factor_name]
+            if factor_name == "basis"
+            else data.fundamental_matrix(metric, symbols=symbols)
+        ).reindex(index=data.dates, columns=symbols)
         for factor_name, metric in FUNDAMENTAL_METRICS_BY_FACTOR.items()
         if factor_name in factor_names
     }
@@ -169,10 +174,6 @@ def build_factor_sleeves(
             )
         )
 
-    scores_by_factor = {
-        factor.name: factor.compute(data, symbols)
-        for factor in factors
-    }
     if "inventory" in scores_by_factor:
         coverage_frames.append(
             evaluate_inventory_sides(

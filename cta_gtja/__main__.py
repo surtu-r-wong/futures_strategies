@@ -106,6 +106,13 @@ def _has_finite_fundamental(data: CTADataSet, column: str) -> bool:
     return bool(np.isfinite(values.to_numpy(dtype=float)).any())
 
 
+def _has_finite_price(data: CTADataSet, column: str) -> bool:
+    if column not in data.prices.columns:
+        return False
+    values = pd.to_numeric(data.prices[column], errors="coerce")
+    return bool(np.isfinite(values.to_numpy(dtype=float)).any())
+
+
 def _validate_six_factor_request(
     *,
     source: str,
@@ -120,17 +127,22 @@ def _validate_six_factor_request(
         raise SystemExit("six_factor file validation requires loaded data")
 
     missing: list[str] = []
-    if not any(
-        _has_finite_fundamental(data, column)
-        for column in ("basis_rate", "spot")
-    ):
+    has_direct_basis = _has_finite_fundamental(data, "basis_rate")
+    has_spot = _has_finite_fundamental(data, "spot")
+    if not has_direct_basis and not has_spot:
         missing.append("basis")
+    elif (
+        not has_direct_basis
+        and has_spot
+        and not _has_finite_price(data, "close_raw")
+    ):
+        missing.append("close_raw (required for spot basis fallback)")
     for column in ("inventory", "profit"):
         if not _has_finite_fundamental(data, column):
             missing.append(column)
     if missing:
         raise SystemExit(
-            "six_factor files require finite fundamentals: "
+            "six_factor files require finite inputs: "
             + ", ".join(missing)
         )
 

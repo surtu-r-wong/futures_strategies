@@ -13,7 +13,9 @@ from cta_gtja.coverage import FundamentalCoverageError
 from cta_gtja.data import CTADataSet
 from cta_gtja.factors import (
     BasisFactor,
+    InventoryFactor,
     LongCrossSectionMomentumFactor,
+    ProfitFactor,
     cta_factors_for_set,
     default_cta_factors,
 )
@@ -30,6 +32,131 @@ def _single_symbol_data(closes: np.ndarray, symbol: str = "CU") -> CTADataSet:
         prices=prices,
         fundamentals=pd.DataFrame(columns=["trade_date", "symbol"]),
     )
+
+
+def test_basis_fallback_uses_close_raw_not_adjusted_close():
+    trade_date = date(2020, 1, 1)
+    data = CTADataSet(
+        prices=pd.DataFrame(
+            {
+                "trade_date": [trade_date],
+                "symbol": ["A"],
+                "open": [400.0],
+                "close": [400.0],
+                "close_raw": [100.0],
+            }
+        ),
+        fundamentals=pd.DataFrame(
+            {
+                "trade_date": [trade_date],
+                "symbol": ["A"],
+                "spot": [110.0],
+            }
+        ),
+    )
+
+    scores = BasisFactor().compute(data, ["A"])
+
+    assert scores.loc[trade_date, "A"] == pytest.approx(0.10)
+
+
+def test_basis_factor_falls_back_to_raw_spot_when_basis_rate_nonfinite():
+    dates = [date(2020, 1, 1), date(2020, 1, 2)]
+    data = CTADataSet(
+        prices=pd.DataFrame(
+            {
+                "trade_date": dates,
+                "symbol": ["A", "A"],
+                "open": [400.0, 800.0],
+                "close": [400.0, 800.0],
+                "close_raw": [100.0, 200.0],
+            }
+        ),
+        fundamentals=pd.DataFrame(
+            {
+                "trade_date": dates,
+                "symbol": ["A", "A"],
+                "spot": [110.0, 180.0],
+                "basis_rate": [np.nan, np.inf],
+                "inventory": [10.0, 11.0],
+                "profit": [20.0, 21.0],
+            }
+        ),
+    )
+
+    cta_main._validate_six_factor_request(
+        source="files",
+        factor_set="six_factor",
+        data=data,
+    )
+    scores = BasisFactor().compute(data, ["A"])
+
+    expected = pd.DataFrame(
+        {"A": [0.10, -0.10]},
+        index=pd.Index(dates, name="trade_date"),
+    )
+    expected.columns.name = "symbol"
+    pd.testing.assert_frame_equal(scores, expected)
+
+
+def test_basis_stays_missing_without_published_basis_or_close_raw():
+    trade_date = date(2020, 1, 1)
+    data = CTADataSet(
+        prices=pd.DataFrame(
+            {
+                "trade_date": [trade_date],
+                "symbol": ["A"],
+                "open": [400.0],
+                "close": [400.0],
+            }
+        ),
+        fundamentals=pd.DataFrame(
+            {
+                "trade_date": [trade_date],
+                "symbol": ["A"],
+                "spot": [110.0],
+            }
+        ),
+    )
+
+    scores = BasisFactor().compute(data, ["A"])
+
+    assert pd.isna(scores.loc[trade_date, "A"])
+
+
+def test_materialized_daily_missing_final_fundamental_row_is_not_forward_filled():
+    dates = pd.date_range("2020-01-01", periods=6, freq="D").date
+    symbols = ["A"]
+    data = CTADataSet(
+        prices=pd.DataFrame(
+            {
+                "trade_date": dates,
+                "symbol": symbols * len(dates),
+                "open": [100.0] * len(dates),
+                "close": [100.0] * len(dates),
+                "close_raw": [100.0] * len(dates),
+            }
+        ),
+        fundamentals=pd.DataFrame(
+            {
+                "trade_date": dates[:-1],
+                "symbol": ["A"] * (len(dates) - 1),
+                "basis_rate": [0.01, 0.02, 0.03, 0.04, 0.05],
+                "inventory": [10.0, 11.0, 13.0, 16.0, 20.0],
+                "profit": [100.0, 102.0, 105.0, 109.0, 114.0],
+            }
+        ),
+        fundamental_metadata={"materialized_daily": True},
+    )
+
+    final_date = dates[-1]
+    scores = (
+        BasisFactor().compute(data, symbols),
+        InventoryFactor(lookback_days=1).compute(data, symbols),
+        ProfitFactor(lookback_days=2, min_periods=2).compute(data, symbols),
+    )
+
+    assert all(pd.isna(score.loc[final_date, "A"]) for score in scores)
 
 
 def _sample_cta_data(n: int = 320) -> CTADataSet:
@@ -69,6 +196,64 @@ def _sample_cta_data(n: int = 320) -> CTADataSet:
     )
 
 
+def _pilot_file_basis_fallback_data(
+    *,
+    close_raw_mode: str = "finite",
+) -> CTADataSet:
+    dates = pd.bdate_range("2020-01-01", periods=130).date
+    symbols = list(PILOT_FUNDAMENTAL_SYMBOLS)
+    price_rows = []
+    fundamental_rows = []
+    for symbol_index, symbol in enumerate(symbols):
+        basis = -0.12 + 0.03 * symbol_index
+        inventory_direction = -1.0 if symbol_index < 4 else 1.0
+        for date_index, trade_date in enumerate(dates):
+            close_raw = 100.0 + 20.0 * symbol_index + 0.1 * date_index
+            close = close_raw * 2.0
+            price_row = {
+                "trade_date": trade_date,
+                "symbol": symbol,
+                "open": close * 1.001,
+                "close": close,
+                "volume": 1000.0 + 100.0 * symbol_index + date_index,
+            }
+            if close_raw_mode == "finite":
+                price_row["close_raw"] = close_raw
+            elif close_raw_mode == "nonfinite":
+                price_row["close_raw"] = (
+                    np.nan if date_index % 2 == 0 else np.inf
+                )
+            elif close_raw_mode != "missing":
+                raise ValueError(f"unknown close_raw_mode: {close_raw_mode}")
+            price_rows.append(price_row)
+            fundamental_rows.append(
+                {
+                    "trade_date": trade_date,
+                    "symbol": symbol,
+                    "spot": close_raw * (1.0 + basis),
+                    "basis_rate": (
+                        np.nan
+                        if (date_index + symbol_index) % 2 == 0
+                        else np.inf
+                    ),
+                    "inventory": (
+                        300.0
+                        + 20.0 * symbol_index
+                        + inventory_direction * 0.25 * date_index
+                    ),
+                    "profit": (
+                        50.0
+                        + 3.0 * symbol_index
+                        + np.sin(date_index / 10.0 + symbol_index)
+                    ),
+                }
+            )
+    return CTADataSet(
+        prices=pd.DataFrame(price_rows),
+        fundamentals=pd.DataFrame(fundamental_rows),
+    )
+
+
 def test_cli_defaults_to_price_volume_factor_set():
     args = cta_main.build_parser().parse_args([])
 
@@ -93,23 +278,63 @@ def test_file_six_factor_requires_finite_fundamentals():
     )
 
 
-def test_basis_factor_falls_back_to_spot_when_basis_rate_nonfinite():
-    sample = _sample_cta_data()
-    fundamentals = sample.fundamentals.copy()
-    fundamentals["basis_rate"] = np.nan
-    data = CTADataSet(
-        prices=sample.prices.copy(),
-        fundamentals=fundamentals,
-    )
+def test_file_six_factor_spot_fallback_passes_real_pilot_coverage_and_sleeves():
+    data = _pilot_file_basis_fallback_data()
+    symbols = list(PILOT_FUNDAMENTAL_SYMBOLS)
 
     cta_main._validate_six_factor_request(
         source="files",
         factor_set="six_factor",
         data=data,
     )
+    expected_basis = (
+        data.fundamental_matrix("spot", symbols=symbols)
+        / data.price_matrix("close_raw", symbols=symbols)
+        - 1.0
+    )
+    pd.testing.assert_frame_equal(
+        BasisFactor().compute(data, symbols),
+        expected_basis,
+    )
 
-    scores = BasisFactor().compute(data, data.symbols)
-    assert np.isfinite(scores.to_numpy(dtype=float)).any()
+    weights_by_factor, factor_returns, coverage_audit = build_factor_sleeves(
+        data,
+        factors=default_cta_factors(),
+        symbols=symbols,
+        enforce_coverage=True,
+    )
+
+    basis_coverage = coverage_audit.loc[
+        coverage_audit["metric"].eq("basis_rate")
+    ]
+    assert len(basis_coverage) == len(data.dates)
+    assert basis_coverage["status"].eq("pass").all()
+    assert basis_coverage["available_products"].eq(len(symbols)).all()
+    inventory_sides = coverage_audit.loc[
+        coverage_audit["check"].eq("inventory_sides")
+    ]
+    assert not inventory_sides.empty
+    assert inventory_sides["status"].eq("pass").all()
+    assert inventory_sides["long_candidates"].ge(2).all()
+    assert inventory_sides["short_candidates"].ge(2).all()
+    expected_signs = np.sign(expected_basis.iloc[-1])
+    actual_signs = np.sign(weights_by_factor["basis"].iloc[-1])
+    pd.testing.assert_series_equal(actual_signs, expected_signs)
+    assert factor_returns.shape[1] == 6
+
+
+@pytest.mark.parametrize("close_raw_mode", ["missing", "nonfinite"])
+def test_file_six_factor_spot_fallback_requires_finite_close_raw(
+    close_raw_mode,
+):
+    data = _pilot_file_basis_fallback_data(close_raw_mode=close_raw_mode)
+
+    with pytest.raises(SystemExit, match="close_raw"):
+        cta_main._validate_six_factor_request(
+            source="files",
+            factor_set="six_factor",
+            data=data,
+        )
 
 
 def test_default_factors_build_sleeves():
@@ -304,7 +529,7 @@ def test_price_volume_factor_set_excludes_fundamental_factors():
     ]
 
 
-def test_six_factor_set_remains_default():
+def test_six_factor_set_contains_all_six_factors():
     factors = cta_factors_for_set("six_factor")
 
     assert [f.name for f in factors] == [

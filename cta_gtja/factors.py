@@ -44,11 +44,12 @@ class BasisFactor(CTAFactor):
         basis = basis.where(np.isfinite(basis))
         if basis.empty or not basis.notna().to_numpy().any():
             spot = data.fundamental_matrix("spot", symbols=symbols)
-            close = data.price_matrix("close", symbols=symbols)
-            if spot.empty or close.empty:
+            close_raw = data.price_matrix("close_raw", symbols=symbols)
+            if spot.empty or close_raw.empty:
                 return _empty_like(data, symbols)
-            basis = spot.reindex_like(close).ffill() / close - 1.0
-        return basis.reindex(index=data.dates, columns=symbols).ffill()
+            positive_raw = close_raw.where(close_raw > 0)
+            basis = spot.reindex_like(positive_raw) / positive_raw - 1.0
+        return _align_fundamental(basis, data, symbols)
 
 
 @dataclass(frozen=True)
@@ -63,8 +64,8 @@ class InventoryFactor(CTAFactor):
         inv = data.fundamental_matrix("inventory", symbols=symbols)
         if inv.empty:
             return _empty_like(data, symbols)
-        inv = inv.reindex(index=data.dates, columns=symbols).ffill()
-        return -inv.pct_change(self.lookback_days)
+        inv = _align_fundamental(inv, data, symbols)
+        return -inv.pct_change(self.lookback_days, fill_method=None)
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,7 @@ class ProfitFactor(CTAFactor):
         profit = data.fundamental_matrix("profit", symbols=symbols)
         if profit.empty:
             return _empty_like(data, symbols)
-        profit = profit.reindex(index=data.dates, columns=symbols).ffill()
+        profit = _align_fundamental(profit, data, symbols)
         z = _rolling_zscore(profit, self.lookback_days, self.min_periods)
         return -z
 
@@ -186,6 +187,17 @@ def _empty_like(data: CTADataSet, symbols: list[str]) -> pd.DataFrame:
     return pd.DataFrame(np.nan, index=pd.Index(data.dates, name="trade_date"), columns=symbols, dtype=float)
 
 
+def _align_fundamental(
+    values: pd.DataFrame,
+    data: CTADataSet,
+    symbols: list[str],
+) -> pd.DataFrame:
+    aligned = values.reindex(index=data.dates, columns=symbols)
+    if data.fundamental_metadata.get("materialized_daily") is True:
+        return aligned
+    return aligned.ffill()
+
+
 def _rolling_zscore(values: pd.DataFrame, window: int, min_periods: int) -> pd.DataFrame:
     mean = values.rolling(window, min_periods=min_periods).mean()
     std = values.rolling(window, min_periods=min_periods).std(ddof=0)
@@ -208,4 +220,3 @@ def _ols_slope(y: np.ndarray) -> float:
     if denom <= 0.0:
         return np.nan
     return float((x_centered * (y - y.mean())).sum() / denom)
-
