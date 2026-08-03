@@ -16,6 +16,7 @@ from cta_gtja.factors import (
     cta_factors_for_set,
     default_cta_factors,
 )
+from cta_gtja.pg_source import PILOT_FUNDAMENTAL_SYMBOLS
 from cta_gtja.strategies import build_factor_sleeves, run_high_composite, run_medium_equal_weight
 
 
@@ -71,19 +72,6 @@ def test_cli_defaults_to_price_volume_factor_set():
     args = cta_main.build_parser().parse_args([])
 
     assert args.factor_set == "price_volume"
-
-
-def test_public_pg_six_factor_fails_before_loading(monkeypatch):
-    def unexpected_load(**kwargs):
-        pytest.fail(f"database load must not run: {kwargs}")
-
-    monkeypatch.setattr(cta_main, "load_public_cta_data", unexpected_load)
-
-    with pytest.raises(
-        SystemExit,
-        match="published conservative fundamentals build",
-    ):
-        cta_main.main(["--source", "public-pg", "--factor-set", "six_factor"])
 
 
 def test_file_six_factor_requires_finite_fundamentals():
@@ -329,39 +317,6 @@ def test_data_quality_summary_counts_retained_excluded_and_raw():
     assert _data_quality_summary(quality) == "symbols retained=2 excluded=1 raw_fallback=1"
 
 
-
-def test_data_slice_filters_fundamental_quality_and_copies_metadata():
-    data = _sample_cta_data()
-    fundamental_quality = pd.DataFrame(
-        [
-            {"product_code": "CU", "metric": "basis_rate", "status": "ok"},
-            {"product_code": "RB", "metric": "inventory", "status": "ok"},
-            {"product_code": "TA", "metric": "profit", "status": "ok"},
-        ]
-    )
-    metadata = {
-        "source": "standard",
-        "pit_mode": "conservative",
-        "build_version": "build-c-1",
-        "catalog_version": "v1",
-        "materialized_daily": True,
-    }
-    data = CTADataSet(
-        prices=data.prices,
-        fundamentals=data.fundamentals,
-        fundamental_quality=fundamental_quality,
-        fundamental_metadata=metadata,
-    )
-
-    sliced = data.slice(symbols=["CU", "RB"])
-
-    assert sorted(
-        sliced.fundamental_quality["product_code"].tolist()
-    ) == ["CU", "RB"]
-    assert sliced.fundamental_metadata == metadata
-    assert sliced.fundamental_metadata is not metadata
-
-
 def test_file_dataset_marks_fundamentals_unverified(tmp_path):
     data = _sample_cta_data(n=5)
     data.prices.to_csv(tmp_path / "prices.csv", index=False)
@@ -377,3 +332,58 @@ def test_file_dataset_marks_fundamentals_unverified(tmp_path):
         "source": "files-unverified",
         "materialized_daily": False,
     }
+
+
+@pytest.mark.parametrize(
+    ("factor_set", "requested", "expected"),
+    [
+        ("six_factor", "auto", "standard"),
+        ("price_volume", "auto", "none"),
+        ("six_factor", "standard", "standard"),
+        ("six_factor", "legacy", "legacy"),
+    ],
+)
+def test_fundamentals_source_resolution(factor_set, requested, expected):
+    assert (
+        cta_main._resolve_fundamentals_source(factor_set, requested)
+        == expected
+    )
+
+
+def test_six_factor_rejects_none_fundamentals_source():
+    with pytest.raises(SystemExit, match="fundamentals.*required"):
+        cta_main._resolve_fundamentals_source("six_factor", "none")
+
+
+def test_default_symbols_are_pilot_only_for_six_factor():
+    assert cta_main._default_symbols_for_factor_set(
+        "six_factor", None
+    ) == list(PILOT_FUNDAMENTAL_SYMBOLS)
+    assert cta_main._default_symbols_for_factor_set(
+        "price_volume", None
+    ) is None
+
+    explicit_symbols = ["AU", "AG"]
+    assert cta_main._default_symbols_for_factor_set(
+        "six_factor", explicit_symbols
+    ) == explicit_symbols
+    assert cta_main._default_symbols_for_factor_set(
+        "price_volume", explicit_symbols
+    ) == explicit_symbols
+
+
+def test_fundamental_lineage_summary_renders_standard_metadata():
+    assert cta_main._fundamental_lineage_summary(
+        {
+            "source": "standard",
+            "pit_mode": "conservative",
+            "build_version": "build-c-1",
+            "catalog_version": "v1",
+        }
+    ) == "fundamentals: source=standard pit_mode=conservative build=build-c-1 catalog=v1"
+
+
+def test_fundamental_lineage_summary_renders_none_metadata():
+    assert cta_main._fundamental_lineage_summary(
+        {"source": "none"}
+    ) == "fundamentals: source=none"

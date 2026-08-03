@@ -74,14 +74,13 @@ class CTADataSet:
         if symbols is not None and not quality.empty and "base_symbol" in quality.columns:
             quality = quality[quality["base_symbol"].isin(symbols)].copy()
         fundamental_quality = self.fundamental_quality.copy()
-        if (
-            symbols is not None
-            and not fundamental_quality.empty
-            and "product_code" in fundamental_quality.columns
-        ):
-            fundamental_quality = fundamental_quality[
-                fundamental_quality["product_code"].isin(symbols)
-            ].copy()
+        if not fundamental_quality.empty and {
+            "trade_date",
+            "symbol",
+        }.issubset(fundamental_quality.columns):
+            fundamental_quality = _slice_frame(
+                fundamental_quality, symbols=symbols, start=start, end=end
+            )
         return CTADataSet(
             prices=prices,
             fundamentals=fundamentals,
