@@ -23,6 +23,7 @@ class CTABacktestResult:
     factor_allocations: pd.DataFrame
     factor_returns: pd.DataFrame
     data_quality: pd.DataFrame = field(default_factory=pd.DataFrame)
+    fundamental_coverage: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     def metrics_frame(self) -> pd.DataFrame:
         return pd.DataFrame([self.metrics])
@@ -74,6 +75,7 @@ class CTABacktester:
         *,
         factor_allocations: pd.DataFrame | None = None,
         factor_returns: pd.DataFrame | None = None,
+        fundamental_coverage: pd.DataFrame | None = None,
     ) -> CTABacktestResult:
         weights = weights.sort_index().astype(float).fillna(0.0)
         if self.target_vol is not None:
@@ -102,6 +104,11 @@ class CTABacktester:
             factor_allocations=factor_allocations if factor_allocations is not None else pd.DataFrame(index=weights.index),
             factor_returns=factor_returns if factor_returns is not None else pd.DataFrame(index=weights.index),
             data_quality=self.data.data_quality.copy(),
+            fundamental_coverage=(
+                fundamental_coverage.copy()
+                if fundamental_coverage is not None
+                else pd.DataFrame()
+            ),
         )
 
     def _forward_returns(self, symbols: list[str]) -> pd.DataFrame:
@@ -182,4 +189,3 @@ def _write_equity_png(result: CTABacktestResult, png_path: Path) -> None:
     fig.tight_layout()
     fig.savefig(png_path, dpi=120)
     plt.close(fig)
-

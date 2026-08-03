@@ -9,6 +9,7 @@ import pytest
 import cta_gtja.__main__ as cta_main
 from cta_gtja.__main__ import _data_quality_summary
 from cta_gtja.backtest import write_cta_outputs
+from cta_gtja.coverage import FundamentalCoverageError
 from cta_gtja.data import CTADataSet
 from cta_gtja.factors import (
     BasisFactor,
@@ -113,8 +114,11 @@ def test_basis_factor_falls_back_to_spot_when_basis_rate_nonfinite():
 
 def test_default_factors_build_sleeves():
     data = _sample_cta_data()
-    weights_by_factor, factor_returns = build_factor_sleeves(
-        data, factors=default_cta_factors(), symbols=data.symbols
+    weights_by_factor, factor_returns, coverage_audit = build_factor_sleeves(
+        data,
+        factors=default_cta_factors(),
+        symbols=data.symbols,
+        enforce_coverage=False,
     )
 
     assert set(weights_by_factor) == {
@@ -127,26 +131,56 @@ def test_default_factors_build_sleeves():
     }
     assert factor_returns.shape[1] == 6
     assert factor_returns.dropna(how="all").shape[0] > 0
+    assert not coverage_audit.empty
+    assert coverage_audit["status"].eq("fail").any()
+
+
+def test_default_factors_enforce_coverage_before_portfolio_conversion():
+    data = _sample_cta_data()
+
+    with pytest.raises(FundamentalCoverageError) as error:
+        build_factor_sleeves(
+            data,
+            factors=default_cta_factors(),
+            symbols=data.symbols,
+            enforce_coverage=True,
+        )
+
+    assert "2020-01-01 basis_rate coverage=4 required=6" in str(error.value)
 
 
 def test_medium_equal_weight_runs_end_to_end():
     data = _sample_cta_data()
-    result = run_medium_equal_weight(data, symbols=data.symbols, cost_bps=1.0)
+    result = run_medium_equal_weight(
+        data,
+        symbols=data.symbols,
+        cost_bps=1.0,
+        enforce_coverage=False,
+    )
 
     assert result.metrics["n_periods"] > 100
     assert not result.period_returns.empty
     assert not result.equity.empty
     assert result.weights.abs().sum(axis=1).max() <= 2.5 + 1e-9
     assert result.factor_allocations.shape[1] == 6
+    assert not result.fundamental_coverage.empty
+    assert result.fundamental_coverage["status"].eq("fail").any()
 
 
 def test_high_composite_caps_factor_allocations():
     data = _sample_cta_data()
-    result = run_high_composite(data, symbols=data.symbols, cost_bps=1.0)
+    result = run_high_composite(
+        data,
+        symbols=data.symbols,
+        cost_bps=1.0,
+        enforce_coverage=False,
+    )
 
     assert result.metrics["n_periods"] > 100
     assert result.factor_allocations.max().max() <= 0.50 + 1e-12
     assert result.weights.abs().sum(axis=1).max() <= 3.5 + 1e-9
+    assert not result.fundamental_coverage.empty
+    assert result.fundamental_coverage["status"].eq("fail").any()
 
 
 def test_long_cross_momentum_is_regression_slope_of_log_price():
@@ -200,7 +234,12 @@ def test_future_prices_cannot_change_past_high_composite_decisions():
     dates = data.dates
     cutoff = dates[200]
 
-    baseline = run_high_composite(data, symbols=data.symbols, cost_bps=1.0)
+    baseline = run_high_composite(
+        data,
+        symbols=data.symbols,
+        cost_bps=1.0,
+        enforce_coverage=False,
+    )
 
     perturbed_prices = data.prices.copy()
     future = perturbed_prices["trade_date"] > cutoff
@@ -215,6 +254,7 @@ def test_future_prices_cannot_change_past_high_composite_decisions():
         CTADataSet(prices=perturbed_prices, fundamentals=data.fundamentals.copy()),
         symbols=data.symbols,
         cost_bps=1.0,
+        enforce_coverage=False,
     )
 
     for frame_name in ("factor_allocations", "weights"):
