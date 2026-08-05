@@ -36,6 +36,14 @@
 > 保留原样作为历史记录，**不要照抄**。当前口径以 `cta_carry/signals.py` 与
 > `tests/test_carry_signals.py::test_backwardation_is_long_and_contango_is_short` 为准。
 
+> **2026-08-05 `cost_bps` 默认值改为 4.0（本计划片段仍写 13.0，已过时）。** 原值无推导，
+> 且正好压过 6.94 bps 的净收益打平点。实测：商品期货手续费 0.2~1.1 bps、按本策略持仓
+> 加权的一跳滑点 3.13 bps，合计单边约 2.1（限价）~3.6（市价）bps。依据、样本与敏感性表
+> 见设计文档 §3「2026-08-05 `cost_bps` 依据」。本计划 line 112 / 169 / 2014 / 2030 / 3588
+> 的 `13.0` 是历史记录，当前值以 `cta_carry/config.py` 为准。
+>
+> 操作口径另见 `docs/operations/carry-daily-research.md`。
+
 ---
 
 ## Implementation constraints

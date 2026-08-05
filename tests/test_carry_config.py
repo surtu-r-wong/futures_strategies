@@ -30,7 +30,7 @@ def test_carry_config_defaults() -> None:
         max_gross_leverage=4.0,
         chandelier_atr_multiple=2.5,
         stop_tranches=3,
-        cost_bps=13.0,
+        cost_bps=4.0,
         prewarm_calendar_days=730,
     )
 

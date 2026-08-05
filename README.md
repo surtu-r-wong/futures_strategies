@@ -40,7 +40,9 @@ runbook：`docs/operations/cta-strategy-replication.md`
 
 ## Carry 日线研究版
 
-`cta_carry/` 使用分合约 `public.futures_daily`，按前 120 个品种交易日的日均成交额建立动态交易池，逐日选择主力与严格晚月次主力，并在下一交易日开盘执行 Carry、动量/缩量缩仓过滤和三档日线吊灯止损。
+`cta_carry/` 使用分合约 `public.futures_daily`，按前 120 个品种交易日的日均成交额建立动态交易池，逐日选择主力与严格晚月次主力，并在下一交易日开盘执行 Carry、动量/缩量缩仓过滤和三档日线吊灯止损。方向为**做多 backwardation（`carry_ma > 0`）、做空 contango**。
+
+runbook：`docs/operations/carry-daily-research.md`（含成本假设依据与方向易错点）
 
 ```bash
 .venv/bin/python -m cta_carry \

@@ -277,7 +277,7 @@ def _small_cli_args(
         "--stop-tranches",
         "3",
         "--cost-bps",
-        "13",
+        "4",
         "--prewarm-calendar-days",
         "15",
     ]

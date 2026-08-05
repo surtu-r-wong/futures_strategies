@@ -47,7 +47,13 @@ class CarryConfig:
     max_gross_leverage: float = 4.0
     chandelier_atr_multiple: float = 2.5
     stop_tranches: int = 3
-    cost_bps: float = 13.0
+    # One-way cost in basis points of traded notional, covering commission and
+    # slippage. Measured 2026-08-05 (design spec 3): realised commission on
+    # commodity futures is 0.2-1.1 bps, and one minimum tick weighted by this
+    # strategy's own holdings is 3.13 bps, so a market order crossing the
+    # spread costs about 3.6 bps all in. 4.0 keeps a margin over that while
+    # staying well under the 6.94 bps break-even.
+    cost_bps: float = 4.0
     prewarm_calendar_days: int = 730
 
     def __post_init__(self) -> None:
