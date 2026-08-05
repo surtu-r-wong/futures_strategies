@@ -1,6 +1,7 @@
 """Daily CTA backtester for replicated factor-combo strategies."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -10,6 +11,17 @@ import pandas as pd
 from cta_gtja.data import CTADataSet
 from cta_gtja.portfolio import TRADING_DAYS_PER_YEAR
 from common.metrics import cumulative_equity, summarize
+
+
+FUNDAMENTAL_BUILD_COLUMNS = [
+    "source",
+    "pit_mode",
+    "build_version",
+    "catalog_version",
+    "source_recorded_cutoff",
+    "schema",
+    "materialized_daily",
+]
 
 
 @dataclass
@@ -24,6 +36,8 @@ class CTABacktestResult:
     factor_returns: pd.DataFrame
     data_quality: pd.DataFrame = field(default_factory=pd.DataFrame)
     fundamental_coverage: pd.DataFrame = field(default_factory=pd.DataFrame)
+    fundamental_lineage: pd.DataFrame = field(default_factory=pd.DataFrame)
+    fundamental_metadata: dict[str, object] = field(default_factory=dict)
 
     def metrics_frame(self) -> pd.DataFrame:
         return pd.DataFrame([self.metrics])
@@ -109,6 +123,8 @@ class CTABacktester:
                 if fundamental_coverage is not None
                 else pd.DataFrame()
             ),
+            fundamental_lineage=self.data.fundamental_quality.copy(),
+            fundamental_metadata=dict(self.data.fundamental_metadata),
         )
 
     def _forward_returns(self, symbols: list[str]) -> pd.DataFrame:
@@ -170,9 +186,50 @@ def write_cta_outputs(result: CTABacktestResult, output_prefix: str | Path) -> t
         result.factor_returns.to_excel(writer, sheet_name="factor_returns")
         if not result.data_quality.empty:
             result.data_quality.to_excel(writer, sheet_name="data_quality", index=False)
+        if not result.fundamental_coverage.empty:
+            result.fundamental_coverage.to_excel(
+                writer,
+                sheet_name="fundamental_coverage",
+                index=False,
+            )
+        if not result.fundamental_lineage.empty:
+            _excel_safe_lineage(result.fundamental_lineage).to_excel(
+                writer,
+                sheet_name="fundamental_lineage",
+                index=False,
+            )
+        metadata = dict(result.fundamental_metadata)
+        build = {
+            column: metadata.get(column)
+            for column in FUNDAMENTAL_BUILD_COLUMNS
+        }
+        build["source"] = metadata.get("source") or "unknown"
+        pd.DataFrame(
+            [build],
+            columns=FUNDAMENTAL_BUILD_COLUMNS,
+        ).to_excel(writer, sheet_name="fundamental_build", index=False)
 
     _write_equity_png(result, png_path)
     return xlsx_path, png_path
+
+
+def _excel_safe_lineage(lineage: pd.DataFrame) -> pd.DataFrame:
+    out = lineage.copy()
+    for column in out.columns:
+        if not pd.api.types.is_object_dtype(out[column].dtype):
+            continue
+        out[column] = out[column].map(
+            lambda value: json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            if isinstance(value, (dict, list))
+            else value
+        )
+    return out
 
 
 def _write_equity_png(result: CTABacktestResult, png_path: Path) -> None:

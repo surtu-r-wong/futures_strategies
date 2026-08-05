@@ -121,3 +121,82 @@ def test_price_volume_control_is_independent_of_fundamental_values(
         changed.period_returns,
     )
     pd.testing.assert_series_equal(baseline.equity, changed.equity)
+
+
+def test_future_fundamentals_cannot_change_past_six_factor_results(
+    complete_price_frame,
+    complete_fundamental_frame,
+):
+    dates = sorted(complete_fundamental_frame["trade_date"].unique())
+    assert len(PILOT_SYMBOLS) == 9
+    assert set(complete_fundamental_frame["symbol"].unique()) == set(PILOT_SYMBOLS)
+    cutoff = dates[260]
+    metadata = {
+        "source": "standard",
+        "pit_mode": "conservative",
+        "materialized_daily": True,
+    }
+    baseline_data = CTADataSet(
+        prices=complete_price_frame,
+        fundamentals=complete_fundamental_frame,
+        fundamental_metadata=metadata,
+    )
+    mutated_fundamentals = complete_fundamental_frame.copy()
+    future = mutated_fundamentals["trade_date"] > cutoff
+    columns = ["spot", "basis_rate", "inventory", "profit"]
+    mutated_fundamentals.loc[future, columns] *= -1000.0
+    mutated_data = CTADataSet(
+        prices=complete_price_frame.copy(),
+        fundamentals=mutated_fundamentals,
+        fundamental_metadata=dict(metadata),
+    )
+
+    enforced_baseline = run_medium_equal_weight(
+        baseline_data,
+        symbols=list(PILOT_SYMBOLS),
+    )
+    # The sign-flipping corruption intentionally makes the inventory-side
+    # audit fail after the cutoff.  Run both comparison arms without raising,
+    # while the separate baseline above proves the original fixture passes
+    # the enforced gate.
+    baseline = run_medium_equal_weight(
+        baseline_data,
+        symbols=list(PILOT_SYMBOLS),
+        enforce_coverage=False,
+    )
+    mutated = run_medium_equal_weight(
+        mutated_data,
+        symbols=list(PILOT_SYMBOLS),
+        enforce_coverage=False,
+    )
+
+    assert not enforced_baseline.fundamental_coverage.empty
+    assert enforced_baseline.fundamental_coverage["status"].eq("pass").all()
+    inventory_sides = enforced_baseline.fundamental_coverage.loc[
+        enforced_baseline.fundamental_coverage["check"].eq("inventory_sides")
+    ]
+    assert not inventory_sides.empty
+    assert inventory_sides["long_candidates"].min() >= 2
+    assert inventory_sides["short_candidates"].min() >= 2
+    mutated_failures = mutated.fundamental_coverage.loc[
+        mutated.fundamental_coverage["status"].eq("fail")
+    ]
+    assert not mutated_failures.empty
+    assert (mutated_failures["trade_date"].dt.date > cutoff).all()
+
+    pd.testing.assert_frame_equal(
+        baseline.weights.loc[baseline.weights.index <= cutoff],
+        mutated.weights.loc[mutated.weights.index <= cutoff],
+    )
+    pd.testing.assert_frame_equal(
+        baseline.factor_returns.loc[baseline.factor_returns.index <= cutoff],
+        mutated.factor_returns.loc[mutated.factor_returns.index <= cutoff],
+    )
+    pd.testing.assert_series_equal(
+        baseline.period_returns.loc[baseline.period_returns.index <= cutoff],
+        mutated.period_returns.loc[mutated.period_returns.index <= cutoff],
+    )
+    pd.testing.assert_series_equal(
+        baseline.equity.loc[baseline.equity.index <= cutoff],
+        mutated.equity.loc[mutated.equity.index <= cutoff],
+    )

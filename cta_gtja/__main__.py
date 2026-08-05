@@ -210,6 +210,10 @@ def main(argv: list[str] | None = None) -> None:
             prefix = prefix.with_name(f"{prefix.name}_{name}")
         xlsx_path, png_path = write_cta_outputs(result, prefix)
         print(f"strategy: {name}")
+        print(
+            "fundamental_coverage: "
+            f"{_fundamental_coverage_summary(result.fundamental_coverage)}"
+        )
         for k, v in result.metrics.items():
             print(f"  {k}: {v}")
         print(f"  xlsx:   {xlsx_path.resolve()}")
@@ -227,6 +231,42 @@ def _data_quality_summary(quality) -> str:
         if "raw_fallback" in quality.columns else 0
     )
     return f"symbols retained={retained} excluded={excluded} raw_fallback={raw}"
+
+
+def _fundamental_coverage_summary(coverage) -> str:
+    if coverage is None or coverage.empty:
+        return "rows=0 failed=0 minimum=unknown"
+
+    rows = len(coverage)
+    if "status" in coverage.columns:
+        failed_mask = coverage["status"].astype(str).eq("fail")
+    else:
+        failed_mask = pd.Series(False, index=coverage.index)
+    failed = int(failed_mask.sum())
+
+    available = (
+        pd.to_numeric(coverage["available_products"], errors="coerce").dropna()
+        if "available_products" in coverage.columns
+        else pd.Series(dtype=float)
+    )
+    if available.empty:
+        minimum = "unknown"
+    else:
+        minimum_value = float(available.min())
+        minimum = f"{minimum_value:g}"
+
+    summary = f"rows={rows} failed={failed} minimum={minimum}"
+    if failed and "reason" in coverage.columns:
+        reasons = sorted(
+            {
+                str(reason).strip()
+                for reason in coverage.loc[failed_mask, "reason"].dropna()
+                if str(reason).strip()
+            }
+        )[:3]
+        if reasons:
+            summary += f" reasons={' | '.join(reasons)}"
+    return summary
 
 
 def _parse_symbols(value: str | None) -> list[str] | None:

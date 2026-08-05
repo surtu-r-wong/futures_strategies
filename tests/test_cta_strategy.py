@@ -572,6 +572,135 @@ def test_write_cta_outputs_includes_data_quality_sheet(tmp_path):
     assert written.loc[0, "selected_adj"] == "fa"
 
 
+def test_write_cta_outputs_includes_fundamental_audit_sheets(tmp_path):
+    base = _sample_cta_data()
+    quality = pd.DataFrame(
+        [
+            {
+                "product_code": "CU",
+                "metric": "basis_rate",
+                "status": "ok",
+                "lineage": {"series_key": "cu_basis"},
+            },
+            {
+                "product_code": "RB",
+                "metric": "inventory",
+                "status": "ok",
+                "lineage": {"series_key": "rb_inventory"},
+            },
+        ]
+    )
+    metadata = {
+        "source": "standard",
+        "pit_mode": "conservative",
+        "build_version": "build-c-1",
+        "catalog_version": "v1",
+        "source_recorded_cutoff": "2026-07-31T15:00:00+08:00",
+        "schema": "commodity_research",
+        "materialized_daily": True,
+        "lineage": {"basis_rate": ["cu_basis"]},
+    }
+    data = CTADataSet(
+        prices=base.prices,
+        fundamentals=base.fundamentals,
+        fundamental_quality=quality,
+        fundamental_metadata=metadata,
+    )
+
+    result = run_medium_equal_weight(
+        data,
+        symbols=data.symbols,
+        enforce_coverage=False,
+    )
+
+    pd.testing.assert_frame_equal(result.fundamental_lineage, quality)
+    assert result.fundamental_lineage is not quality
+    assert result.fundamental_metadata == metadata
+    assert result.fundamental_metadata is not metadata
+
+    xlsx, _ = write_cta_outputs(result, tmp_path / "cta_fundamental")
+
+    sheets = pd.ExcelFile(xlsx).sheet_names
+    assert "fundamental_coverage" in sheets
+    assert "fundamental_lineage" in sheets
+    assert "fundamental_build" in sheets
+    written_lineage = pd.read_excel(xlsx, sheet_name="fundamental_lineage")
+    assert written_lineage["product_code"].tolist() == ["CU", "RB"]
+    assert written_lineage.loc[0, "lineage"] == '{"series_key":"cu_basis"}'
+    build = pd.read_excel(xlsx, sheet_name="fundamental_build")
+    assert list(build.columns) == [
+        "source",
+        "pit_mode",
+        "build_version",
+        "catalog_version",
+        "source_recorded_cutoff",
+        "schema",
+        "materialized_daily",
+    ]
+    assert build.loc[0, "source"] == "standard"
+    assert bool(build.loc[0, "materialized_daily"]) is True
+    assert "lineage" not in build.columns
+
+
+def test_price_volume_output_only_writes_fundamental_build_sheet(tmp_path):
+    base = _sample_cta_data()
+    data = CTADataSet(
+        prices=base.prices,
+        fundamentals=base.fundamentals,
+        fundamental_quality=pd.DataFrame(),
+        fundamental_metadata={"source": "none"},
+    )
+    result = run_medium_equal_weight(
+        data,
+        symbols=data.symbols,
+        factors=cta_factors_for_set("price_volume"),
+    )
+
+    xlsx, _ = write_cta_outputs(result, tmp_path / "cta_price_volume")
+
+    sheets = pd.ExcelFile(xlsx).sheet_names
+    assert "fundamental_coverage" not in sheets
+    assert "fundamental_lineage" not in sheets
+    assert "fundamental_build" in sheets
+    build = pd.read_excel(xlsx, sheet_name="fundamental_build")
+    assert build.loc[0, "source"] == "none"
+
+
+def test_fundamental_coverage_summary_is_deterministic():
+    coverage = pd.DataFrame(
+        {
+            "available_products": [9, 6, 4, 3, 5, 7, 8],
+            "status": ["pass", "fail", "fail", "fail", "fail", "fail", "fail"],
+            "reason": [
+                "ignored-pass-reason",
+                "zeta",
+                "beta",
+                "",
+                "alpha",
+                "beta",
+                "delta",
+            ],
+        }
+    )
+
+    assert cta_main._fundamental_coverage_summary(coverage) == (
+        "rows=7 failed=6 minimum=3 reasons=alpha | beta | delta"
+    )
+    assert cta_main._fundamental_coverage_summary(pd.DataFrame()) == (
+        "rows=0 failed=0 minimum=unknown"
+    )
+    unavailable = pd.DataFrame(
+        {
+            "available_products": [None, None],
+            "status": ["pass", "pass"],
+            "reason": ["", ""],
+        }
+    )
+    assert cta_main._fundamental_coverage_summary(unavailable) == (
+        "rows=2 failed=0 minimum=unknown"
+    )
+
+
 def test_data_quality_summary_counts_retained_excluded_and_raw():
     quality = pd.DataFrame([
         {"base_symbol": "A", "included": True, "raw_fallback": False},
