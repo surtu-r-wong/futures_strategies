@@ -569,6 +569,18 @@ build starts later than 2019-01-01, the gate must fail with the first
 uncovered date — document the actual first covered date and re-run with
 `--start` set to exactly that date; do not silently truncate in the loader.
 
+> **2026-08-05 measured upstream status.** The pi generator fix has landed
+> (`ratio = new_close / old_close`, multiplicative accumulation, non-finite
+> and non-positive guards, plus `test_ratio_adjustments.py` /
+> `scan_adjustment_quality.py` on `pi:/home/pi/market-monitor/backend/`), and
+> regeneration is 74/79 symbols for `standard` and 75/79 for `nanhua`.
+> The stragglers — `ZC`, `WR`, `FU`, `OI`, `BR` — still carry additive-gap
+> factors and **none of them is a pilot product**, so the price-adjustment
+> condition is satisfied for this nine-product run. What is still stalled is
+> the EOD daily-update chain: `futures_daily` and `continuous_contract_ohlc`
+> end at 2026-04-29. The deferral below therefore now rests only on the
+> user's promotion of CTA to monthly use.
+
 ⚠️ Interpretation limit (applies until the upstream price-adjustment fix
 lands): these are data-path comparison runs. Their return series are not yet
 trustworthy strategy evidence, and the research deck's Sharpe (`2.43`),

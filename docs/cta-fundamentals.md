@@ -124,7 +124,7 @@ fundamental_coverage: rows=<n> failed=0 minimum=6
 量价对照组只有 `fundamental_build` 一张，且 `source="none"` —— 它不查、也不宣称任何 build。
 `fundamental_build` 里 **不放** JSON 血统字典。
 
-## 7. ⚠️ 解释边界（在上游价格复权修复落地之前一直有效）
+## 7. ⚠️ 解释边界（在 PENDING 解除并完成 formal run 认证之前一直有效）
 
 这些是 **数据通路比较运行**，不是策略证据：
 
@@ -136,6 +136,31 @@ fundamental_coverage: rows=<n> failed=0 minimum=6
 
 在上游价格复权修复落地、且用户把 CTA 提升为月度使用之前，**不存在"正式运行"（formal run）**。
 运行分级 / 认证链是被显式 deferred 的（见计划文末 Deferred 段）。
+
+### 7.1 上游实测状态（2026-08-05）
+
+| 项 | 状态 |
+|---|---|
+| pi 比例复权生成器 | ✅ 已落地（`ratio = new_close / old_close`，乘性累乘，带非有限/非正防护） |
+| 连续合约重生成 | ⚠️ 部分：`standard` 74/79、`nanhua` 75/79 |
+| 未重生成品种 | `ZC` `WR` `FU` `OI` `BR` —— **均不属九品种试点** |
+| 九品种试点价格 | ✅ 2019-01-01 ~ 2025-09-30 窗口内 9/9 `status=ok`、`selected_adj=fa`、无需 raw fallback |
+| EOD 日更链 | ❌ 仍停摆：`futures_daily` / `continuous_contract_ohlc` 止于 **2026-04-29** |
+| `spot_prices` / `inventory`（legacy 表） | ❌ 止于 2025-10-17 / 2025-10-16，`legacy` 通路已无研究价值 |
+
+判据（可复现）：比例复权下 `close_ba / close_raw` 在每个换月段内恒定、`close_ba - close_raw` 逐日变动；
+加性残留则相反，且因子会出现 ≤0 与价格量级取值。
+
+结论：**对这九个品种，复权前提已满足**；deferral 现在只压在"用户把 CTA 提升为月度使用"这一条上。
+
+### 7.2 build 区间会止于 2026-04-29
+
+`commodity_fundamentals/builder.py` 的交易日历取自 `continuous_contract_ohlc` 的实际行
+（`calendar = list(product_futures["trade_date"])`）。因此 **fundamentals build 无论 `--end`
+填什么都只能到 2026-04-29** —— 不报错，安静地少一截。
+
+- Wind **capture 仍应抓到最新**：观测进 append-only 存储，日更链一恢复即可用；
+- **build 的 `--end` 应显式写 `2026-04-29`**，别当成 bug 去查。
 
 ## 8. 运行证据表
 
