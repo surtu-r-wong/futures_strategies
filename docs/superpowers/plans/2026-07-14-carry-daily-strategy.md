@@ -10,6 +10,26 @@
 
 ---
 
+> **2026-08-05 执行状态。** Task 9（最终验证）逐步实测通过，checkbox 已勾。
+> Tasks 1–8 的 checkbox 在当时执行过程中未逐条勾选，此处不追认 —— 其交付物可由
+> 仓库客观状态验证：`cta_carry/` 11 个模块、`tests/test_carry_*.py` 8 个测试文件
+> 加 `carry_fixtures.py`、README「Carry 日线研究版」段，以及 `b151142`…`0178cc1`
+> 共 20 次 Carry 提交。
+>
+> Task 9 实测记录：Carry 聚焦测试 **243 passed**；全仓回归 **279 passed**；
+> `python -m cta_carry --help` 退出 0；`cta_carry` 与 Carry 测试中无 `spread_analyzer`
+> 匹配；`git diff --check` 无输出。只读 PG smoke
+> （`--start 2024-01-02 --end 2026-04-29`）产出八张必需 sheet 齐全，
+> `report_start_date=2024-01-02` 与请求起点一致（未被静默推迟），
+> `signal_ready_date=2022-07-19`、`vol_ready_date=2023-08-03`
+> 且 `vol_ready_date <= report_start_date`，`code_version=7ac6758`。
+>
+> ⚠️ 该 smoke 区间的绩效为 `ann_return=-28.76% sharpe=-1.72 max_drawdown=54.87%`。
+> 这是研究结果、不是验证失败 —— Step 5 的验收口径是结构与边界正确性。绩效解读还需
+> 注意：`futures_daily` 止于 2026-04-29，且该区间与 `cta_gtja` 一样受上游数据链停摆影响。
+
+---
+
 ## Implementation constraints
 
 - 以已批准设计 `docs/superpowers/specs/2026-07-14-carry-daily-strategy-design.md` 为唯一规则来源。
@@ -3702,7 +3722,7 @@ git commit -m "feat: add Carry reports and CLI"
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Document the new package and exact run commands**
+- [x] **Step 1: Document the new package and exact run commands**
 
 Update the layout section so `cta_carry/` is no longer described as “next strategy”. Add a Carry section containing:
 
@@ -3731,7 +3751,7 @@ Update the layout section so `cta_carry/` is no longer described as “next stra
 
 Ensure the nested code fences render correctly by using four tildes for the outer documentation block while editing the actual README.
 
-- [ ] **Step 2: Run focused tests from a clean process**
+- [x] **Step 2: Run focused tests from a clean process**
 
 Run:
 
@@ -3741,7 +3761,7 @@ Run:
 
 Expected: every Carry test passes with zero failures.
 
-- [ ] **Step 3: Run the entire offline regression suite**
+- [x] **Step 3: Run the entire offline regression suite**
 
 Run:
 
@@ -3751,7 +3771,7 @@ Run:
 
 Expected: every existing and new test passes with zero failures.
 
-- [ ] **Step 4: Verify CLI, module isolation, and deterministic structure**
+- [x] **Step 4: Verify CLI, module isolation, and deterministic structure**
 
 Run each command separately:
 
@@ -3773,7 +3793,7 @@ git diff --check
 
 Expected: no output.
 
-- [ ] **Step 5: Run the explicit read-only PostgreSQL smoke check**
+- [x] **Step 5: Run the explicit read-only PostgreSQL smoke check**
 
 With valid local database settings, run:
 
@@ -3791,14 +3811,14 @@ Inspect the generated workbook:
 
 Expected after a successful run: all eight required sheets exist; `report_start_date`, `signal_ready_date`, and `vol_ready_date` are populated; `vol_ready_date` is not later than `report_start_date`.
 
-- [ ] **Step 6: Commit documentation**
+- [x] **Step 6: Commit documentation**
 
 ```bash
 git add README.md
 git commit -m "docs: document Carry daily research"
 ```
 
-- [ ] **Step 7: Final verification before declaring completion**
+- [x] **Step 7: Final verification before declaring completion**
 
 Run:
 
