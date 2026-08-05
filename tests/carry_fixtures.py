@@ -45,10 +45,14 @@ def make_carry_panel(periods: int = 24) -> CarryDataSet:
     for day_index, trade_date in enumerate(dates):
         for product_index, product in enumerate(products):
             perturbation = 0.002 * math.sin(day_index + product_index * 0.7)
+            # A and B are the contango end of the curve and therefore the short
+            # leg, D and E the backwardated end and therefore the long leg. Give
+            # each leg the trend that agrees with its direction so the momentum
+            # filter passes and the integration tests exercise live positions.
             if product in ("A", "B"):
-                trend = 1.0 + 0.003 * day_index
-            elif product in ("D", "E"):
                 trend = 1.0 - 0.003 * day_index
+            elif product in ("D", "E"):
+                trend = 1.0 + 0.003 * day_index
             else:
                 trend = 1.0
             near_close = (100.0 + 10.0 * product_index) * (trend + perturbation)

@@ -28,6 +28,14 @@
 > 这是研究结果、不是验证失败 —— Step 5 的验收口径是结构与边界正确性。绩效解读还需
 > 注意：`futures_daily` 止于 2026-04-29，且该区间与 `cta_gtja` 一样受上游数据链停摆影响。
 
+> **2026-08-05 方向修正（本计划的代码片段已过时）。** 追查上述负绩效后确认 Carry 信号
+> 方向写反了：应做多 backwardation（`carry_ma > 0`）、做空 contango（`carry_ma < 0`），
+> 原实现相反。修正记录与实测证据见设计文档 §6.4「2026-08-05 方向修正」。
+>
+> 本计划 Task 5 的示例断言（`rank_direction` 对 A 为 `1`、对 E 为 `-1`）与示例实现片段
+> 保留原样作为历史记录，**不要照抄**。当前口径以 `cta_carry/signals.py` 与
+> `tests/test_carry_signals.py::test_backwardation_is_long_and_contango_is_short` 为准。
+
 ---
 
 ## Implementation constraints

@@ -116,8 +116,11 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
         )
         bottom = ready.head(selection_count)
         top = ready.tail(selection_count)
-        long_indexes = bottom.loc[bottom["carry_ma"] < 0.0].index
-        short_indexes = top.loc[top["carry_ma"] > 0.0].index
+        # carry_ma > 0 is backwardation (near above far) and carries the roll
+        # premium, so the top of the ranking is the long leg; carry_ma < 0 is
+        # contango and pays it away, so the bottom is the short leg.
+        short_indexes = bottom.loc[bottom["carry_ma"] < 0.0].index
+        long_indexes = top.loc[top["carry_ma"] > 0.0].index
         signals.loc[long_indexes, "rank_direction"] = 1
         signals.loc[short_indexes, "rank_direction"] = -1
 

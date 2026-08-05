@@ -117,8 +117,8 @@ def test_five_product_ranks_and_trend_filters_start_on_second_day() -> None:
     frame, dates = _two_day_cross_section(
         {"A": -0.5, "B": -0.2, "C": 0.0, "D": 0.2, "E": 0.5},
         latest={
-            "A": {"main_close": 110.0},
-            "E": {"main_close": 90.0},
+            "A": {"main_close": 90.0},
+            "E": {"main_close": 110.0},
         },
     )
 
@@ -132,29 +132,61 @@ def test_five_product_ranks_and_trend_filters_start_on_second_day() -> None:
         for product in ["A", "B", "C", "D", "E"]
     ]
     assert latest["rank_direction"].to_dict() == {
-        "A": 1,
+        "A": -1,
         "B": 0,
         "C": 0,
         "D": 0,
-        "E": -1,
+        "E": 1,
     }
     assert latest.loc["A", "strength"] == 1.0
     assert latest.loc["E", "strength"] == 1.0
-    assert latest.loc["A", "effective_direction"] == 1
-    assert latest.loc["E", "effective_direction"] == -1
+    assert latest.loc["A", "effective_direction"] == -1
+    assert latest.loc["E", "effective_direction"] == 1
     assert set(latest["reason"]) == {"rank_and_filter"}
     first_day = result.signals[result.signals["trade_date"] == dates[0]]
     assert first_day["input_ready"].tolist() == [False] * 5
     assert set(first_day["reason"]) == {"insufficient_cross_section"}
 
 
+def test_backwardation_is_long_and_contango_is_short() -> None:
+    """Carry direction. ``carry_raw = main_close / secondary_close - 1``, so a
+    positive ``carry_ma`` means the dominant (near) contract trades above the
+    later one -- backwardation -- and a negative one means contango. The carry
+    premium is earned by holding the backwardated side, so the most positive
+    carry is the long leg and the most negative carry is the short leg.
+    """
+    frame, _ = _two_day_cross_section(
+        {"A": -0.5, "B": -0.2, "C": 0.0, "D": 0.2, "E": 0.5},
+        latest={
+            "A": {"main_close": 90.0},
+            "E": {"main_close": 110.0},
+        },
+    )
+
+    latest = _latest_by_product(build_signals(frame, _config()))
+
+    assert latest["rank_direction"].to_dict() == {
+        "A": -1,
+        "B": 0,
+        "C": 0,
+        "D": 0,
+        "E": 1,
+    }
+    assert latest.loc["A", "strength"] == 1.0
+    assert latest.loc["E", "strength"] == 1.0
+    assert latest.loc["A", "effective_direction"] == -1
+    assert latest.loc["E", "effective_direction"] == 1
+
+
 def test_reverse_trend_uses_half_strength_only_when_volume_and_oi_are_low() -> None:
     carries = {"A": -0.5, "B": -0.2, "C": 0.0, "D": 0.2, "E": 0.5}
+    # A is the most contango product, so it is the short leg; a rising price is
+    # therefore the reverse trend that the contraction filter has to judge.
     half_frame, _ = _two_day_cross_section(
         carries,
         latest={
             "A": {
-                "main_close": 90.0,
+                "main_close": 110.0,
                 "main_volume": 80.0,
                 "main_oi": 80.0,
             }
@@ -164,7 +196,7 @@ def test_reverse_trend_uses_half_strength_only_when_volume_and_oi_are_low() -> N
         carries,
         latest={
             "A": {
-                "main_close": 90.0,
+                "main_close": 110.0,
                 "main_volume": 80.0,
                 "main_oi": 120.0,
             }
@@ -174,10 +206,10 @@ def test_reverse_trend_uses_half_strength_only_when_volume_and_oi_are_low() -> N
     half = _latest_by_product(build_signals(half_frame, _config())).loc["A"]
     zero = _latest_by_product(build_signals(zero_frame, _config())).loc["A"]
 
-    assert half["rank_direction"] == 1
+    assert half["rank_direction"] == -1
     assert half["strength"] == 0.5
-    assert half["effective_direction"] == 1
-    assert zero["rank_direction"] == 1
+    assert half["effective_direction"] == -1
+    assert zero["rank_direction"] == -1
     assert zero["strength"] == 0.0
     assert zero["effective_direction"] == 0
 
@@ -192,7 +224,7 @@ def test_equal_price_volume_and_oi_moving_averages_give_zero_strength() -> None:
     assert row["main_close"] == row["price_ma"]
     assert row["main_volume"] == row["volume_ma"]
     assert row["main_oi"] == row["oi_ma"]
-    assert row["rank_direction"] == 1
+    assert row["rank_direction"] == -1
     assert row["strength"] == 0.0
     assert row["effective_direction"] == 0
 
@@ -269,14 +301,16 @@ def test_carry_ties_break_by_product_and_sign_gate_blocks_wrong_sign() -> None:
     positive = _latest_by_product(build_signals(positive_frame, _config()))
 
     assert tied["rank_direction"].to_dict() == {
-        "A": 1,
+        "A": -1,
         "B": 0,
         "C": 0,
         "D": 0,
-        "E": -1,
+        "E": 1,
     }
+    # All carries positive: the bottom of the ranking is still contango-gated,
+    # so the short leg stays empty while the top takes the long.
     assert positive.loc["A", "rank_direction"] == 0
-    assert positive.loc["E", "rank_direction"] == -1
+    assert positive.loc["E", "rank_direction"] == 1
 
 
 def test_missing_atr_does_not_count_toward_ready_cross_section() -> None:
@@ -320,7 +354,7 @@ def test_equal_price_ma_blocks_half_strength_despite_double_contraction() -> Non
 
     row = _latest_by_product(build_signals(frame, _config())).loc["A"]
 
-    assert row["rank_direction"] == 1
+    assert row["rank_direction"] == -1
     assert row["main_close"] == row["price_ma"]
     assert row["main_volume"] < row["volume_ma"]
     assert row["main_oi"] < row["oi_ma"]

@@ -600,14 +600,15 @@ def test_main_contract_roll_trades_both_legs_with_roll_reason() -> None:
     next_open = data.dates[18]
     product_a = (prices["trade_date"] == roll_date) & (prices["product"] == "A")
     prices.loc[product_a, "turnover"] = 0.0
+    # Crushing the front contract alone is enough to hand main status to A2501
+    # (main = highest oi). Do not also inflate A2501: A is the short leg, the
+    # roll already steps the quoted price up onto the pricier deferred contract,
+    # and an inflated volume/oi would fail the contraction filter and turn the
+    # roll into a signal exit -- which is not what this test is about.
     prices.loc[
         product_a & (prices["contract"] == "A2410"),
         ["oi", "volume"],
     ] = [100.0, 100.0]
-    prices.loc[
-        product_a & (prices["contract"] == "A2501"),
-        ["oi", "volume"],
-    ] = [700.0, 500.0]
     changed = CarryDataSet(prices, data.data_quality.copy())
 
     result = CarryBacktester(
