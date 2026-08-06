@@ -15,6 +15,7 @@ from .risk import (
     PositionState,
     ShadowVolWindow,
     apply_chandelier,
+    apply_equal_weight_capital,
     compute_contract_atr,
     raw_target_weight,
     scale_weights,
@@ -597,7 +598,7 @@ def _close_plan(
 
     return ClosePlan(
         states=next_states,
-        raw_weights=raw_weights,
+        raw_weights=apply_equal_weight_capital(raw_weights, config),
         reasons=reasons,
     )
 

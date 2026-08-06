@@ -76,6 +76,12 @@ class CarryConfig:
     # research report, which names a secondary but never defines it; on Chinese
     # exchanges that contract is often NEARER than the main.
     secondary_selection: str = "strictly_later"
+    # Divide per-product ATR risk budgets by the number of qualifying products, so
+    # the book does not grow just because more products qualify -- the report's
+    # "equal capital across qualifying products".  Off by default, which sizes
+    # each product on its own ATR budget and lets gross leverage scale with
+    # breadth until the cap binds.
+    equal_weight_capital: bool = False
     prewarm_calendar_days: int = 730
 
     def __post_init__(self) -> None:
@@ -108,6 +114,9 @@ class CarryConfig:
             value = getattr(self, field_name)
             if not _is_finite_number(value) or value < 0:
                 raise ValueError(f"{field_name} must be finite and nonnegative")
+
+        if type(self.equal_weight_capital) is not bool:
+            raise ValueError("equal_weight_capital must be a bool")
 
         if self.secondary_selection not in _SECONDARY_SELECTIONS:
             raise ValueError(

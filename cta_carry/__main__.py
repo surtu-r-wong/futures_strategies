@@ -69,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trend-band-atr", type=float)
     parser.add_argument("--trend-confirm-days", type=int)
     parser.add_argument(
+        "--equal-weight-capital",
+        action="store_true",
+        default=None,
+    )
+    parser.add_argument(
         "--secondary-selection",
         choices=["strictly_later", "second_by_oi"],
     )

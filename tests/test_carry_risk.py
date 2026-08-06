@@ -11,6 +11,7 @@ from cta_carry.risk import (
     ShadowVolWindow,
     VolEstimate,
     apply_chandelier,
+    apply_equal_weight_capital,
     compute_contract_atr,
     raw_target_weight,
     scale_weights,
@@ -535,3 +536,19 @@ def test_contract_atr_rejects_nullable_ohlc_and_previous_close() -> None:
         False,
     ]
     assert result.loc[5, "atr"] == 2.0
+
+
+def test_equal_weight_capital_divides_raw_weights_by_active_product_count() -> None:
+    """The report allocates capital equally across qualifying products, so the
+    book does not grow just because more products qualify.  Off (the default)
+    each product keeps its standalone ATR risk budget."""
+    raw = {"RB2405.SHF": 0.6, "CU2405.SHF": -0.3, "AU2406.SHF": 0.9}
+
+    scaled = apply_equal_weight_capital(raw, CarryConfig(equal_weight_capital=True))
+    untouched = apply_equal_weight_capital(raw, CarryConfig())
+
+    assert scaled == pytest.approx(
+        {"RB2405.SHF": 0.2, "CU2405.SHF": -0.1, "AU2406.SHF": 0.3}
+    )
+    assert untouched == raw
+    assert apply_equal_weight_capital({}, CarryConfig(equal_weight_capital=True)) == {}

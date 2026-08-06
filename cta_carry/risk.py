@@ -112,6 +112,25 @@ def raw_target_weight(
     return float(raw_weight)
 
 
+def apply_equal_weight_capital(raw_weights, config) -> dict:
+    """Split capital equally across qualifying products when configured.
+
+    Each product is sized on its own ATR risk budget, so without this the book
+    grows with breadth until the gross cap binds.  Dividing by the active count
+    holds total capital fixed instead, which is what the source report
+    describes.  Volatility scaling later re-targets the whole book, so the
+    effect is on how exposure is distributed across time -- lighter on wide
+    days, heavier on narrow ones -- not on the average level.
+    """
+    if not config.equal_weight_capital or not raw_weights:
+        return raw_weights
+    active_count = len(raw_weights)
+    return {
+        contract: weight / active_count
+        for contract, weight in raw_weights.items()
+    }
+
+
 def scale_weights(raw_weights, vol_scale, config) -> dict:
     """Apply volatility scaling and a proportional gross leverage cap."""
     if not _is_finite_number(vol_scale) or vol_scale <= 0.0:
