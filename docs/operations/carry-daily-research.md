@@ -90,7 +90,35 @@ cd /home/elfbob/claude-code/futures_strategies
 .venv/bin/python -m cta_carry ... --cost-bps 3
 ```
 
-## 5. 已知边界
+## 5. 趋势滞后参数（2026-08-06 新增）
+
+2026-08-06 归因发现：绩效的主要拖累不是止损（只触发 661 次、占交易 1.79%，98.34% 持仓日
+满档），而是动量过滤器的**状态抖动** —— 83.6% 的平仓发生时 Carry 排名仍指向同方向，
+其中 43.6% 隔一个交易日就原方向重新进场；这些往返占 **53.3% 的总换手 / 年化 4.16% 成本**。
+完整证据见 `docs/specs/2026-08-06-carry-trend-hysteresis-design.md`。
+
+为此在 signals 层引入 per-product 趋势状态（只由 close / price_ma / atr 驱动，**不读仓位
+状态**，止损与锁定不会扰动它），两个参数控制它何时翻转：
+
+| 参数 | 默认 | 含义 |
+|---|---|---|
+| `--trend-band-atr` | `0.0` | 缓冲带半宽（单位 ATR）。close 需越过 `MA ± k×ATR` 才翻转，带内维持原状态 |
+| `--trend-confirm-days` | `1` | 翻转所需的连续同侧收盘天数 |
+
+**默认值下行为与改动前逐点相同**（`k=0` 时没有带可停留，`close == price_ma` 仍解析为
+中性 → `strength=0`，涨跌停锁死的合约会真实产生这种情况）。全历史默认参数复跑必须与
+基准逐日一致，这是硬验收项。
+
+```bash
+# ATR 缓冲带
+.venv/bin/python -m cta_carry ... --trend-band-atr 0.5
+# 连续确认
+.venv/bin/python -m cta_carry ... --trend-confirm-days 3
+```
+
+`signals` 工作表新增 `trend_state` 列（-1 / 0 / +1）可供审计。
+
+## 6. 已知边界
 
 - 日线近似：原研报的 15 分钟吊灯止损改为**日收盘触发**，下一 5 分钟 VWAP 改为
   **下一交易日开盘**，ATR 默认 20 个合约交易日。
