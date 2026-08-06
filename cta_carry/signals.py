@@ -20,6 +20,7 @@ _SIGNAL_COLUMNS = (
     "volume_ma",
     "oi_ma",
     "input_ready",
+    "trend_state",
     "rank_direction",
     "strength",
     "effective_direction",
@@ -39,6 +40,64 @@ def _empty_signals() -> pd.DataFrame:
 
 def _finite_mask(values: pd.Series) -> pd.Series:
     return np.isfinite(values).fillna(False).astype(bool)
+
+
+def _trend_states(signals: pd.DataFrame, config) -> list:
+    """Carry a per-product trend state forward across a product-ordered frame.
+
+    The state flips only when the close clears `trend_band_atr` ATRs beyond the
+    momentum MA; inside the band it holds.  A zero band leaves no band to sit
+    inside, so the state degenerates to the original stateless MA comparison --
+    including close == price_ma resolving to 0 rather than holding, which a
+    limit-locked contract really does produce.
+    """
+    band = float(config.trend_band_atr)
+    confirm = int(config.trend_confirm_days)
+    states: list = []
+    current: dict = {}
+    streaks: dict = {}
+    for product, close, price_ma, atr in zip(
+        signals["product"],
+        signals["main_close"],
+        signals["price_ma"],
+        signals["atr"],
+    ):
+        state = current.get(product, 0)
+        if (
+            _is_finite(close)
+            and _is_finite(price_ma)
+            and _is_finite(atr)
+            and atr > 0.0
+        ):
+            half_width = band * atr
+            if close > price_ma + half_width:
+                side = 1
+            elif close < price_ma - half_width:
+                side = -1
+            else:
+                side = 0
+
+            previous_side, run_length = streaks.get(product, (0, 0))
+            if side != 0:
+                run_length = run_length + 1 if side == previous_side else 1
+                if run_length >= confirm:
+                    state = side
+            elif half_width == 0.0:
+                # No band leaves nothing to sit inside, so there is no state to
+                # hold: close == price_ma resolves to flat, as it did before.
+                state = 0
+                run_length = 0
+            streaks[product] = (side, run_length)
+        current[product] = state
+        states.append(state)
+    return states
+
+
+def _is_finite(value) -> bool:
+    try:
+        return bool(math.isfinite(value))
+    except (TypeError, ValueError):
+        return False
 
 
 def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
@@ -71,6 +130,11 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
                 min_periods=config.momentum_window,
             ).mean()
         )
+
+    # Hysteresis trend state, carried forward per product over the curve rows.
+    # It is a function of price alone -- close, price_ma and atr -- and never
+    # reads position state, so stops and locks cannot perturb it.
+    signals["trend_state"] = _trend_states(signals, config)
 
     input_ready = pd.Series(True, index=signals.index)
     for column in (
@@ -132,22 +196,9 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
                 continue
 
             direction = signals.at[index, "rank_direction"]
-            main_close = signals.at[index, "main_close"]
-            price_ma = signals.at[index, "price_ma"]
-            trend_aligned = (
-                direction == 1
-                and main_close > price_ma
-            ) or (
-                direction == -1
-                and main_close < price_ma
-            )
-            trend_opposed = (
-                direction == 1
-                and main_close < price_ma
-            ) or (
-                direction == -1
-                and main_close > price_ma
-            )
+            trend_state = signals.at[index, "trend_state"]
+            trend_aligned = trend_state == direction
+            trend_opposed = trend_state == -direction
             if trend_aligned:
                 strength = 1.0
             elif (

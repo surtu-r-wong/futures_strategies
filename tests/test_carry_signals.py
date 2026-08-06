@@ -21,6 +21,7 @@ SIGNAL_COLUMNS = [
     "volume_ma",
     "oi_ma",
     "input_ready",
+    "trend_state",
     "rank_direction",
     "strength",
     "effective_direction",
@@ -83,6 +84,159 @@ def _latest_by_product(result):
     return result.signals[
         result.signals["trade_date"] == latest_date
     ].set_index("product")
+
+
+def _price_path_cross_section(closes, carries):
+    """Cross-section where product A walks `closes` and the rest stay flat."""
+    dates = pd.bdate_range("2024-01-02", periods=len(closes)).date.tolist()
+    rows = []
+    for day_index, trade_date in enumerate(dates):
+        for product, carry_ma in carries.items():
+            rows.append(
+                _row(
+                    trade_date,
+                    product,
+                    carry_ma,
+                    main_close=closes[day_index] if product == "A" else 100.0,
+                )
+            )
+    return pd.DataFrame(rows), dates
+
+
+def test_signals_expose_trend_state_for_audit() -> None:
+    """The trend state drives strength, so it has to be auditable in the sheet."""
+    carries = {"A": 0.5, "B": 0.2, "C": 0.0, "D": -0.2, "E": -0.5}
+    frame, _ = _price_path_cross_section([100.0, 106.0, 112.0], carries)
+
+    latest = _latest_by_product(
+        build_signals(frame, _config(trend_band_atr=1.0))
+    )
+
+    assert latest.loc["A", "trend_state"] == 1
+    # E never left the band around its own flat MA.
+    assert latest.loc["E", "trend_state"] == 0
+
+
+def test_missing_atr_freezes_the_trend_state_instead_of_flipping_it() -> None:
+    """A day with no ATR cannot say where the band is, so the trend state holds
+    rather than guessing.  With the ATR present that same day flips it."""
+    carries = {"A": 0.5, "B": 0.2, "C": 0.0, "D": -0.2, "E": -0.5}
+    closes = [100.0, 106.0, 80.0, 84.0]
+
+    def _frame(third_day_atr):
+        dates = pd.bdate_range("2024-01-02", periods=4).date.tolist()
+        atrs = [2.0, 2.0, third_day_atr, 2.0]
+        rows = []
+        for day_index, trade_date in enumerate(dates):
+            for product, carry_ma in carries.items():
+                if product == "A":
+                    rows.append(
+                        _row(
+                            trade_date,
+                            product,
+                            carry_ma,
+                            main_close=closes[day_index],
+                            atr=atrs[day_index],
+                        )
+                    )
+                else:
+                    rows.append(_row(trade_date, product, carry_ma))
+        return pd.DataFrame(rows)
+
+    config = _config(trend_band_atr=1.0)
+    # Day 2 sets the state to +1 (close 106 clears MA 103 by a full ATR).  Day 3
+    # would push it to -1 (close 80 vs MA 93), and day 4 lands inside the band.
+    frozen = _latest_by_product(
+        build_signals(_frame(float("nan")), config)
+    ).loc["A"]
+    flipped = _latest_by_product(build_signals(_frame(2.0), config)).loc["A"]
+
+    assert frozen["rank_direction"] == 1
+    assert frozen["strength"] == 1.0
+    assert flipped["rank_direction"] == 1
+    assert flipped["strength"] == 0.0
+
+
+def test_trend_state_is_tracked_per_product_without_bleeding_across() -> None:
+    """One product's breakout must not move another product's trend state."""
+    carries = {"A": 0.5, "B": 0.2, "C": 0.0, "D": -0.2, "E": -0.5}
+    dates = pd.bdate_range("2024-01-02", periods=3).date.tolist()
+    # A rallies clear of its band; E is the short leg and stays perfectly flat.
+    a_closes = [100.0, 106.0, 112.0]
+    rows = []
+    for day_index, trade_date in enumerate(dates):
+        for product, carry_ma in carries.items():
+            rows.append(
+                _row(
+                    trade_date,
+                    product,
+                    carry_ma,
+                    main_close=a_closes[day_index] if product == "A" else 100.0,
+                )
+            )
+
+    latest = _latest_by_product(
+        build_signals(pd.DataFrame(rows), _config(trend_band_atr=1.0))
+    )
+
+    assert latest.loc["A", "strength"] == 1.0
+    # E never moved, so its state is still flat and it takes no position.
+    assert latest.loc["E", "rank_direction"] == -1
+    assert latest.loc["E", "strength"] == 0.0
+
+
+def test_confirm_days_requires_consecutive_same_side_closes_before_flipping() -> None:
+    """With trend_confirm_days=3 the trend state only flips after three straight
+    closes on the same side of the MA; two are not enough.  The default of 1
+    flips on the first."""
+    carries = {"A": 0.5, "B": 0.2, "C": 0.0, "D": -0.2, "E": -0.5}
+    # momentum_window=2.  Day 1's MA is NaN, so days 2..n are the same-side run:
+    # day2 close 102 vs MA 101, day3 104 vs 103, day4 106 vs 105.
+    two_day_run, _ = _price_path_cross_section([100.0, 102.0, 104.0], carries)
+    three_day_run, _ = _price_path_cross_section(
+        [100.0, 102.0, 104.0, 106.0], carries
+    )
+
+    slow_after_two = _latest_by_product(
+        build_signals(two_day_run, _config(trend_confirm_days=3))
+    ).loc["A"]
+    slow_after_three = _latest_by_product(
+        build_signals(three_day_run, _config(trend_confirm_days=3))
+    ).loc["A"]
+    fast = _latest_by_product(build_signals(two_day_run, _config())).loc["A"]
+
+    assert slow_after_two["rank_direction"] == 1
+    assert slow_after_two["strength"] == 0.0
+
+    assert slow_after_three["rank_direction"] == 1
+    assert slow_after_three["strength"] == 1.0
+
+    assert fast["rank_direction"] == 1
+    assert fast["strength"] == 1.0
+
+
+def test_atr_band_holds_trend_state_when_price_pops_back_inside_band() -> None:
+    """A short leg that dips and then pops back just above its MA keeps full
+    strength while the pop stays inside the ATR band.  A bare MA cross (the
+    default, band=0) flips the trend state and zeroes the position instead --
+    that flip is the whipsaw the band exists to absorb."""
+    carries = {"A": -0.5, "B": -0.2, "C": 0.0, "D": 0.2, "E": 0.5}
+    # momentum_window=2, atr=2.0.  Day 3 puts A clearly below its MA (90 vs 95);
+    # day 4's MA is 92, so close=94 sits exactly on the +1 ATR band edge.
+    frame, _ = _price_path_cross_section([100.0, 100.0, 90.0, 94.0], carries)
+
+    banded = _latest_by_product(
+        build_signals(frame, _config(trend_band_atr=1.0))
+    ).loc["A"]
+    bare = _latest_by_product(build_signals(frame, _config())).loc["A"]
+
+    assert banded["rank_direction"] == -1
+    assert banded["strength"] == 1.0
+    assert banded["effective_direction"] == -1
+
+    assert bare["rank_direction"] == -1
+    assert bare["strength"] == 0.0
+    assert bare["effective_direction"] == 0
 
 
 def test_momentum_ma_rolls_over_curve_rows_and_spans_missing_days() -> None:

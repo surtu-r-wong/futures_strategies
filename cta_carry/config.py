@@ -10,6 +10,7 @@ _POSITIVE_INTEGER_FIELDS = (
     "atr_window",
     "vol_window",
     "stop_tranches",
+    "trend_confirm_days",
     "prewarm_calendar_days",
 )
 
@@ -20,7 +21,11 @@ _POSITIVE_NUMERIC_FIELDS = (
     "chandelier_atr_multiple",
 )
 
-_NONNEGATIVE_NUMERIC_FIELDS = ("liquidity_threshold", "cost_bps")
+_NONNEGATIVE_NUMERIC_FIELDS = (
+    "liquidity_threshold",
+    "cost_bps",
+    "trend_band_atr",
+)
 
 
 def _is_finite_number(value: Any) -> bool:
@@ -54,6 +59,14 @@ class CarryConfig:
     # spread costs about 3.6 bps all in. 4.0 keeps a margin over that while
     # staying well under the 6.94 bps break-even.
     cost_bps: float = 4.0
+    # Half-width, in contract ATRs, of the hysteresis band around the momentum
+    # MA.  The trend state only flips once close clears the band, so a price
+    # oscillating around its MA no longer flips the filter on and off.  0.0
+    # disables the band and reproduces the original stateless MA comparison.
+    trend_band_atr: float = 0.0
+    # Consecutive same-side closes required before the trend state flips.  1
+    # flips on the first close and reproduces the original stateless rule.
+    trend_confirm_days: int = 1
     prewarm_calendar_days: int = 730
 
     def __post_init__(self) -> None:
