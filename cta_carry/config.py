@@ -27,6 +27,8 @@ _NONNEGATIVE_NUMERIC_FIELDS = (
     "trend_band_atr",
 )
 
+_SECONDARY_SELECTIONS = frozenset({"strictly_later", "second_by_oi"})
+
 
 def _is_finite_number(value: Any) -> bool:
     if isinstance(value, bool):
@@ -67,6 +69,13 @@ class CarryConfig:
     # Consecutive same-side closes required before the trend state flips.  1
     # flips on the first close and reproduces the original stateless rule.
     trend_confirm_days: int = 1
+    # How the secondary contract is chosen.  "strictly_later" takes the
+    # highest-OI contract delivering strictly after the main, which anchors the
+    # Carry sign to the textbook near-vs-far definition.  "second_by_oi" takes
+    # the second-highest-OI contract whatever its month, reproducing the
+    # research report, which names a secondary but never defines it; on Chinese
+    # exchanges that contract is often NEARER than the main.
+    secondary_selection: str = "strictly_later"
     prewarm_calendar_days: int = 730
 
     def __post_init__(self) -> None:
@@ -99,3 +108,9 @@ class CarryConfig:
             value = getattr(self, field_name)
             if not _is_finite_number(value) or value < 0:
                 raise ValueError(f"{field_name} must be finite and nonnegative")
+
+        if self.secondary_selection not in _SECONDARY_SELECTIONS:
+            raise ValueError(
+                "secondary_selection must be one of "
+                + ", ".join(sorted(_SECONDARY_SELECTIONS))
+            )

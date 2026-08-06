@@ -68,6 +68,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stop-tranches", type=int)
     parser.add_argument("--trend-band-atr", type=float)
     parser.add_argument("--trend-confirm-days", type=int)
+    parser.add_argument(
+        "--secondary-selection",
+        choices=["strictly_later", "second_by_oi"],
+    )
     parser.add_argument("--cost-bps", type=float)
     parser.add_argument("--prewarm-calendar-days", type=int)
     return parser

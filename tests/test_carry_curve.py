@@ -336,3 +336,71 @@ def test_month_gap_handles_year_boundaries_and_rejects_nonpositive_gaps() -> Non
         _month_gap(202501, 202501)
     with pytest.raises(ValueError):
         _month_gap(202502, 202501)
+
+
+def test_second_by_oi_secondary_can_be_a_nearer_month_and_keeps_carry_sign() -> None:
+    """Research-report variant: the secondary is just the second-highest-OI
+    contract, which on Chinese exchanges is often a NEARER month than the main.
+    The signed month gap flips with it, so a contango curve still scores
+    negative -- picking a nearer secondary does not invert the Carry sign."""
+    dates = pd.bdate_range("2024-01-02", periods=2).date.tolist()
+    contracts = (
+        ("RB2401.SHF", 100.0, 100.0, 200.0),
+        ("RB2405.SHF", 110.0, 100.0, 300.0),
+    )
+    prices = _prices(
+        [
+            _bar(trade_date, contract, close=close, volume=volume, oi=oi)
+            for trade_date in dates
+            for contract, close, volume, oi in contracts
+        ]
+    )
+    base = {
+        "liquidity_window": 1,
+        "liquidity_threshold": 0.0,
+        "carry_window": 1,
+    }
+
+    # Nothing is strictly later than the main, so the default finds no curve.
+    assert build_curve(prices, CarryConfig(**base)).curve.empty
+
+    loose = CarryConfig(**base, secondary_selection="second_by_oi")
+    row = build_curve(prices, loose).curve.iloc[0]
+
+    assert row["main_contract"] == "RB2405.SHF"
+    assert row["secondary_contract"] == "RB2401.SHF"
+    assert row["month_gap"] == -4
+    assert row["carry_raw"] == pytest.approx((110.0 / 100.0 - 1.0) * 12 / -4)
+    assert row["carry_raw"] < 0
+
+
+def test_second_by_oi_skips_a_duplicate_listing_of_the_main_month() -> None:
+    """Upstream carries the same Zhengzhou contract under both a 3-digit and a
+    4-digit code during 2015-2017 (e.g. TA701.CZC and TA1701.CZC, byte-identical
+    rows).  Both parse to one delivery month, so the second-highest OI contract
+    can be the main itself under another name; a zero month gap is not a Carry."""
+    dates = pd.bdate_range("2024-01-02", periods=2).date.tolist()
+    contracts = (
+        ("RB2405.SHF", 110.0, 100.0, 300.0),
+        ("RB405.SHF", 110.0, 100.0, 300.0),
+        ("RB2401.SHF", 100.0, 100.0, 200.0),
+    )
+    prices = _prices(
+        [
+            _bar(trade_date, contract, close=close, volume=volume, oi=oi)
+            for trade_date in dates
+            for contract, close, volume, oi in contracts
+        ]
+    )
+    config = CarryConfig(
+        liquidity_window=1,
+        liquidity_threshold=0.0,
+        carry_window=1,
+        secondary_selection="second_by_oi",
+    )
+
+    row = build_curve(prices, config).curve.iloc[0]
+
+    assert row["main_contract"] == "RB2405.SHF"
+    assert row["secondary_contract"] == "RB2401.SHF"
+    assert row["month_gap"] == -4

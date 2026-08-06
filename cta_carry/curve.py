@@ -182,11 +182,11 @@ def aggregate_product_liquidity(prices: pd.DataFrame, config) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def _month_gap(near_delivery_yyyymm, far_delivery_yyyymm):
+def _month_gap(near_delivery_yyyymm, far_delivery_yyyymm, *, allow_earlier=False):
     near_year, near_month = divmod(int(near_delivery_yyyymm), 100)
     far_year, far_month = divmod(int(far_delivery_yyyymm), 100)
     gap = (far_year - near_year) * 12 + far_month - near_month
-    if gap <= 0:
+    if gap == 0 or (gap < 0 and not allow_earlier):
         raise ValueError("far delivery must be strictly later than near delivery")
     return gap
 
@@ -268,24 +268,41 @@ def build_curve(prices: pd.DataFrame, config) -> CurveResult:
             kind="mergesort",
         )
         main = ranked.iloc[0]
-        later = ranked.loc[
-            ranked["delivery_yyyymm"]
-            > main["delivery_yyyymm"]
-        ]
-        if later.empty:
+        second_by_oi = config.secondary_selection == "second_by_oi"
+        if second_by_oi:
+            # Report variant: whatever ranks second on OI, nearer months
+            # included.  The signed month gap below then carries the sign.
+            # Same-month rows are dropped because upstream lists one Zhengzhou
+            # contract under both a 3- and a 4-digit code through 2015-2017, and
+            # a contract against itself has no term structure to measure.
+            eligible = ranked.iloc[1:]
+            eligible = eligible.loc[
+                eligible["delivery_yyyymm"] != main["delivery_yyyymm"]
+            ]
+        else:
+            eligible = ranked.loc[
+                ranked["delivery_yyyymm"]
+                > main["delivery_yyyymm"]
+            ]
+        if eligible.empty:
             _append_audit(
                 audit_rows,
                 candidates,
                 in_pool=True,
                 liquidity_mean=liquidity_mean,
-                reason="no_strictly_later_contract",
+                reason=(
+                    "no_second_contract"
+                    if second_by_oi
+                    else "no_strictly_later_contract"
+                ),
             )
             continue
 
-        secondary = later.iloc[0]
+        secondary = eligible.iloc[0]
         month_gap = _month_gap(
             main["delivery_yyyymm"],
             secondary["delivery_yyyymm"],
+            allow_earlier=second_by_oi,
         )
         carry_raw = (
             (main["close"] / secondary["close"] - 1.0)
