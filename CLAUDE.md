@@ -4,7 +4,9 @@
 stock_selector `docs/superpowers/plans/2026-07-11-extract-cta-to-futures-strategies.md`）。
 
 - 布局：`common/`（PG 连接 / settings 加载 / 净值指标，拷贝自 stock_selector 后独立演化）+
-  `cta_gtja/`（国君六因子 CTA，原 `stock_selector/cta/`）；下一个策略 = 国信《基于 Carry 的商品期货交易策略》。
+  `cta_gtja/`（国君 CTA：量价 guarded 路径可用；完整六因子等待标准基本面 build）+
+  `cta_carry/`（国信 Carry 日线研究版已交付，实验参数默认保持基线兼容）。当前状态见
+  `docs/ROADMAP.md`。
 - 数据源：market_monitor `public` schema（`continuous_contract_ohlc` / `spot_prices` / `inventory`；
   Carry 还需 `futures_daily` 分合约行情）。上游 = data-collecter + 连续合约生成器（用户领域，
   已归档 `_archive/2026H1_root_scripts/continuous/`）。⚠️ 2026-07-13 时点：`futures_daily` 与

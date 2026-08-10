@@ -3,6 +3,8 @@
 商品期货策略研究项目（券商研报复刻）。2026-07-11 从 `stock_selector/cta/` 剥离成独立项目；
 与股票多因子系统（stock_selector）数据域、概念域完全平行。
 
+当前交付状态、外部阻塞与仓库边界以 [`docs/ROADMAP.md`](docs/ROADMAP.md) 为准。
+
 ## 布局
 
 - `common/` — PG 连接 / settings 加载 / 净值指标（从 stock_selector 拷贝一次，此后独立演化，不回同步）
@@ -58,4 +60,4 @@ runbook：`docs/operations/carry-daily-research.md`（含成本假设依据与�
 
 输出为 `*_overview.png` 与 Excel，工作表包括 `metrics`、`daily_returns`、`positions`、`trades`、`signals`、`curve_selection`、`data_quality`、`run_config`。
 
-本版是日线研究近似：原研报的 15 分钟止损改为日收盘触发，下一 5 分钟 VWAP 改为下一交易日开盘，ATR 默认 20 个合约交易日，成本固定为单边 13 bps，不换算张数、乘数和保证金，也不模拟涨跌停与容量。
+本版是日线研究近似：原研报的 15 分钟止损改为日收盘触发，下一 5 分钟 VWAP 改为下一交易日开盘，ATR 默认 20 个合约交易日，成本默认为单边 4.0 bps，不换算张数、乘数和保证金，也不模拟涨跌停与容量。

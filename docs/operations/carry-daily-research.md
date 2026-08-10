@@ -58,9 +58,12 @@ cd /home/elfbob/claude-code/futures_strategies
 `metrics`、`daily_returns`、`positions`、`trades`、`signals`、`curve_selection`、
 `data_quality`、`run_config`。
 
-`run_config` 记录全部参数、实际查询范围、实际绩效范围、`code_version`、
-`report_start_date`、`signal_ready_date`、`vol_ready_date` 和数据覆盖 —— 复核任何
-结论都先看这张表。
+`run_config` 记录全部参数、实际查询范围、实际绩效范围、`code_version`、`code_dirty`、
+`code_diff_sha256`、`report_start_date`、`signal_ready_date`、`vol_ready_date` 和数据覆盖。
+`code_dirty=false` 表示结果来自记录的干净提交。`code_dirty=true` 时，该提交不足以重建结果：
+必须另行归档生成时的精确 patch 或工作树快照，并在恢复后用 `code_diff_sha256` 核对；摘要本身
+不包含源码 diff。未归档源码状态的 dirty 产物，以及 provenance 捕获不可用或失败而记录为
+`unknown` 的产物，都不能作为可重建证据。复核任何结论都先看这张表。
 
 `daily_returns` 同时给 `gross_return` 与 `net_return`，**永远分开看**：这条策略的
 成本拖累占毛收益的比重很大，只看净值会把信号问题和成本问题混为一谈。
