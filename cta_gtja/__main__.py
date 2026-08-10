@@ -11,6 +11,9 @@ import argparse
 from datetime import date
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+
 from cta_gtja.backtest import write_cta_outputs
 from cta_gtja.data import CTADataSet
 from cta_gtja.factors import cta_factors_for_set
@@ -18,7 +21,7 @@ from cta_gtja.pg_source import load_public_cta_data
 from cta_gtja.strategies import run_high_composite, run_medium_equal_weight
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m cta_gtja")
     parser.add_argument("--source", choices=["public-pg", "files"], default="public-pg")
     parser.add_argument("--data-dir", default=None, help="Directory containing prices.csv and optional fundamentals.csv")
@@ -43,11 +46,57 @@ def main() -> None:
     parser.add_argument(
         "--factor-set",
         choices=["six_factor", "price_volume"],
-        default="six_factor",
-        help="CTA factor set; price_volume avoids sparse fundamental factors",
+        default="price_volume",
+        help=(
+            "CTA factor set; price_volume is the safe default until a "
+            "published conservative fundamentals build is available"
+        ),
     )
     parser.add_argument("--output-prefix", default=None, help="Output prefix without suffix; defaults under output/")
-    args = parser.parse_args()
+    return parser
+
+
+def _has_finite_fundamental(data: CTADataSet, column: str) -> bool:
+    if column not in data.fundamentals.columns:
+        return False
+    values = pd.to_numeric(data.fundamentals[column], errors="coerce")
+    return bool(np.isfinite(values.to_numpy(dtype=float)).any())
+
+
+def _validate_six_factor_request(
+    *,
+    source: str,
+    factor_set: str,
+    data: CTADataSet | None,
+) -> None:
+    if factor_set != "six_factor":
+        return
+    if source == "public-pg":
+        raise SystemExit(
+            "six_factor requires a published conservative fundamentals build; "
+            "use --factor-set price_volume on master"
+        )
+    if data is None:
+        raise SystemExit("six_factor file validation requires loaded data")
+
+    missing: list[str] = []
+    if not any(
+        _has_finite_fundamental(data, column)
+        for column in ("basis_rate", "spot")
+    ):
+        missing.append("basis")
+    for column in ("inventory", "profit"):
+        if not _has_finite_fundamental(data, column):
+            missing.append(column)
+    if missing:
+        raise SystemExit(
+            "six_factor files require finite fundamentals: "
+            + ", ".join(missing)
+        )
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
 
     requested_symbols = _parse_symbols(args.symbols)
     if args.source == "files":
@@ -58,7 +107,17 @@ def main() -> None:
             start=args.start,
             end=args.end,
         )
+        _validate_six_factor_request(
+            source=args.source,
+            factor_set=args.factor_set,
+            data=data,
+        )
     else:
+        _validate_six_factor_request(
+            source=args.source,
+            factor_set=args.factor_set,
+            data=None,
+        )
         data = load_public_cta_data(
             start=args.start,
             end=args.end,

@@ -6,10 +6,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import cta_gtja.__main__ as cta_main
 from cta_gtja.__main__ import _data_quality_summary
 from cta_gtja.backtest import write_cta_outputs
 from cta_gtja.data import CTADataSet
 from cta_gtja.factors import (
+    BasisFactor,
     LongCrossSectionMomentumFactor,
     cta_factors_for_set,
     default_cta_factors,
@@ -63,6 +65,62 @@ def _sample_cta_data(n: int = 320) -> CTADataSet:
         prices=pd.DataFrame(rows),
         fundamentals=pd.DataFrame(fund_rows),
     )
+
+
+def test_cli_defaults_to_price_volume_factor_set():
+    args = cta_main.build_parser().parse_args([])
+
+    assert args.factor_set == "price_volume"
+
+
+def test_public_pg_six_factor_fails_before_loading(monkeypatch):
+    def unexpected_load(**kwargs):
+        pytest.fail(f"database load must not run: {kwargs}")
+
+    monkeypatch.setattr(cta_main, "load_public_cta_data", unexpected_load)
+
+    with pytest.raises(
+        SystemExit,
+        match="published conservative fundamentals build",
+    ):
+        cta_main.main(["--source", "public-pg", "--factor-set", "six_factor"])
+
+
+def test_file_six_factor_requires_finite_fundamentals():
+    incomplete = _single_symbol_data(np.linspace(100.0, 120.0, 80))
+
+    with pytest.raises(SystemExit, match="basis.*inventory.*profit"):
+        cta_main._validate_six_factor_request(
+            source="files",
+            factor_set="six_factor",
+            data=incomplete,
+        )
+
+    complete = _sample_cta_data()
+    cta_main._validate_six_factor_request(
+        source="files",
+        factor_set="six_factor",
+        data=complete,
+    )
+
+
+def test_basis_factor_falls_back_to_spot_when_basis_rate_nonfinite():
+    sample = _sample_cta_data()
+    fundamentals = sample.fundamentals.copy()
+    fundamentals["basis_rate"] = np.nan
+    data = CTADataSet(
+        prices=sample.prices.copy(),
+        fundamentals=fundamentals,
+    )
+
+    cta_main._validate_six_factor_request(
+        source="files",
+        factor_set="six_factor",
+        data=data,
+    )
+
+    scores = BasisFactor().compute(data, data.symbols)
+    assert np.isfinite(scores.to_numpy(dtype=float)).any()
 
 
 def test_default_factors_build_sleeves():

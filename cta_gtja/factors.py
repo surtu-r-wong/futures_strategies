@@ -41,7 +41,8 @@ class BasisFactor(CTAFactor):
 
     def compute(self, data: CTADataSet, symbols: list[str]) -> pd.DataFrame:
         basis = data.fundamental_matrix("basis_rate", symbols=symbols)
-        if basis.empty:
+        basis = basis.where(np.isfinite(basis))
+        if basis.empty or not basis.notna().to_numpy().any():
             spot = data.fundamental_matrix("spot", symbols=symbols)
             close = data.price_matrix("close", symbols=symbols)
             if spot.empty or close.empty:
