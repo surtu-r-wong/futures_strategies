@@ -6,7 +6,6 @@ import argparse
 from dataclasses import fields, replace
 from datetime import date, timedelta
 from pathlib import Path
-import subprocess
 import sys
 
 import pandas as pd
@@ -22,6 +21,7 @@ from .backtest import (
 from .config import CarryConfig
 from .data import CarryDataSet
 from .pg_source import load_public_carry_data
+from .provenance import capture_git_state
 from .report import (
     ReportWriteError,
     console_summary,
@@ -30,7 +30,6 @@ from .report import (
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_GIT_TIMEOUT_SECONDS = 5.0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -116,24 +115,6 @@ def _validate_data_coverage(
         raise ValueError("no strategy trading day on or after start")
 
 
-def _git_version() -> str:
-    try:
-        return subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=_REPO_ROOT,
-            timeout=_GIT_TIMEOUT_SECONDS,
-        ).stdout.strip()
-    except (
-        OSError,
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-    ):
-        return "unknown"
-
-
 def _runtime_config(
     *,
     source: str,
@@ -141,6 +122,7 @@ def _runtime_config(
     data: CarryDataSet,
 ) -> pd.DataFrame:
     dates = data.dates
+    git_state = capture_git_state(_REPO_ROOT)
     return pd.DataFrame(
         [
             {"key": "source", "value": source},
@@ -148,7 +130,12 @@ def _runtime_config(
                 "key": "products",
                 "value": ",".join(products) if products else "ALL",
             },
-            {"key": "code_version", "value": _git_version()},
+            {"key": "code_version", "value": git_state.version},
+            {"key": "code_dirty", "value": git_state.dirty},
+            {
+                "key": "code_diff_sha256",
+                "value": git_state.diff_sha256,
+            },
             {
                 "key": "data_start_date",
                 "value": dates[0] if dates else None,
@@ -214,16 +201,21 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
+    runtime_config = _runtime_config(
+        source=args.source,
+        products=products,
+        data=data,
+    )
+    dirty_row = runtime_config["key"].eq("code_dirty")
+    runtime_config.loc[dirty_row, "value"] = (
+        runtime_config.loc[dirty_row, "value"].astype(str).str.lower()
+    )
     result = replace(
         result,
         run_config=pd.concat(
             [
                 result.run_config,
-                _runtime_config(
-                    source=args.source,
-                    products=products,
-                    data=data,
-                ),
+                runtime_config,
             ],
             ignore_index=True,
         ),

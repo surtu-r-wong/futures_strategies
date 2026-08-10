@@ -2,8 +2,6 @@
 
 from dataclasses import replace
 from pathlib import Path
-import subprocess
-from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -19,6 +17,7 @@ from cta_carry.report import (
 )
 from cta_carry.__main__ import _config_from_args, build_parser, main
 from cta_carry.config import CarryConfig
+from cta_carry.provenance import GitState
 from tests.carry_fixtures import make_carry_panel, small_config
 
 
@@ -206,29 +205,25 @@ def test_console_pool_counts_do_not_rebuild_curve_excel_view(monkeypatch):
     assert "excluded_product_days=" in summary
 
 
-def test_git_version_uses_repo_root_and_timeout(monkeypatch):
-    captured = {}
+def test_runtime_config_includes_git_provenance(monkeypatch):
+    state = GitState(
+        version="abc123",
+        dirty=True,
+        diff_sha256="f" * 64,
+    )
+    monkeypatch.setattr(carry_cli, "capture_git_state", lambda root: state)
 
-    def fake_run(command, **kwargs):
-        captured["command"] = command
-        captured.update(kwargs)
-        return SimpleNamespace(stdout="abc123\n")
+    runtime = dict(
+        carry_cli._runtime_config(
+            source="files",
+            products=["CU"],
+            data=make_carry_panel(),
+        )[["key", "value"]].itertuples(index=False)
+    )
 
-    monkeypatch.setattr(carry_cli.subprocess, "run", fake_run)
-
-    assert carry_cli._git_version() == "abc123"
-    assert captured["command"] == ["git", "rev-parse", "HEAD"]
-    assert captured["cwd"] == Path(carry_cli.__file__).resolve().parents[1]
-    assert captured["timeout"] > 0
-
-
-def test_git_version_returns_unknown_on_timeout(monkeypatch):
-    def time_out(command, **kwargs):
-        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
-
-    monkeypatch.setattr(carry_cli.subprocess, "run", time_out)
-
-    assert carry_cli._git_version() == "unknown"
+    assert runtime["code_version"] == "abc123"
+    assert runtime["code_dirty"] is True
+    assert runtime["code_diff_sha256"] == "f" * 64
 
 
 def _small_cli_args(
@@ -333,6 +328,16 @@ def test_file_cli_runs_writes_outputs_and_runtime_metadata(tmp_path):
     assert runtime["source"] == "files"
     assert runtime["products"] == "A,B,C,D,E"
     assert runtime["code_version"]
+    assert "code_dirty" in runtime
+    assert "code_diff_sha256" in runtime
+    code_dirty = str(runtime["code_dirty"]).lower()
+    assert code_dirty in {"true", "false"}
+    if code_dirty == "true":
+        assert len(str(runtime["code_diff_sha256"])) == 64
+    else:
+        assert pd.isna(runtime["code_diff_sha256"]) or (
+            runtime["code_diff_sha256"] == ""
+        )
     assert runtime["data_start_date"]
     assert runtime["data_end_date"]
     assert runtime["data_rows"] > 0
