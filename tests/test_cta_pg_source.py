@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from cta_gtja.pg_source import _apply_adjustment_policy
+from cta_gtja.pg_source import _apply_adjustment_policy, _load_prices
 
 
 def _prices():
@@ -35,6 +35,42 @@ def _prices():
             "open_interest": 300,
         },
     ])
+
+
+def test_explicit_symbols_still_exclude_financial_futures(monkeypatch):
+    captured = {}
+
+    def fake_read_sql(sql, conn, *, params):
+        captured["sql"] = sql
+        captured["params"] = params
+        return pd.DataFrame()
+
+    monkeypatch.setattr("cta_gtja.pg_source._read_sql", fake_read_sql)
+
+    _load_prices(
+        object(),
+        start=None,
+        end=None,
+        symbols=["IF", "CU"],
+        rule_type="standard",
+        include_financial=False,
+        adjustment_policy="recommended",
+        allow_raw_fallback=False,
+    )
+
+    assert "base_symbol = ANY(%(symbols)s)" in captured["sql"]
+    assert "NOT (base_symbol = ANY(%(excluded_symbols)s))" in captured["sql"]
+    assert captured["params"]["symbols"] == ["IF", "CU"]
+    assert set(captured["params"]["excluded_symbols"]) == {
+        "IF",
+        "IC",
+        "IH",
+        "IM",
+        "T",
+        "TF",
+        "TL",
+        "TS",
+    }
 
 
 def test_apply_adjustment_policy_uses_selected_lineage_and_excludes_default_raw():

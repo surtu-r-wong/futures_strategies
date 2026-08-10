@@ -85,9 +85,9 @@ def _load_prices(
     if symbols:
         clauses.append("base_symbol = ANY(%(symbols)s)")
         params["symbols"] = list(symbols)
-    elif not include_financial:
+    if not include_financial:
         clauses.append("NOT (base_symbol = ANY(%(excluded_symbols)s))")
-        params["excluded_symbols"] = list(FINANCIAL_FUTURES)
+        params["excluded_symbols"] = sorted(FINANCIAL_FUTURES)
     where = " AND ".join(clauses)
     sql = f"""
         SELECT
