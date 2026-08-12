@@ -22,8 +22,10 @@ backfill; the daily comparison run on 2026-08-12 was validation only. See
 | 3 | Keep `volume = 0` bars | Dropping them makes "no trade this minute" indistinguishable from "archive lacks this range". Fidelity wins; the cost is disk, which decision 6 handles. |
 | 4 | `bar_time` = `bob` (bar open), `timestamptz` | The archive carries `+08:00`; discarding the offset is lossy. Differs from `market_data_minute` on purpose. A bar stamped 09:00 covers `[09:00, 09:01)`. |
 | 5 | CZCE keeps the 4-digit month code (`AP2605`) | 3-digit CZCE codes (`AP605`, as `futures_daily` stores them) collide across decades. 4-digit is unambiguous; the join rule to `futures_daily` is documented instead. |
-| 6 | Repartition by month locally, then load month-by-month and compress each chunk immediately | Without it, peak uncompressed footprint is ~98 GB against 167 GB free. See "Why repartitioning is mandatory". |
+| 6 | Repartition by **year** locally, then load year-by-year and compress those chunks immediately | Without it, peak uncompressed footprint is ~98 GB against 167 GB free. See "Why repartitioning is mandatory". Year buckets hold the peak to ~11 GB — ample against 167 GB — while keeping the output to 22 files, which one `mawk` process can route to without hitting a pipe limit. |
 | 7 | Move the data by external drive, not over the network | The ThinkPad→Debian link measured 5 MB/s (Tailscale direct, but over WAN). Matches `SCHEMA_CHANGES.md` §D: files >500 MB go by drive. |
+| 8 | Exclude vendor continuous series (`9999`/`9998`/`8888`/`0000`) | They appear only in the 2025+ daily packages, never in the 2005-2024 bulk, so admitting them yields a series that silently begins in 2025. The project generates its own continuous contracts under documented rules into `continuous_contract_ohlc`; a third vendor rule would only create ambiguity. Measured at ~3.7% of rows. |
+| 9 | No global sort — per-file dedup only | A `(symbol, bar_time)` key never spans files: the 2005-2024 packages stop at 2024-12 and the 2025/2026 packages hold one symbol-day each. Verified. Timescale also reorders rows itself when building compressed batches, so pre-sorting buys nothing. This removes hours of external sort. |
 
 ---
 
@@ -71,10 +73,11 @@ dozen-plus monthly chunks at once, so no chunk is ever "finished" and nothing ca
 be compressed until the whole load ends. That path peaks at ~98 GB uncompressed
 against 167 GB free, before compression's own working space.
 
-`1m/2025/YYYYMM/` and `1m/2026MM/` are packed per-day and already align.
+`1m/2025/YYYYMM/YYYYMMDD/` and `1m/2026MM/YYYYMMDD/` are packed per symbol-day
+and already align.
 
-Repartitioning by month first makes every chunk finishable, holding peak
-uncompressed footprint to a single month (~0.5–1 GB).
+Repartitioning by year first makes every chunk finishable, holding peak
+uncompressed footprint to a single year (~11 GB at the densest) instead of 98 GB.
 
 ---
 
@@ -85,45 +88,59 @@ uncompressed footprint to a single month (~0.5–1 GB).
 Runs where the data already is, and keeps hours of parsing off the production DB
 box (15 GB RAM, also running market-monitor collectors and sync-worker).
 
-1. Stream all 392,586 CSVs. Match `*.[cC][sS][vV]` — 85,256 files in
-   `1m/2025/202503`–`202507` use uppercase `.CSV`.
-2. Normalise: uppercase symbol, carry `exchange`, `bob` → `bar_time`,
-   `position` → `open_interest`.
-3. Bucket rows by month.
-4. Per bucket: `LC_ALL=C sort` (external, bounded memory) on `(symbol, bar_time)`,
-   then drop duplicate keys keeping the first row — O(1) memory once sorted.
-   The daily archive had 174 files with every row duplicated exactly twice; the
-   minute archive must be assumed to share the defect.
-5. Write zstd-compressed COPY-format text, one file per month (~260 files,
-   8–12 GiB total). Sorting also matches `compress_segmentby`/`compress_orderby`,
-   improving both load speed and compression ratio.
-6. Emit a manifest (per source file: rows read, rows kept, target months) for
-   resumability and for the Stage 3 row-count check.
+`scripts/futures_minute/stage1_repartition.sh` + `transform.awk`.
 
-Memory discipline per `pandas-pg-memory-pitfalls`: streaming only, never a whole
-year in memory, `RLIMIT_AS` cap, staged RSS logging.
+Every CSV is concatenated into **one** `mawk` process, which routes rows to
+`<year>.tsv` and then zstd-compresses each. A single process is what makes
+routing with `>` correct — awk truncates a redirect target once per process and
+appends thereafter, so any batching (`xargs` splitting the file list) would
+silently truncate earlier output.
+
+Because the files arrive concatenated, file boundaries are recognised by the
+header line (`/exchange,symbol,open,close/`) rather than by `FNR`. That also
+tolerates the UTF-8 BOM the 2025 headers carry. The header match is what resets
+the per-file dedup table, so it is load-bearing for memory: a missed header
+would let that table grow across all 640M rows. The smoke test asserts
+`files=` equals the input count for exactly this reason.
+
+Per-file dedup is enough (decision 9); there is no sort step.
+
+Source column order is `open,close,high,low` — not OHLC. Verified end-to-end
+against a row with four distinct values.
+
+Output: 22 zstd files, ~6–8 GiB, plus `manifest.tsv` (year, rows, raw bytes,
+compressed bytes, sha256) for the Stage 3 row-count check and for verifying the
+drive copy.
+
+Memory: streaming throughout, bounded by one source file's dedup keys
+(~250k at worst). Compare `pandas-pg-memory-pitfalls`.
 
 ### Stage 2 — load on Debian
 
 Carry the Stage 1 output on an external drive. Keep it **on the drive** — do not
 copy into Debian's internal disk, which is reserved for PG.
 
+Apply `scripts/futures_minute/schema.sql` first, then per year:
+
 ```bash
 # in tmux, so an ssh drop does not kill the run; window 15:00–21:00 (post-close)
-for m in /mnt/usb/futures_minute/*.zst; do
-  zstd -dc "$m" \
+for y in /mnt/usb/futures_minute/*.zst; do
+  zstd -dc "$y" \
     | PGPASSWORD=... psql -h 127.0.0.1 -U admin -d market_monitor \
-        -c "COPY public.futures_minute FROM STDIN"
-  # then compress that month's chunk before moving on
+        -c "COPY public.futures_minute
+              (bar_time, symbol, exchange, open, high, low, close,
+               volume, amount, open_interest) FROM STDIN"
+  # then compress that year's chunks before moving on, so the uncompressed
+  # footprint never exceeds one year
 done
 ```
 
 `psql -h 127.0.0.1 -U admin` is required: the unix socket rejects `admin` under
-peer auth. Verified 2026-08-12.
+peer auth (`对用户"admin"的对等认证失败`). Verified 2026-08-12.
 
-Failure of any month is isolated —
-`DELETE FROM public.futures_minute WHERE bar_time >= $m AND bar_time < $m+1month`
-and redo that month.
+Failure of any year is isolated —
+`DELETE FROM public.futures_minute WHERE bar_time >= 'YYYY-01-01' AND bar_time < 'YYYY+1-01-01'`
+and redo that year.
 
 Estimated: ~10 min to copy the drive, 60–90 min of COPY, plus per-chunk
 compression.
