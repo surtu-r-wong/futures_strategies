@@ -33,7 +33,10 @@ echo "[$(date +%T)] target: $PGUSER_@$PGHOST_/$PGDB_"
 psql_ -At -c "SELECT 'table present: ' || to_regclass('public.futures_minute')"
 
 total_loaded=0
-while IFS=$'\t' read -r year rows raw zst sha; do
+# Read the manifest on fd 3, not stdin: the loop body runs psql, and one of
+# those calls is a COPY ... FROM STDIN. Keeping the two streams apart means a
+# stray reader can never eat the manifest out from under the loop.
+while IFS=$'\t' read -r year rows raw zst sha <&3; do
     [ "$year" = "year" ] && continue
     file="$DATA/$year.zst"
     [ -f "$file" ] || { echo "  !! missing $file" >&2; exit 1; }
@@ -75,7 +78,7 @@ while IFS=$'\t' read -r year rows raw zst sha; do
 
     total_loaded=$((total_loaded + got))
     echo "[$(date +%T)] $year done — $total_loaded rows so far; disk: $(df -h / | tail -1 | awk '{print $4}') free"
-done < "$DATA/manifest.tsv"
+done 3< "$DATA/manifest.tsv"
 
 echo "[$(date +%T)] all years loaded: $total_loaded rows"
 psql_ -c "SELECT pg_size_pretty(hypertable_size('public.futures_minute')) AS size,
