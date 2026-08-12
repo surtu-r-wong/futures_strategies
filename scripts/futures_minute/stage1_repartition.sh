@@ -37,7 +37,11 @@ if [ "$avail" -lt "$need" ]; then
     exit 1
 fi
 
+# Clear previous output, not just the raw dir: a smoke run leaves per-year .zst
+# behind, and a full run that stops before reaching those years would leave the
+# sample-sized files sitting there looking like real output.
 rm -rf "$RAW"
+rm -f "$OUT"/*.zst "$MANIFEST"
 mkdir -p "$RAW"
 : > "$LOG"
 
