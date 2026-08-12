@@ -39,13 +39,17 @@ CREATE TABLE IF NOT EXISTS public.futures_minute (
 
 COMMENT ON TABLE public.futures_minute IS
     'Commodity futures 1-minute bars from the local vendor archive (期货数据/1m), '
-    '2005 -> 2026-08. Bars are stamped with their OPEN time: a row at 09:00 '
-    'covers [09:00, 09:01). volume=0 bars are kept on purpose so that "no trade" '
-    'stays distinguishable from "no data". Vendor continuous series (9999/8888) '
-    'are excluded - they exist only from 2025 in the archive; use '
-    'continuous_contract_ohlc instead. CZCE months are 4-digit here (AP2605) '
-    'while futures_daily stores 3-digit (AP605.CZC); normalise before joining. '
-    'Not on the Pi5 sync chain.';
+    '2005-01-04 -> 2026-08-05, 661,626,782 rows. Bars are stamped with their '
+    'OPEN time: a row at 09:00 covers [09:00, 09:01). '
+    'CAVEAT - bar density is NOT uniform over time. volume=0 bars are kept, but '
+    'the vendor only emits them through 2024 (~60% of rows); 2025 is partial '
+    '(36%) and 2026 has none. So "no trade" is distinguishable from "no data" '
+    'only up to 2024; from 2026 a missing minute is simply missing. Do not '
+    'validate bars-per-day or forward-fill across the 2024/2025/2026 boundaries. '
+    'Vendor continuous series (9999/9998/8888) are excluded - they exist only '
+    'from 2025 in the archive; use continuous_contract_ohlc instead. '
+    'CZCE months are 4-digit here (AP2605) while futures_daily stores 3-digit '
+    '(AP605.CZC); normalise before joining. Not on the Pi5 sync chain.';
 
 SELECT create_hypertable('public.futures_minute', 'bar_time',
                          chunk_time_interval => INTERVAL '1 month',

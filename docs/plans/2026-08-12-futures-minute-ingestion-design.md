@@ -19,7 +19,7 @@ backfill; the daily comparison run on 2026-08-12 was validation only. See
 |---|---|---|
 | 1 | New table `public.futures_minute`; leave `market_data_minute` untouched | Different semantics — `market_data_minute` is a Wind realtime-snapshot table (`last_price`, no close/OI/amount, `timestamp without time zone`, 2026-01-22→ only). Coexistence is zero-risk; the overlapping 2026 window becomes a free cross-check. |
 | 2 | Not on the sync chain | `market_data_minute` sets the precedent: a `public` table absent from sync-worker `config.yaml` is ignored. No Pi5 impact, no `sync_state` row, no config change. |
-| 3 | Keep `volume = 0` bars | Dropping them makes "no trade this minute" indistinguishable from "archive lacks this range". Fidelity wins; the cost is disk, which decision 6 handles. |
+| 3 | Keep `volume = 0` bars | Dropping them makes "no trade this minute" indistinguishable from "archive lacks this range". Fidelity wins; the cost is disk, which decision 6 handles. **But see "Bar density is not uniform" — the vendor stops emitting these after 2024, so that distinction only holds for the older data.** |
 | 4 | `bar_time` = `bob` (bar open), `timestamptz` | The archive carries `+08:00`; discarding the offset is lossy. Differs from `market_data_minute` on purpose. A bar stamped 09:00 covers `[09:00, 09:01)`. |
 | 5 | CZCE keeps the 4-digit month code (`AP2605`) | 3-digit CZCE codes (`AP605`, as `futures_daily` stores them) collide across decades. 4-digit is unambiguous; the join rule to `futures_daily` is documented instead. |
 | 6 | Repartition by **year** locally, then load year-by-year and compress those chunks immediately | Without it, peak uncompressed footprint is ~98 GB against 167 GB free. See "Why repartitioning is mandatory". Year buckets hold the peak to ~11 GB — ample against 167 GB — while keeping the output to 22 files, which one `mawk` process can route to without hitting a pipe limit. |
@@ -168,6 +168,31 @@ compression.
 - Run post-close (15:00–21:00); collectors write to the same instance.
 
 ---
+
+## Bar density is not uniform (measured 2026-08-12 on the Stage 1 output)
+
+The vendor changed how it pads non-trading minutes partway through the archive:
+
+| Year | rows with `volume = 0` |
+|---|---|
+| 2022 | 59.9% |
+| 2023 | 56.1% |
+| 2024 | 60.0% |
+| 2025 | 36.0% |
+| 2026 | 0.0% |
+
+Consequences for anyone querying the table:
+
+- The rationale for decision 3 — keeping `volume = 0` so "no trade" stays
+  distinguishable from "no data" — holds only through 2024. From 2026 a missing
+  minute is simply missing, with no signal either way.
+- Bars-per-day is not a usable completeness check across the 2024/2025/2026
+  boundaries, and forward-filling over them changes meaning.
+- Row counts per year are not comparable: 2025 has 44.0M rows against 2024's
+  63.0M despite similar market activity, because of the padding change alone.
+
+This is recorded in the table's `COMMENT` so it reaches consumers who never read
+this document.
 
 ## Prior validation (2026-08-12)
 
