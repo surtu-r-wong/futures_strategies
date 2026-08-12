@@ -8,3 +8,6 @@ config/settings.yaml
 config/settings.yaml.bak*
 output/
 logs/
+
+# Local market-data archive (84 GiB, downloaded separately — never commit)
+期货数据/
