@@ -81,7 +81,25 @@ while IFS=$'\t' read -r year rows raw zst sha <&3; do
 done 3< "$DATA/manifest.tsv"
 
 echo "[$(date +%T)] all years loaded: $total_loaded rows"
+
+# chunk_time_interval is INTERVAL '1 month', which on a timestamptz column is
+# stored as a fixed 30-day window — chunks are NOT aligned to calendar years. The
+# per-year compress above uses show_chunks(newer_than, older_than), which returns
+# only chunks lying wholly inside the year, so the chunk straddling each New Year
+# is skipped by the year before it AND the year after it. That left 22 chunks and
+# 5.6 GB uncompressed after the 2026-08-12 run.
+#
+# This sweep has to run after the loop, not inside it: a straddling chunk is still
+# receiving rows while its second year loads, and inserting into an already
+# compressed chunk is exactly what the staged compression is meant to avoid.
+echo "[$(date +%T)] compressing chunks the per-year pass could not reach ..."
+psql_ -At -c "SELECT count(compress_chunk(format('%I.%I', chunk_schema, chunk_name)::regclass,
+                                          if_not_compressed => true))
+              FROM timescaledb_information.chunks
+              WHERE hypertable_name = 'futures_minute' AND NOT is_compressed"
+
 psql_ -c "SELECT pg_size_pretty(hypertable_size('public.futures_minute')) AS size,
-                 count(*) AS chunks
+                 count(*) AS chunks,
+                 count(*) FILTER (WHERE is_compressed) AS compressed
           FROM timescaledb_information.chunks
           WHERE hypertable_name = 'futures_minute'"

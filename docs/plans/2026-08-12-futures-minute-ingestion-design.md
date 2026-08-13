@@ -210,3 +210,99 @@ design. Findings that bear on the minute work:
 - `futures_daily` is missing six whole trading days inside its own range —
   2026-03-03, 03-06, 03-09, 03-10, 03-11, 03-12 — separate from the post-04-29
   freeze. Relevant to the Wind backfill range, not to this design.
+
+## Stage 3 verification results (2026-08-13)
+
+The load is complete and correct. Exact row count from chunk metadata plus a
+per-chunk count of the uncompressed remainder is **661,626,782**, equal to the
+manifest to the row. `(symbol, bar_time)` is the primary key and `bar_time` is the
+partitioning column, so the per-chunk PK is globally unique here — duplicates are
+not possible and were not searched for. Range is 2005-01-04 09:00 to
+2026-08-05 23:59.
+
+A 288 contract-day sample, stratified across all six exchanges and five-year eras,
+rolls up to `futures_daily` with 285 matches. On the commodity venues — the ones
+this project trades — 236/237 closes, 232/237 highs, 226/237 lows, 230/237 opens
+and 230/237 volumes are exactly equal; the residual is one-tick extremes on thin
+contracts, with no systematic direction. Against `market_data_minute`, the only
+independent source after `futures_daily` freezes on 2026-04-29, 23,051 of 23,949
+matched snapshots fall inside their bar's `[low, high]`.
+
+Four things came out of the verification that the design did not anticipate.
+
+**`volume = 0` bars must be filtered before any OHLC roll-up.** Keeping them was
+a deliberate design decision and remains right for storage, but an empty bar
+carries a carried-forward price rather than a trade, so aggregating them invents
+extremes that never traded. On 2007-11-07 TA0809 traded twice, both fills at 8888,
+and the daily bar is flat at 8888 — the unfiltered minute roll-up reports a low of
+8788 while still reproducing the volume (2) exactly. Adding the filter moved the
+sample from 180/285 to 276/285 on open, 246 to 277 on high, 241 to 270 on low.
+This is now in the table `COMMENT`.
+
+**CFFEX sessions are truncated at 15:00.** Every CFFEX contract has its last bar
+at 14:59. That is correct for index futures from 2016-01-01, when their close
+moved to 15:00, but it silently drops the final 15 minutes of pre-2016 IF/IC/IH
+and of all treasury futures, which close at 15:15 — verified directly: IF2406 and
+T2406 both carry exactly 240 bars/day where T should carry 255. CFFEX closes and
+volumes are therefore systematically wrong and short (sample: 31/48 and 28/48).
+Out of scope for this project's strategies, which are commodity-only, but the
+table is shared.
+
+**SHFE copper has no minute data before 2011-01-04.** All three unmatched SHFE
+samples were copper. The archive's earliest copper file is `CU1101.csv`, against
+`AL0501.csv` for aluminium, while `futures_daily` carries CU back to 1995 — so
+copper is missing roughly six years that lie inside the archive's own coverage
+window. This is a vendor gap, not a load defect. Coverage per product should be
+checked before backtesting anything on this table; the earliest contract file per
+product is a filesystem-only query against `期货数据/1m/2005-2024/<EX>/<PRODUCT>/`.
+
+**Stage 2's per-year compression left 22 chunks uncompressed.** `chunk_time_interval
+=> INTERVAL '1 month'` becomes a fixed 30-day window on a timestamptz column, so
+chunks do not align to calendar years, and `show_chunks(newer_than => Y-01-01,
+older_than => Y+1-01-01)` returns only chunks wholly inside the year. The chunk
+straddling each New Year was skipped by both neighbours — 22 chunks, 5.6 GB of
+uncompressed heap. `stage2_load.sh` now ends with a sweep that compresses whatever
+the per-year pass could not reach; it has to run after the loop, because a
+straddling chunk is still taking rows while its second year loads.
+
+### What the rewritten Stage 3 had to learn about querying this table
+
+The first rewrite still could not run: it timed out at 300 s. It joined on
+`CASE WHEN m.exchange = 'CZCE' THEN regexp_replace(m.symbol, ...) END = s.contract`,
+and the planner cannot invert an expression over `m.symbol` back into an index
+qual, so it produced a Hash Join over an Append of all 264 chunks
+(`rows=661619348`) with the `bar_time` bounds demoted to a post-join Join Filter —
+a full decompressing scan wearing a WHERE clause. Normalising on the small side
+instead, so the join key is the bare `m.symbol` column, turns it into a Nested Loop
+of index probes: 20 contract-days went from >300 s to 284 ms, and the whole script
+now runs in 12.8 s.
+
+Three rules follow, and they are in the script header:
+
+- Every join key on `futures_minute` must be a bare column, driven from a small
+  temp table. Normalise the other side.
+- Use literal time bounds where possible so chunk exclusion happens at plan time.
+  A per-row parameterised window still probes all 264 chunks.
+- `EXPLAIN` anything new before running it. A correlated `NOT EXISTS` against this
+  table plans as an anti-join over every chunk and sits there until the timeout.
+
+A fourth, smaller one: `enable_hashjoin = off` is a useful guard around hypertable
+access, but it must be reset immediately. Leaving it on across the temp-to-temp
+join in §10 turned a 32k × 122k join into a 4-billion-comparison nested loop that
+took 132 s on its own.
+
+### Correctness fixes in the sampling itself
+
+- The night session of trade date T runs on the evening of the **previous trading
+  day**, so Monday's night session is on Friday. Only 79% of trading-day gaps are
+  one calendar day, so the original `trade_date - 1` window dropped the night
+  session for every Monday and every post-holiday session. Stage 3 now builds a
+  trading calendar from `futures_daily` and uses `lag(trade_date)`.
+- CZCE month codes needed inverting, not stripping. `futures_daily` holds 3-digit
+  CZCE codes throughout 2004–2026 *and* a 4-digit form up to 2017-01-16, so the
+  mapping is 3-digit → 4-digit, recovering the decade digit from the trade date
+  (`k = (ydigit - year mod 10) mod 10`, 0..2 in practice).
+- Sampling is stratified by exchange × five-year era. A uniform draw over
+  `futures_daily` is 68% SHFE+DCE and weighted to recent years, which would have
+  left GFEX and the pre-2010 era almost unsampled — and the copper gap sits
+  exactly there.

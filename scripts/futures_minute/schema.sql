@@ -49,7 +49,25 @@ COMMENT ON TABLE public.futures_minute IS
     'Vendor continuous series (9999/9998/8888) are excluded - they exist only '
     'from 2025 in the archive; use continuous_contract_ohlc instead. '
     'CZCE months are 4-digit here (AP2605) while futures_daily stores 3-digit '
-    '(AP605.CZC); normalise before joining. Not on the Pi5 sync chain.';
+    '(AP605.CZC) - and futures_daily ALSO carries a 4-digit CZCE form up to '
+    '2017-01-16, so normalise 3-digit -> 4-digit using the trade date, not the '
+    'other way round. '
+    'AGGREGATION - filter volume > 0 before rolling these into daily OHLC. An '
+    'empty bar carries a carried-forward price, not a trade, so a raw roll-up '
+    'invents extremes: on 2007-11-07 TA0809 traded twice, both at 8888, and the '
+    'daily bar is 8888/8888/8888/8888, but the unfiltered minute roll-up reports '
+    'a low of 8788. With the filter, a 288 contract-day stratified sample matches '
+    'futures_daily on commodity venues 236/237 close, 232/237 high, 226/237 low, '
+    '230/237 open, 230/237 volume; residuals are one-tick extremes on thin '
+    'contracts. '
+    'CFFEX - every CFFEX session is cut at 15:00 (last bar 14:59). That is right '
+    'for index futures from 2016-01-01 but drops the final 15 minutes of pre-2016 '
+    'IF/IC/IH and of ALL treasury futures (T/TF/TS), whose closes are wrong and '
+    'whose volumes run short (sample: close 31/48, volume 28/48). '
+    'SHFE copper has NO bars before 2011-01-04: the vendor archive starts at '
+    'CU1101.csv even though futures_daily carries CU from 1995 and the other SHFE '
+    'metals go back to 2005. Check coverage per product before backtesting it. '
+    'Not on the Pi5 sync chain.';
 
 SELECT create_hypertable('public.futures_minute', 'bar_time',
                          chunk_time_interval => INTERVAL '1 month',
