@@ -1,6 +1,8 @@
 # Futures Minute Archive Ingestion — Design
 
-**Status:** design validated 2026-08-12, implementation not started.
+**Status:** delivered 2026-08-13. All three stages ran; 661,626,782 rows are loaded
+and verified. See "Stage 3 verification results" below for what the verification
+found and for the query rules this table imposes on its consumers.
 
 **Goal:** Load the local minute-bar archive (`期货数据/1m`, 392,586 CSVs / 73.2 GiB /
 ~640M rows / 2005 → 2026-08) into a new TimescaleDB hypertable
@@ -264,6 +266,14 @@ straddling each New Year was skipped by both neighbours — 22 chunks, 5.6 GB of
 uncompressed heap. `stage2_load.sh` now ends with a sweep that compresses whatever
 the per-year pass could not reach; it has to run after the loop, because a
 straddling chunk is still taking rows while its second year loads.
+
+The 22 chunks left behind by the 2026-08-12 run were swept on 2026-08-13, serially
+and one connection per chunk, at `work_mem = 32MB` with parallelism off — 1 to 4 s
+each, with 10.5 GB still available on the box throughout. All 264 chunks are now
+compressed; the hypertable went from 11.8 GB to **4,425 MB** and freed 7 GB of
+disk. `sum(numrows_pre_compression)` over the catalog is 661,626,782, unchanged and
+still equal to the manifest. (`approximate_row_count()` reports 719,579,000 — a
+planner estimate, not a count; the catalog sum is the authoritative figure.)
 
 ### What the rewritten Stage 3 had to learn about querying this table
 
