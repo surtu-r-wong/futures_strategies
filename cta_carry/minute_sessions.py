@@ -2,7 +2,7 @@
 
 import csv
 from bisect import bisect_left
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -147,22 +147,59 @@ def resolve_session_rule(
     return matches[0]
 
 
-@dataclass(frozen=True)
-class TradingSlots(Sequence[datetime]):
+class _FrozenTradingSlotsType(type):
+    def __setattr__(cls, name: str, value: object) -> None:
+        raise AttributeError("TradingSlots type is immutable")
+
+    def __delattr__(cls, name: str) -> None:
+        raise AttributeError("TradingSlots type is immutable")
+
+
+def _constant_property(value):
+    return property(lambda instance: value)
+
+
+class TradingSlots(tuple, metaclass=_FrozenTradingSlotsType):
+    """Tuple of trading minutes with immutable clock context metadata."""
+
+    __slots__ = ()
+
     exchange: str
     product: str
     trade_date: date
     previous_trade_date: date
-    values: tuple[datetime, ...]
 
-    def __getitem__(self, index):
-        return self.values[index]
+    def __new__(
+        cls,
+        *,
+        exchange: str,
+        product: str,
+        trade_date: date,
+        previous_trade_date: date,
+        values: Sequence[datetime],
+    ) -> "TradingSlots":
+        contextual_type = _FrozenTradingSlotsType(
+            "TradingSlots",
+            (TradingSlots,),
+            {
+                "__slots__": (),
+                "exchange": _constant_property(exchange),
+                "product": _constant_property(product),
+                "trade_date": _constant_property(trade_date),
+                "previous_trade_date": _constant_property(previous_trade_date),
+            },
+        )
+        return tuple.__new__(contextual_type, values)
 
-    def __len__(self) -> int:
-        return len(self.values)
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("TradingSlots is immutable")
 
-    def __iter__(self) -> Iterator[datetime]:
-        return iter(self.values)
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("TradingSlots is immutable")
+
+    @property
+    def values(self) -> tuple[datetime, ...]:
+        return self
 
 
 def _clock_context(

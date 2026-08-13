@@ -1,4 +1,3 @@
-from dataclasses import replace
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -23,6 +22,16 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 def _dt(year, month, day, hour, minute):
     return datetime(year, month, day, hour, minute, tzinfo=SHANGHAI)
+
+
+def _with_slot_values(slots, values):
+    return type(slots)(
+        exchange=slots.exchange,
+        product=slots.product,
+        trade_date=slots.trade_date,
+        previous_trade_date=slots.previous_trade_date,
+        values=values,
+    )
 
 
 def test_monday_night_and_after_midnight_slots_follow_friday_session():
@@ -275,7 +284,7 @@ def test_next_slots_rejects_an_unsorted_clock():
     trade_date = date(2024, 1, 8)
     rule = _rule()
     slots = build_trading_slots(trade_date, date(2024, 1, 5), rule)
-    reversed_slots = replace(slots, values=tuple(reversed(slots)))
+    reversed_slots = _with_slot_values(slots, tuple(reversed(slots)))
 
     with pytest.raises(SessionClockError) as exc_info:
         next_slots(reversed_slots, slots[0], count=1)
@@ -291,7 +300,7 @@ def test_fifteen_minute_buckets_reject_a_truncated_clock():
     trade_date = date(2024, 1, 8)
     rule = _rule()
     slots = build_trading_slots(trade_date, date(2024, 1, 5), rule)
-    truncated_slots = replace(slots, values=slots.values[:-1])
+    truncated_slots = _with_slot_values(slots, slots.values[:-1])
 
     with pytest.raises(SessionClockError) as exc_info:
         fifteen_minute_buckets(truncated_slots, rule)
@@ -307,7 +316,7 @@ def test_fifteen_minute_buckets_reject_extra_slots():
     trade_date = date(2024, 1, 8)
     rule = _rule()
     slots = build_trading_slots(trade_date, date(2024, 1, 5), rule)
-    extra_slots = replace(
+    extra_slots = _with_slot_values(
         slots,
         values=(*slots.values, slots[-1] + timedelta(minutes=1)),
     )
@@ -326,7 +335,7 @@ def test_fifteen_minute_buckets_reject_mismatched_slot_timestamps():
     trade_date = date(2024, 1, 8)
     rule = _rule()
     slots = build_trading_slots(trade_date, date(2024, 1, 5), rule)
-    mismatched_slots = replace(
+    mismatched_slots = _with_slot_values(
         slots,
         values=(slots[0] + timedelta(seconds=30), *slots.values[1:]),
     )
@@ -338,4 +347,44 @@ def test_fifteen_minute_buckets_reject_mismatched_slot_timestamps():
         exc_info.value,
         trade_date=trade_date,
         check="session_slots_mapping",
+    )
+
+
+def test_trading_slots_are_a_real_tuple_with_structured_error_context():
+    trade_date = date(2024, 1, 8)
+    rule = _rule()
+    slots = build_trading_slots(trade_date, date(2024, 1, 5), rule)
+
+    assert isinstance(slots, tuple)
+    assert slots == tuple(slots)
+    assert slots[:2] == tuple(slots)[:2]
+
+    with pytest.raises(SessionClockError) as exc_info:
+        next_slots(slots, slots[-1], count=5)
+
+    _assert_structured_error(
+        exc_info.value,
+        trade_date=trade_date,
+        check="next_slots_count",
+    )
+
+
+def test_trading_slot_metadata_is_immutable_and_preserves_error_context():
+    trade_date = date(2024, 1, 8)
+    rule = _rule()
+    slots = build_trading_slots(trade_date, date(2024, 1, 5), rule)
+
+    with pytest.raises(AttributeError):
+        slots.exchange = "DCE"
+    with pytest.raises(AttributeError):
+        del slots.product
+    assert not hasattr(slots, "__dict__")
+
+    with pytest.raises(SessionClockError) as exc_info:
+        next_slots(slots, slots[-1], count=5)
+
+    _assert_structured_error(
+        exc_info.value,
+        trade_date=trade_date,
+        check="next_slots_count",
     )
