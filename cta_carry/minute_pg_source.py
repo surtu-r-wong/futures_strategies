@@ -9,14 +9,14 @@ from datetime import date, datetime
 from decimal import Decimal
 import json
 import math
-from numbers import Integral, Number
+from numbers import Integral
 import re
 import sys
 from typing import Any, Callable
 
+import numpy as np
 import pandas as pd
-from psycopg2 import sql
-from psycopg2.extras import execute_values
+from psycopg2 import extras, sql
 
 from common.config import load_config, resolve_settings_path
 from common.db import get_connection, pg_config_from
@@ -108,9 +108,9 @@ def _parse_daily_contract(
     trade_date: date,
 ) -> tuple[str, str, str]:
     _require_trade_date(
-        trade_date, contract=contract if isinstance(contract, str) else None
+        trade_date, contract=contract if type(contract) is str else None
     )
-    if not isinstance(contract, str):
+    if type(contract) is not str:
         raise MinuteDataError(
             trade_date=trade_date,
             check="minute_contract_mapping",
@@ -210,12 +210,35 @@ class MinuteCandidate:
     window_end: datetime
 
     def __post_init__(self) -> None:
+        contract = self.daily_contract if type(self.daily_contract) is str else None
         trade_date = _require_trade_date(
             self.trade_date,
-            contract=(
-                self.daily_contract if isinstance(self.daily_contract, str) else None
-            ),
+            contract=contract,
         )
+        for name, value in {
+            "product": self.product,
+            "daily_contract": self.daily_contract,
+            "minute_symbol": self.minute_symbol,
+            "exchange": self.exchange,
+        }.items():
+            if type(value) is not str:
+                raise MinuteDataError(
+                    trade_date=trade_date,
+                    contract=contract,
+                    check="minute_candidate",
+                    reason=f"{name} must be a concrete built-in string",
+                )
+        for name, value in {
+            "window_start": self.window_start,
+            "window_end": self.window_end,
+        }.items():
+            if type(value) is not datetime:
+                raise MinuteDataError(
+                    trade_date=trade_date,
+                    contract=contract,
+                    check="minute_candidate",
+                    reason=f"{name} must be a concrete built-in datetime",
+                )
         expected_product, expected_symbol, expected_exchange = _minute_contract(
             self.daily_contract,
             trade_date,
@@ -227,7 +250,7 @@ class MinuteCandidate:
         }
         normalized: dict[str, str] = {}
         for name, value in values.items():
-            if not isinstance(value, str) or not value.strip():
+            if not value.strip():
                 raise MinuteDataError(
                     trade_date=trade_date,
                     product=expected_product,
@@ -347,6 +370,134 @@ def build_minute_batch_query(*, lower: datetime, upper: datetime) -> sql.SQL:
     )
 
 
+def _fresh_date(value: date) -> date:
+    if type(value) is not date:
+        raise TypeError("expected an exact built-in date")
+    return date(value.year, value.month, value.day)
+
+
+def _fresh_datetime(value: datetime) -> datetime:
+    if type(value) is not datetime:
+        raise TypeError("expected an exact built-in datetime")
+    return datetime(
+        value.year,
+        value.month,
+        value.day,
+        value.hour,
+        value.minute,
+        value.second,
+        value.microsecond,
+        tzinfo=value.tzinfo,
+        fold=value.fold,
+    )
+
+
+def _fresh_text(value: str) -> str:
+    if type(value) is not str:
+        raise TypeError("expected an exact built-in string")
+    return value.encode("utf-8").decode("utf-8")
+
+
+def _dataframe_text(value: Any, *, column: str, row: int) -> str:
+    if type(value) is str:
+        return _fresh_text(value)
+    if type(value) is np.str_:
+        primitive = value.item()
+        if type(primitive) is str:
+            return _fresh_text(primitive)
+    raise MinuteDataError(
+        check="minute_candidates",
+        reason="candidate identifier must be trusted text data",
+        context={"column": column, "row": row, "type": type(value).__name__},
+    )
+
+
+def _trusted_timestamp(value: Any, *, column: str, row: int) -> pd.Timestamp:
+    if type(value) is pd.Timestamp:
+        timestamp = value
+    elif type(value) is np.datetime64:
+        timestamp = pd.Timestamp(value)
+    else:
+        raise MinuteDataError(
+            check="minute_candidates",
+            reason="candidate time value must use a trusted scalar type",
+            context={"column": column, "row": row, "type": type(value).__name__},
+        )
+    if pd.isna(timestamp) or timestamp.nanosecond != 0:
+        raise MinuteDataError(
+            check="minute_candidates",
+            reason="candidate time value must be concrete at microsecond precision",
+            context={"column": column, "row": row},
+        )
+    return timestamp
+
+
+def _dataframe_date(value: Any, *, column: str, row: int) -> date:
+    if type(value) is date:
+        return _fresh_date(value)
+    timestamp = _trusted_timestamp(value, column=column, row=row)
+    try:
+        return date(timestamp.year, timestamp.month, timestamp.day)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MinuteDataError(
+            check="minute_candidates",
+            reason="candidate date is outside the supported Python range",
+            context={"column": column, "row": row, "value": str(value)},
+        ) from exc
+
+
+def _dataframe_datetime(value: Any, *, column: str, row: int) -> datetime:
+    if type(value) is datetime:
+        return _fresh_datetime(value)
+    timestamp = _trusted_timestamp(value, column=column, row=row)
+    try:
+        return datetime(
+            timestamp.year,
+            timestamp.month,
+            timestamp.day,
+            timestamp.hour,
+            timestamp.minute,
+            timestamp.second,
+            timestamp.microsecond,
+            tzinfo=timestamp.tzinfo,
+            fold=timestamp.fold,
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MinuteDataError(
+            check="minute_candidates",
+            reason="candidate timestamp is outside the supported Python range",
+            context={"column": column, "row": row, "value": str(value)},
+        ) from exc
+
+
+def _dataframe_candidate(raw: dict[str, Any], *, row: int) -> MinuteCandidate:
+    return MinuteCandidate(
+        trade_date=_dataframe_date(raw["trade_date"], column="trade_date", row=row),
+        product=_dataframe_text(raw["product"], column="product", row=row),
+        daily_contract=_dataframe_text(
+            raw["daily_contract"],
+            column="daily_contract",
+            row=row,
+        ),
+        minute_symbol=_dataframe_text(
+            raw["minute_symbol"],
+            column="minute_symbol",
+            row=row,
+        ),
+        exchange=_dataframe_text(raw["exchange"], column="exchange", row=row),
+        window_start=_dataframe_datetime(
+            raw["window_start"],
+            column="window_start",
+            row=row,
+        ),
+        window_end=_dataframe_datetime(
+            raw["window_end"],
+            column="window_end",
+            row=row,
+        ),
+    )
+
+
 def _canonical_candidates(
     candidate_frame: pd.DataFrame | Sequence[MinuteCandidate],
     *,
@@ -380,7 +531,7 @@ def _canonical_candidates(
         if isinstance(raw, MinuteCandidate):
             candidate = raw
         elif isinstance(raw, dict) and isinstance(candidate_frame, pd.DataFrame):
-            candidate = MinuteCandidate(**raw)
+            candidate = _dataframe_candidate(raw, row=index)
         else:
             raise MinuteDataError(
                 check="minute_candidates",
@@ -429,10 +580,18 @@ def _canonical_candidates(
 
 def _insert_candidates(cursor, candidates: Sequence[MinuteCandidate]) -> None:
     rows = [
-        tuple(getattr(candidate, column) for column in _CANDIDATE_COLUMNS)
+        (
+            _fresh_date(candidate.trade_date),
+            _fresh_text(candidate.product),
+            _fresh_text(candidate.daily_contract),
+            _fresh_text(candidate.minute_symbol),
+            _fresh_text(candidate.exchange),
+            _fresh_datetime(candidate.window_start),
+            _fresh_datetime(candidate.window_end),
+        )
         for candidate in candidates
     ]
-    execute_values(cursor, _INSERT_CANDIDATES, rows, page_size=len(rows))
+    extras.execute_values(cursor, _INSERT_CANDIDATES, rows, page_size=len(rows))
 
 
 def _plan_error(
@@ -494,12 +653,10 @@ def _plan_nodes(root: dict[str, Any]) -> tuple[dict[str, Any], ...]:
                 "EXPLAIN plan node is missing Node Type",
                 context={"path": path},
             )
-        if (
-            isinstance(plan_rows, bool)
-            or not isinstance(plan_rows, Number)
-            or not math.isfinite(float(plan_rows))
-            or plan_rows < 0
-        ):
+        valid_plan_rows = (type(plan_rows) is int and plan_rows >= 0) or (
+            type(plan_rows) is float and math.isfinite(plan_rows) and plan_rows >= 0
+        )
+        if not valid_plan_rows:
             raise _plan_error(
                 "EXPLAIN plan node has invalid Plan Rows",
                 context={"path": path, "plan_rows": plan_rows},

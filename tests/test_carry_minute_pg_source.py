@@ -1,7 +1,9 @@
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
+import psycopg2.extras
 import pytest
 
 from cta_carry.minute_bars import MinuteDataError
@@ -19,6 +21,14 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 def test_czce_three_digit_month_maps_on_the_small_side():
     assert czce_minute_symbol("AP605.CZC", date(2025, 12, 1)) == "AP2605"
     assert czce_minute_symbol("TA1701.CZC", date(2016, 9, 1)) == "TA1701"
+
+
+def test_czce_symbol_helper_rejects_a_non_czce_venue_directly():
+    with pytest.raises(MinuteDataError) as exc_info:
+        czce_minute_symbol("RB2405.SHF", date(2024, 1, 8))
+
+    assert exc_info.value.check == "czce_contract_mapping"
+    assert exc_info.value.contract == "RB2405.SHF"
 
 
 def test_batch_query_keeps_minute_symbol_bare_and_has_literal_bounds():
@@ -117,6 +127,62 @@ def test_candidate_rejects_bool_and_datetime_trade_dates(trade_date):
             window_start=start,
             window_end=start + timedelta(hours=20),
         )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "trade_date",
+        "product",
+        "daily_contract",
+        "minute_symbol",
+        "exchange",
+        "window_start",
+        "window_end",
+    ],
+)
+def test_candidate_rejects_sql_adaptable_builtin_subclasses(field):
+    class AdaptableText(str):
+        def __conform__(self, protocol):
+            return "'); SELECT pg_sleep(9); --"
+
+    class AdaptableDate(date):
+        def __conform__(self, protocol):
+            return "'); SELECT pg_sleep(9); --"
+
+    class AdaptableDatetime(datetime):
+        def __conform__(self, protocol):
+            return "'); SELECT pg_sleep(9); --"
+
+        def isoformat(self, *args, **kwargs):
+            return "2024-01-01T00:00:00+08:00'; SELECT pg_sleep(9); --"
+
+    values = {
+        "trade_date": date(2024, 1, 8),
+        "product": "RB",
+        "daily_contract": "RB2405.SHF",
+        "minute_symbol": "RB2405",
+        "exchange": "SHFE",
+        "window_start": datetime(2024, 1, 7, 21, 0, tzinfo=SHANGHAI),
+        "window_end": datetime(2024, 1, 8, 15, 1, tzinfo=SHANGHAI),
+    }
+    if field == "trade_date":
+        values[field] = AdaptableDate(2024, 1, 8)
+    elif field in {"window_start", "window_end"}:
+        source = values[field]
+        values[field] = AdaptableDatetime(
+            source.year,
+            source.month,
+            source.day,
+            source.hour,
+            source.minute,
+            tzinfo=SHANGHAI,
+        )
+    else:
+        values[field] = AdaptableText(values[field])
+
+    with pytest.raises(MinuteDataError):
+        MinuteCandidate(**values)
 
 
 @pytest.mark.parametrize(
@@ -495,6 +561,179 @@ def test_iter_month_accepts_an_exact_candidate_dataframe(monkeypatch):
     assert captured == [candidate]
 
 
+def test_dataframe_ingestion_normalizes_trusted_pandas_and_numpy_scalars(
+    monkeypatch,
+):
+    from cta_carry import minute_pg_source
+
+    start = pd.Timestamp("2024-01-07 21:00:00", tz=SHANGHAI)
+    frame = pd.DataFrame(
+        {
+            "trade_date": pd.Series(
+                [pd.Timestamp("2024-01-08")],
+                dtype=object,
+            ),
+            "product": pd.Series([np.str_("rb")], dtype=object),
+            "daily_contract": pd.Series([np.str_("rb2405.shf")], dtype=object),
+            "minute_symbol": pd.Series([np.str_("rb2405")], dtype=object),
+            "exchange": pd.Series([np.str_("shfe")], dtype=object),
+            "window_start": pd.Series([start], dtype=object),
+            "window_end": pd.Series(
+                [start + pd.Timedelta(hours=19)],
+                dtype=object,
+            ),
+        }
+    )
+    captured = []
+    monkeypatch.setattr(
+        minute_pg_source,
+        "_insert_candidates",
+        lambda cursor, candidates: captured.extend(candidates),
+    )
+
+    assert (
+        list(
+            _source(FakeConnection()).iter_month(
+                frame,
+                lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+                upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+            )
+        )
+        == []
+    )
+    assert len(captured) == 1
+    candidate = captured[0]
+    assert type(candidate.trade_date) is date
+    assert all(
+        type(getattr(candidate, column)) is str
+        for column in ("product", "daily_contract", "minute_symbol", "exchange")
+    )
+    assert type(candidate.window_start) is datetime
+    assert type(candidate.window_end) is datetime
+
+
+def test_dataframe_out_of_python_range_numpy_date_is_structured(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    frame = pd.DataFrame([_candidate().__dict__], dtype=object)
+    frame.at[0, "trade_date"] = np.datetime64("10000-01-01")
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        list(
+            _source(FakeConnection()).iter_month(
+                frame,
+                lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+                upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+            )
+        )
+
+    assert exc_info.value.check == "minute_candidates"
+
+
+def test_real_candidate_insert_uses_safe_normalized_rows_and_required_ddl(
+    monkeypatch,
+):
+    captured = {}
+
+    def fake_execute_values(cursor, template, rows, *, page_size):
+        captured.update(
+            cursor=cursor,
+            template=template,
+            rows=rows,
+            page_size=page_size,
+        )
+
+    monkeypatch.setattr(psycopg2.extras, "execute_values", fake_execute_values)
+    connection = FakeConnection()
+    start = pd.Timestamp("2024-01-07 21:00:00", tz=SHANGHAI)
+    candidate_frame = pd.DataFrame(
+        {
+            "trade_date": pd.Series(
+                [pd.Timestamp("2024-01-08"), pd.Timestamp("2024-01-08")],
+                dtype=object,
+            ),
+            "product": pd.Series([np.str_("ta"), np.str_("rb")], dtype=object),
+            "daily_contract": pd.Series(
+                [np.str_("ta2405.czc"), np.str_("rb2405.shf")],
+                dtype=object,
+            ),
+            "minute_symbol": pd.Series(
+                [np.str_("ta2405"), np.str_("rb2405")],
+                dtype=object,
+            ),
+            "exchange": pd.Series(
+                [np.str_("czce"), np.str_("shfe")],
+                dtype=object,
+            ),
+            "window_start": pd.Series([start, start], dtype=object),
+            "window_end": pd.Series(
+                [
+                    start + pd.Timedelta(hours=19),
+                    start + pd.Timedelta(hours=19),
+                ],
+                dtype=object,
+            ),
+        }
+    )
+
+    assert (
+        list(
+            _source(connection).iter_month(
+                candidate_frame,
+                lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+                upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+            )
+        )
+        == []
+    )
+
+    ddl = next(
+        event[1]
+        for event in connection.events
+        if event[0] == "execute" and "CREATE TEMP TABLE" in event[1]
+    )
+    normalized_ddl = " ".join(ddl.split())
+    assert "PRIMARY KEY (minute_symbol, trade_date)" in normalized_ddl
+    assert "ON COMMIT DROP" in normalized_ddl
+    assert " ".join(captured["template"].split()) == (
+        "INSERT INTO _carry_minute_candidates "
+        "( trade_date, product, daily_contract, minute_symbol, exchange, "
+        "window_start, window_end ) VALUES %s"
+    )
+    assert captured["page_size"] == 2
+    rows = captured["rows"]
+    assert [(row[3], row[0]) for row in rows] == [
+        ("RB2405", date(2024, 1, 8)),
+        ("TA2405", date(2024, 1, 8)),
+    ]
+    expected_start = datetime(2024, 1, 7, 21, 0, tzinfo=SHANGHAI)
+    expected_end = datetime(2024, 1, 8, 16, 0, tzinfo=SHANGHAI)
+    assert rows == [
+        (
+            date(2024, 1, 8),
+            "RB",
+            "RB2405.SHF",
+            "RB2405",
+            "SHFE",
+            expected_start,
+            expected_end,
+        ),
+        (
+            date(2024, 1, 8),
+            "TA",
+            "TA2405.CZC",
+            "TA2405",
+            "CZCE",
+            expected_start,
+            expected_end,
+        ),
+    ]
+    assert all(type(row[0]) is date for row in rows)
+    assert all(type(value) is str for row in rows for value in row[1:5])
+    assert all(type(value) is datetime for row in rows for value in row[5:7])
+
+
 @pytest.mark.parametrize(
     "plan",
     [
@@ -549,6 +788,39 @@ def test_iter_month_rejects_unsafe_or_malformed_plans(monkeypatch, plan):
     assert connection.rollbacks >= 1
     assert connection.commits == 0
     assert connection.closes == 1
+
+
+@pytest.mark.parametrize(
+    "plan_rows",
+    [10**1000, float("nan"), float("inf"), "10", True],
+    ids=["huge-int", "nan", "infinity", "string", "bool"],
+)
+def test_plan_rows_extremes_raise_a_structured_plan_error(
+    monkeypatch,
+    plan_rows,
+):
+    from cta_carry import minute_pg_source
+
+    plan = [
+        {
+            "Plan": {
+                "Node Type": "Index Scan",
+                "Plan Rows": plan_rows,
+            }
+        }
+    ]
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        list(
+            _source(FakeConnection(plan=plan)).iter_month(
+                [_candidate()],
+                lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+                upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+            )
+        )
+
+    assert exc_info.value.check == "minute_query_plan"
 
 
 @pytest.mark.parametrize(
