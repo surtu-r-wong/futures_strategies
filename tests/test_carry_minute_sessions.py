@@ -9,6 +9,7 @@ from cta_carry.minute_sessions import (
     SessionClockError,
     SessionRule,
     SessionSegment,
+    TradingSlots,
     build_trading_slots,
     fifteen_minute_buckets,
     load_session_rules,
@@ -700,3 +701,42 @@ def test_csv_wraps_malformed_dates_with_row_field_and_value(tmp_path, field, row
         match=rf"session_rules_csv_date: row 2 field {field} value 'not-a-date'",
     ):
         load_session_rules(path)
+
+
+def _assert_same_clock_context(actual, expected):
+    assert isinstance(actual, tuple)
+    assert isinstance(actual, TradingSlots)
+    assert actual.exchange == expected.exchange
+    assert actual.product == expected.product
+    assert actual.trade_date == expected.trade_date
+    assert actual.previous_trade_date == expected.previous_trade_date
+
+
+def test_next_slots_preserves_authoritative_clock_context():
+    rule = _rule()
+    slots = build_trading_slots(
+        trade_date=date(2024, 1, 8),
+        previous_trade_date=date(2024, 1, 5),
+        rule=rule,
+    )
+
+    window = next_slots(slots, slots[0], count=5)
+
+    assert window == tuple(slots[:5])
+    _assert_same_clock_context(window, slots)
+
+
+def test_every_fifteen_minute_bucket_preserves_authoritative_clock_context():
+    rule = _rule()
+    slots = build_trading_slots(
+        trade_date=date(2024, 1, 8),
+        previous_trade_date=date(2024, 1, 5),
+        rule=rule,
+    )
+
+    buckets = fifteen_minute_buckets(slots, rule)
+
+    assert buckets
+    assert all(bucket == tuple(bucket) for bucket in buckets)
+    for bucket in buckets:
+        _assert_same_clock_context(bucket, slots)

@@ -573,6 +573,21 @@ def build_trading_slots(
     return slots
 
 
+def _preserve_slot_context(
+    slots: Sequence[datetime],
+    values: Sequence[datetime],
+) -> tuple[datetime, ...]:
+    if isinstance(slots, TradingSlots):
+        return TradingSlots(
+            exchange=slots.exchange,
+            product=slots.product,
+            trade_date=slots.trade_date,
+            previous_trade_date=slots.previous_trade_date,
+            values=values,
+        )
+    return tuple(values)
+
+
 def next_slots(
     slots: Sequence[datetime],
     start: datetime,
@@ -606,7 +621,10 @@ def next_slots(
         fallback_date=fallback_date,
     )
     start_index = bisect_left(slots, start)
-    window = tuple(slots[start_index : start_index + count])
+    window = _preserve_slot_context(
+        slots,
+        slots[start_index : start_index + count],
+    )
     if len(window) != count:
         exchange, product, trade_date = _clock_context(
             slots,
@@ -650,7 +668,10 @@ def fifteen_minute_buckets(
             )
         segment_slots = slots[slot_index : slot_index + segment_length]
         buckets.extend(
-            tuple(segment_slots[index : index + 15])
+            _preserve_slot_context(
+                slots,
+                segment_slots[index : index + 15],
+            )
             for index in range(0, segment_length, 15)
         )
         slot_index += segment_length

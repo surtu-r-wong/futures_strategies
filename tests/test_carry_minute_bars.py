@@ -12,6 +12,13 @@ from cta_carry.minute_bars import (
     infer_contract_multiplier,
     validate_metadata_multiplier,
 )
+from cta_carry.minute_sessions import (
+    SESSION_RULES_VERSION,
+    SessionRule,
+    SessionSegment,
+    build_trading_slots,
+    next_slots,
+)
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -520,3 +527,202 @@ def test_plain_night_slots_do_not_invent_a_physical_trade_date():
     _assert_error(exc_info, "minute_amount")
     assert exc_info.value.trade_date is None
     assert "trade_date=" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("operation", ["aggregation", "vwap"])
+def test_nullable_null_symbol_is_a_structured_contract_mismatch(operation):
+    count = 5 if operation == "vwap" else 3
+    frame = _rows([100.0] * count, [1.0] * count)
+    frame["symbol"] = frame["symbol"].astype("string")
+    frame.loc[1, "symbol"] = pd.NA
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        if operation == "aggregation":
+            aggregate_fifteen_minute_bar(
+                frame,
+                slots=tuple(frame["bar_time"]),
+                contract=CONTRACT,
+            )
+        else:
+            five_minute_vwap(
+                frame,
+                slots=tuple(frame["bar_time"]),
+                contract=CONTRACT,
+                multiplier=10,
+            )
+
+    _assert_error(exc_info, "minute_contract")
+    assert exc_info.value.timestamp == frame.loc[1, "bar_time"]
+
+
+def test_nullable_null_symbol_is_rejected_during_multiplier_validation():
+    frame = _multiplier_rows()
+    frame["symbol"] = frame["symbol"].astype("string")
+    frame.loc[1, "symbol"] = pd.NA
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        infer_contract_multiplier(frame, contract=CONTRACT)
+
+    _assert_error(exc_info, "minute_contract")
+    assert exc_info.value.timestamp == frame.loc[1, "bar_time"]
+
+
+def test_nullable_symbols_do_not_distort_missing_slot_audit():
+    complete = _rows([100.0] * 5, [1.0] * 5)
+    slots = tuple(complete["bar_time"])
+    sparse = complete.drop(index=1)
+    sparse["symbol"] = sparse["symbol"].astype("string")
+
+    fill = five_minute_vwap(
+        sparse,
+        slots=slots,
+        contract=CONTRACT,
+        multiplier=10,
+    )
+
+    assert fill.missing_slots == 1
+    assert fill.missing_slot_times == (slots[1],)
+    assert len(fill.missing_slot_times) == fill.missing_slots
+
+
+def _resolve_multiplier(frame, source):
+    if source == "inferred":
+        return infer_contract_multiplier(frame, contract=CONTRACT)
+    return validate_metadata_multiplier(frame, contract=CONTRACT, multiplier=10)
+
+
+@pytest.mark.parametrize("source", ["inferred", "metadata"])
+def test_intraday_trade_date_timestamps_count_as_one_calendar_date(source):
+    frame = _multiplier_rows(count=10, date_count=2)
+    frame["trade_date"] = [
+        pd.Timestamp("2024-01-08") + pd.Timedelta(minutes=index)
+        for index in range(10)
+    ]
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _resolve_multiplier(frame, source)
+
+    _assert_error(exc_info, "contract_multiplier_sample")
+    assert exc_info.value.context["sample_dates"] == 1
+    assert exc_info.value.context["required_dates"] == 2
+
+
+@pytest.mark.parametrize("source", ["inferred", "metadata"])
+def test_sixty_timestamp_values_on_two_calendar_dates_fail_date_gate(source):
+    frame = _multiplier_rows(count=60, date_count=3)
+    frame["trade_date"] = [
+        pd.Timestamp("2024-01-08") + pd.Timedelta(minutes=index)
+        if index < 30
+        else pd.Timestamp("2024-01-09") + pd.Timedelta(minutes=index - 30)
+        for index in range(60)
+    ]
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _resolve_multiplier(frame, source)
+
+    _assert_error(exc_info, "contract_multiplier_sample")
+    assert exc_info.value.context["sample_dates"] == 2
+    assert exc_info.value.context["required_dates"] == 3
+
+
+def test_empty_monday_night_window_preserves_logical_clock_context():
+    trade_date = date(2024, 1, 8)
+    rule = SessionRule(
+        exchange="SHFE",
+        product="RB",
+        effective_start=date(2020, 1, 1),
+        effective_end=None,
+        segments=(SessionSegment(-180, -165),),
+        version=SESSION_RULES_VERSION,
+    )
+    session_slots = build_trading_slots(
+        trade_date=trade_date,
+        previous_trade_date=date(2024, 1, 5),
+        rule=rule,
+    )
+    window = next_slots(session_slots, session_slots[0], count=5)
+    empty = _rows([100.0] * 5, [1.0] * 5).iloc[0:0]
+
+    assert all(timestamp.date() == date(2024, 1, 5) for timestamp in window)
+    with pytest.raises(MinuteDataError) as exc_info:
+        five_minute_vwap(
+            empty,
+            slots=window,
+            contract=CONTRACT,
+            multiplier=10,
+        )
+
+    _assert_error(exc_info, "execution_vwap")
+    assert exc_info.value.trade_date == trade_date
+    assert exc_info.value.product == "RB"
+    assert "trade_date=2024-01-08" in str(exc_info.value)
+
+
+def _run_bar_operation(frame, operation):
+    if operation == "aggregation":
+        return aggregate_fifteen_minute_bar(
+            frame,
+            slots=tuple(frame["bar_time"]),
+            contract=CONTRACT,
+        )
+    return five_minute_vwap(
+        frame,
+        slots=tuple(frame["bar_time"]),
+        contract=CONTRACT,
+        multiplier=10,
+    )
+
+
+@pytest.mark.parametrize("operation", ["aggregation", "vwap"])
+def test_positive_volume_low_above_high_is_rejected(operation):
+    count = 5 if operation == "vwap" else 3
+    frame = _rows([100.0] * count, [1.0] * count)
+    frame.loc[1, ["low", "high"]] = [101.0, 99.0]
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _run_bar_operation(frame, operation)
+
+    _assert_error(exc_info, "minute_price_range")
+    assert exc_info.value.timestamp == frame.loc[1, "bar_time"]
+
+
+@pytest.mark.parametrize("operation", ["aggregation", "vwap"])
+@pytest.mark.parametrize("column", ["open", "close"])
+def test_positive_volume_open_and_close_must_be_within_range(operation, column):
+    count = 5 if operation == "vwap" else 3
+    frame = _rows([100.0] * count, [1.0] * count)
+    frame.loc[1, ["low", "high"]] = [99.0, 101.0]
+    frame.loc[1, column] = 102.0
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _run_bar_operation(frame, operation)
+
+    _assert_error(exc_info, "minute_price_range")
+    assert column in exc_info.value.context["invalid_fields"]
+
+
+@pytest.mark.parametrize("operation", ["aggregation", "vwap"])
+def test_zero_volume_carried_rows_ignore_malformed_ohlc_order(operation):
+    frame = _rows([100.0] * 5, [1.0, 0.0, 1.0, 1.0, 1.0])
+    frame.loc[1, ["open", "high", "low", "close"]] = [
+        300.0,
+        100.0,
+        200.0,
+        50.0,
+    ]
+
+    result = _run_bar_operation(frame, operation)
+
+    assert result.low == 100.0
+    assert result.high == 100.0
+
+
+def test_multiplier_rejects_a_positive_volume_reversed_price_range():
+    frame = _multiplier_rows()
+    frame.loc[1, ["low", "high"]] = [101.0, 99.0]
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        infer_contract_multiplier(frame, contract=CONTRACT)
+
+    _assert_error(exc_info, "minute_price_range")
+    assert exc_info.value.timestamp == frame.loc[1, "bar_time"]

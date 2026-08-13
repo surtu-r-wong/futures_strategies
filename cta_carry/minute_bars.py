@@ -166,8 +166,10 @@ def _clock_context(
 
 
 def _as_trade_date(value: Any) -> date | None:
+    if value is None or pd.isna(value):
+        return None
     if isinstance(value, datetime):
-        return value.date()
+        value = value.date()
     return value if type(value) is date else None
 
 
@@ -340,13 +342,60 @@ def _first_timestamp(frame: pd.DataFrame, mask: pd.Series) -> datetime | None:
     return value if isinstance(value, datetime) else None
 
 
+def _wrong_contract_mask(symbol: pd.Series, contract: str) -> pd.Series:
+    return symbol.isna() | symbol.ne(contract).fillna(True)
+
+
+def _require_traded_price_order(
+    frame: pd.DataFrame,
+    *,
+    positive: pd.Series,
+    clock: _ClockContext,
+    contract: str,
+    price_columns: tuple[str, ...] = (),
+) -> None:
+    invalid_by_field = {
+        "low_high": positive & frame["low"].gt(frame["high"]),
+        **{
+            column: positive
+            & (
+                frame[column].lt(frame["low"])
+                | frame[column].gt(frame["high"])
+            )
+            for column in price_columns
+        },
+    }
+    invalid_fields = tuple(
+        field for field, mask in invalid_by_field.items() if mask.any()
+    )
+    if not invalid_fields:
+        return
+    invalid_rows = pd.concat(
+        [invalid_by_field[field] for field in invalid_fields],
+        axis=1,
+    ).any(axis=1)
+    raise _minute_error(
+        clock=clock,
+        contract=contract,
+        timestamp=_first_timestamp(frame, invalid_rows),
+        check="minute_price_range",
+        reason="positive-volume traded prices violate OHLC ordering",
+        context={"invalid_fields": invalid_fields},
+    )
+
+
 def _bound_rows(
     frame: pd.DataFrame,
     *,
     slots: Sequence[datetime],
     contract: str,
     required_count: int | None = None,
-) -> tuple[pd.DataFrame, tuple[datetime, ...], _ClockContext, int]:
+) -> tuple[
+    pd.DataFrame,
+    tuple[datetime, ...],
+    _ClockContext,
+    tuple[datetime, ...],
+]:
     slot_values, clock = _validated_slots(
         slots,
         contract=contract,
@@ -382,7 +431,7 @@ def _bound_rows(
             context={"duplicate_rows": int(duplicates.sum())},
         )
 
-    wrong_contract = working["symbol"].ne(contract)
+    wrong_contract = _wrong_contract_mask(working["symbol"], contract)
     if wrong_contract.any():
         raise _minute_error(
             clock=clock,
@@ -473,10 +522,20 @@ def _bound_rows(
             reason="positive-volume rows require finite OHLC and amount",
             context={"invalid_fields": invalid_fields},
         )
+    _require_traded_price_order(
+        working,
+        positive=positive,
+        clock=clock,
+        contract=contract,
+        price_columns=("open", "close"),
+    )
 
     slot_index = pd.Index(slot_values, name="bar_time")
+    missing_slot_times = tuple(
+        slot_index[~slot_index.isin(working["bar_time"])]
+    )
     ordered = working.set_index("bar_time").reindex(slot_index)
-    return ordered, slot_values, clock, len(slot_values) - len(working)
+    return ordered, slot_values, clock, missing_slot_times
 
 
 def _epsilon(low: float, high: float) -> float:
@@ -502,7 +561,7 @@ def aggregate_fifteen_minute_bar(
     slots: Sequence[datetime],
     contract: str,
 ) -> FifteenMinuteBar:
-    ordered, slot_values, _, missing_slots = _bound_rows(
+    ordered, slot_values, _, missing_slot_times = _bound_rows(
         frame,
         slots=slots,
         contract=contract,
@@ -520,7 +579,7 @@ def aggregate_fifteen_minute_bar(
             volume=0.0,
             no_trade=True,
             traded_rows=0,
-            missing_slots=missing_slots,
+            missing_slots=len(missing_slot_times),
         )
     return FifteenMinuteBar(
         start=slot_values[0],
@@ -533,7 +592,7 @@ def aggregate_fifteen_minute_bar(
         volume=float(traded["volume"].sum()),
         no_trade=False,
         traded_rows=len(traded),
-        missing_slots=missing_slots,
+        missing_slots=len(missing_slot_times),
     )
 
 
@@ -542,11 +601,7 @@ def _multiplier_clock(frame: pd.DataFrame, contract: str) -> _ClockContext:
     if "trade_date" in frame.columns:
         nonnull_dates = frame["trade_date"].dropna()
         if not nonnull_dates.empty:
-            value = nonnull_dates.iloc[0]
-            if isinstance(value, datetime):
-                trade_date = value.date()
-            elif isinstance(value, date):
-                trade_date = value
+            trade_date = _as_trade_date(nonnull_dates.iloc[0])
     return _ClockContext(trade_date, _product_from_contract(contract))
 
 
@@ -589,7 +644,7 @@ def _validated_multiplier_rows(
             reason="multiplier rows contain duplicate symbol/bar_time values",
             context={"duplicate_rows": int(duplicates.sum())},
         )
-    wrong_contract = working["symbol"].ne(contract)
+    wrong_contract = _wrong_contract_mask(working["symbol"], contract)
     if wrong_contract.any():
         raise _minute_error(
             clock=clock,
@@ -663,24 +718,34 @@ def _validated_multiplier_rows(
             reason="positive-volume multiplier rows require finite low/high/amount",
             context={"invalid_fields": invalid_fields},
         )
-    invalid_dates = positive & working["trade_date"].isna()
+    normalized_dates = pd.Series(
+        [
+            _as_trade_date(value) if is_positive else value
+            for value, is_positive in zip(
+                working["trade_date"],
+                positive,
+                strict=True,
+            )
+        ],
+        index=working.index,
+        dtype=object,
+    )
+    invalid_dates = positive & normalized_dates.isna()
     if invalid_dates.any():
         raise _minute_error(
             clock=clock,
             contract=contract,
             timestamp=_first_timestamp(working, invalid_dates),
             check="contract_multiplier_sample",
-            reason="positive-volume multiplier rows require a trade_date",
+            reason="positive-volume multiplier rows require a concrete trade_date",
         )
-    reversed_range = positive & working["low"].gt(working["high"])
-    if reversed_range.any():
-        raise _minute_error(
-            clock=clock,
-            contract=contract,
-            timestamp=_first_timestamp(working, reversed_range),
-            check="minute_price_range",
-            reason="minute low must not exceed minute high",
-        )
+    working["trade_date"] = normalized_dates
+    _require_traded_price_order(
+        working,
+        positive=positive,
+        clock=clock,
+        contract=contract,
+    )
     return (
         working.sort_values(["symbol", "bar_time"], kind="mergesort"),
         clock,
@@ -858,16 +923,11 @@ def five_minute_vwap(
     contract: str,
     multiplier: int,
 ) -> VwapFill:
-    ordered, slot_values, clock, missing_slots = _bound_rows(
+    ordered, slot_values, clock, missing_slot_times = _bound_rows(
         frame,
         slots=slots,
         contract=contract,
         required_count=5,
-    )
-    missing_slot_times = tuple(
-        timestamp
-        for timestamp, symbol in ordered["symbol"].items()
-        if pd.isna(symbol)
     )
     if type(multiplier) is not int or multiplier <= 0:
         raise _minute_error(
@@ -935,7 +995,7 @@ def five_minute_vwap(
         low=low,
         high=high,
         traded_rows=len(traded),
-        missing_slots=missing_slots,
+        missing_slots=len(missing_slot_times),
         trade_date=clock.trade_date,
         window_slots=slot_values,
         missing_slot_times=missing_slot_times,
