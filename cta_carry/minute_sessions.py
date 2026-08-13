@@ -47,6 +47,8 @@ class SessionSegment:
     end_minute: int
 
     def __post_init__(self) -> None:
+        if type(self.start_minute) is not int or type(self.end_minute) is not int:
+            raise ValueError("session_segment_offsets: offsets must be actual integers")
         if self.end_minute <= self.start_minute:
             raise ValueError("session segment end must be after start")
         if self.start_minute < -180 or self.end_minute > 900:
@@ -70,6 +72,42 @@ class SessionRule:
     segments: tuple[SessionSegment, ...]
     version: str
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.exchange, str) or not self.exchange.strip():
+            raise ValueError(
+                "session_rule_identity: exchange must be a nonempty string"
+            )
+        if not isinstance(self.product, str) or not self.product.strip():
+            raise ValueError("session_rule_identity: product must be a nonempty string")
+        if type(self.effective_start) is not date or (
+            self.effective_end is not None and type(self.effective_end) is not date
+        ):
+            raise ValueError(
+                "session_rule_dates: effective dates must be concrete date values"
+            )
+        if self.effective_end is not None and self.effective_start > self.effective_end:
+            raise ValueError(
+                "session_rule_date_order: effective_start must not exceed effective_end"
+            )
+        try:
+            segments = tuple(self.segments)
+        except TypeError as exc:
+            raise ValueError(
+                "session_rule_segments: segments must be iterable"
+            ) from exc
+        object.__setattr__(self, "segments", segments)
+        if not segments or not all(
+            isinstance(item, SessionSegment) for item in segments
+        ):
+            raise ValueError(
+                "session_rule_segments: require nonempty SessionSegment values"
+            )
+        if self.version != SESSION_RULES_VERSION:
+            raise ValueError(
+                f"session_rule_version: expected {SESSION_RULES_VERSION!r}; "
+                f"got {self.version!r}"
+            )
+
     @classmethod
     def day_only(cls, exchange: str, product: str, *, version: str) -> "SessionRule":
         return cls(
@@ -80,6 +118,25 @@ class SessionRule:
             segments=tuple(SessionSegment(*item) for item in DAY_SEGMENTS),
             version=version,
         )
+
+
+_REQUIRED_SESSION_RULE_FIELDS = (
+    "exchange",
+    "product",
+    "effective_start",
+    "night_end",
+    "version",
+)
+
+
+def _parse_csv_date(*, row_number: int, field: str, value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"session_rules_csv_date: row {row_number} field {field} "
+            f"value {value!r}: invalid ISO date"
+        ) from exc
 
 
 def load_session_rules(path: Path) -> tuple[SessionRule, ...]:
@@ -94,29 +151,67 @@ def load_session_rules(path: Path) -> tuple[SessionRule, ...]:
 
         rules: list[SessionRule] = []
         day_segments = tuple(SessionSegment(*item) for item in DAY_SEGMENTS)
-        for row in reader:
+        for row_number, row in enumerate(reader, start=2):
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError(
+                    f"session_rules_csv_row_width: row {row_number}: "
+                    f"expected {len(_SESSION_RULE_COLUMNS)} cells"
+                )
+            for field in _REQUIRED_SESSION_RULE_FIELDS:
+                value = row[field]
+                if not value.strip():
+                    raise ValueError(
+                        f"session_rules_csv_required: row {row_number} field "
+                        f"{field} value {value!r}: required nonempty field"
+                    )
+
+            version = row["version"]
+            if version != SESSION_RULES_VERSION:
+                raise ValueError(
+                    f"session_rules_csv_version: row {row_number} field version "
+                    f"value {version!r}: expected {SESSION_RULES_VERSION!r}"
+                )
             night_end = row["night_end"]
             if night_end not in _NIGHT_SEGMENTS:
                 raise ValueError(
-                    f"session_rules_night_end: unsupported night_end {night_end!r}"
+                    f"session_rules_night_end: row {row_number} field night_end "
+                    f"value {night_end!r}: unsupported night_end"
                 )
+
+            effective_start = _parse_csv_date(
+                row_number=row_number,
+                field="effective_start",
+                value=row["effective_start"],
+            )
+            effective_end_text = row["effective_end"]
+            effective_end = (
+                _parse_csv_date(
+                    row_number=row_number,
+                    field="effective_end",
+                    value=effective_end_text,
+                )
+                if effective_end_text
+                else None
+            )
+            if effective_end is not None and effective_start > effective_end:
+                raise ValueError(
+                    f"session_rules_csv_date_order: row {row_number} "
+                    f"field effective_end value {effective_end_text!r}: "
+                    "effective_start must not exceed effective_end"
+                )
+
             night_segment = _NIGHT_SEGMENTS[night_end]
             segments = day_segments
             if night_segment is not None:
                 segments = (night_segment, *segments)
-            effective_end_text = row["effective_end"]
             rules.append(
                 SessionRule(
                     exchange=row["exchange"],
                     product=row["product"],
-                    effective_start=date.fromisoformat(row["effective_start"]),
-                    effective_end=(
-                        date.fromisoformat(effective_end_text)
-                        if effective_end_text
-                        else None
-                    ),
+                    effective_start=effective_start,
+                    effective_end=effective_end,
                     segments=segments,
-                    version=row["version"],
+                    version=version,
                 )
             )
     return tuple(rules)
@@ -202,6 +297,53 @@ class TradingSlots(tuple, metaclass=_FrozenTradingSlotsType):
         return self
 
 
+def _is_aware_datetime(value) -> bool:
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        return False
+    try:
+        return value.utcoffset() is not None
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _metadata_clock_context(
+    slots: Sequence[datetime],
+    *,
+    rule: SessionRule | None = None,
+    fallback_date: date,
+) -> tuple[str, str, date]:
+    return (
+        getattr(slots, "exchange", None)
+        or (rule.exchange if rule is not None else "<unknown>"),
+        getattr(slots, "product", None)
+        or (rule.product if rule is not None else "<unknown>"),
+        getattr(slots, "trade_date", None) or fallback_date,
+    )
+
+
+def _require_aware_slots(
+    slots: Sequence[datetime],
+    *,
+    rule: SessionRule | None = None,
+    fallback_date: date,
+) -> None:
+    for index, slot in enumerate(slots):
+        if _is_aware_datetime(slot):
+            continue
+        exchange, product, trade_date = _metadata_clock_context(
+            slots,
+            rule=rule,
+            fallback_date=fallback_date,
+        )
+        raise SessionClockError(
+            exchange=exchange,
+            product=product,
+            trade_date=trade_date,
+            check="slot_datetime_awareness",
+            reason=f"slot {index} must be an aware datetime",
+        )
+
+
 def _clock_context(
     slots: Sequence[datetime],
     *,
@@ -283,6 +425,11 @@ def _validate_slots_for_rule(
     rule: SessionRule,
 ) -> None:
     fallback_date = getattr(slots, "trade_date", rule.effective_start)
+    _require_aware_slots(
+        slots,
+        rule=rule,
+        fallback_date=fallback_date,
+    )
     _require_unique_slots(slots, rule=rule, fallback_date=fallback_date)
     _require_strict_order(slots, rule=rule, fallback_date=fallback_date)
     exchange, product, trade_date = _clock_context(
@@ -305,7 +452,7 @@ def _validate_slots_for_rule(
             ),
         )
 
-    segments = tuple(sorted(rule.segments))
+    segments = rule.segments
     expected_count = sum(
         segment.end_minute - segment.start_minute for segment in segments
     )
@@ -337,14 +484,12 @@ def _validate_slots_for_rule(
                 break
 
     expected_slots = tuple(
-        sorted(
-            _slot_timestamp(
-                minute_offset,
-                trade_date=trade_date,
-                previous_trade_date=previous_trade_date,
-            )
-            for minute_offset in minute_offsets
+        _slot_timestamp(
+            minute_offset,
+            trade_date=trade_date,
+            previous_trade_date=previous_trade_date,
         )
+        for minute_offset in minute_offsets
     )
     if tuple(slots) != expected_slots:
         raise SessionClockError(
@@ -380,16 +525,33 @@ def build_trading_slots(
     previous_trade_date: date,
     rule: SessionRule,
 ) -> TradingSlots:
-    values = tuple(
-        sorted(
-            _slot_timestamp(
-                minute_offset,
-                trade_date=trade_date,
-                previous_trade_date=previous_trade_date,
-            )
-            for segment in sorted(rule.segments)
-            for minute_offset in range(segment.start_minute, segment.end_minute)
+    if not (
+        rule.effective_start <= trade_date
+        and (rule.effective_end is None or trade_date <= rule.effective_end)
+    ):
+        raise SessionClockError(
+            exchange=rule.exchange,
+            product=rule.product,
+            trade_date=trade_date,
+            check="session_rule_effective_date",
+            reason="trade date is outside the session rule effective range",
         )
+    if previous_trade_date >= trade_date:
+        raise SessionClockError(
+            exchange=rule.exchange,
+            product=rule.product,
+            trade_date=trade_date,
+            check="previous_trade_date_order",
+            reason="previous trade date must be earlier than trade date",
+        )
+    values = tuple(
+        _slot_timestamp(
+            minute_offset,
+            trade_date=trade_date,
+            previous_trade_date=previous_trade_date,
+        )
+        for segment in rule.segments
+        for minute_offset in range(segment.start_minute, segment.end_minute)
     )
     slots = TradingSlots(
         exchange=rule.exchange,
@@ -403,6 +565,11 @@ def build_trading_slots(
         rule=rule,
         fallback_date=trade_date,
     )
+    _require_strict_order(
+        slots,
+        rule=rule,
+        fallback_date=trade_date,
+    )
     return slots
 
 
@@ -411,7 +578,28 @@ def next_slots(
     start: datetime,
     count: int,
 ) -> tuple[datetime, ...]:
-    fallback_date = start.date()
+    fallback_date = getattr(slots, "trade_date", None) or (
+        start.date() if isinstance(start, datetime) else date.min
+    )
+    if not _is_aware_datetime(start):
+        exchange, product, trade_date = _metadata_clock_context(
+            slots,
+            fallback_date=fallback_date,
+        )
+        raise SessionClockError(
+            exchange=exchange,
+            product=product,
+            trade_date=trade_date,
+            check="start_datetime_awareness",
+            reason="start must be an aware datetime",
+        )
+    fallback_date = (
+        getattr(slots, "trade_date", None) or start.astimezone(SHANGHAI).date()
+    )
+    _require_aware_slots(
+        slots,
+        fallback_date=fallback_date,
+    )
     _require_unique_slots(slots, fallback_date=fallback_date)
     _require_strict_order(
         slots,
@@ -447,7 +635,7 @@ def fifteen_minute_buckets(
     )
     buckets: list[tuple[datetime, ...]] = []
     slot_index = 0
-    for segment in sorted(rule.segments):
+    for segment in rule.segments:
         segment_length = segment.end_minute - segment.start_minute
         if segment_length % 15:
             raise SessionClockError(
