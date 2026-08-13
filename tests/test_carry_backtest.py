@@ -553,6 +553,28 @@ def test_stateful_engine_is_deterministic_across_all_result_tables() -> None:
         )
 
 
+def test_shared_decision_extraction_preserves_all_daily_result_tables():
+    baseline = pd.read_pickle(
+        "tests/fixtures/carry_daily_stateful_baseline.pkl"
+    )
+    _, rerun = _run_stateful(periods=24, start_index=12)
+    for name in (
+        "daily_returns",
+        "positions",
+        "trades",
+        "signals",
+        "curve_selection",
+        "data_quality",
+        "run_config",
+    ):
+        pd.testing.assert_frame_equal(
+            baseline[name],
+            getattr(rerun, name),
+            check_exact=True,
+        )
+    assert baseline["metrics"] == rerun.metrics
+
+
 def test_requested_start_is_never_slid_when_shadow_warmup_is_short() -> None:
     data = make_carry_panel()
 
