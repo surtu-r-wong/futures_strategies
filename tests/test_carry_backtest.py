@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -555,7 +556,7 @@ def test_stateful_engine_is_deterministic_across_all_result_tables() -> None:
 
 def test_shared_decision_extraction_preserves_all_daily_result_tables():
     baseline = pd.read_pickle(
-        "tests/fixtures/carry_daily_stateful_baseline.pkl"
+        Path(__file__).parent / "fixtures" / "carry_daily_stateful_baseline.pkl"
     )
     _, rerun = _run_stateful(periods=24, start_index=12)
     for name in (
