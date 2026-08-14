@@ -241,6 +241,19 @@ class MinuteSourceAudit:
 
 
 @dataclass(frozen=True)
+class MinutePlanSummary:
+    """Immutable, JSON-serializable facts from one safe minute query plan."""
+
+    query_kind: str
+    lower_bound: str
+    upper_bound: str
+    candidate_contract_days: int
+    referenced_chunks: tuple[str, ...]
+    maximum_plan_rows: int | float
+    node_types: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class MinuteCandidate:
     """Validated daily-contract candidate and its physical minute window."""
 
@@ -939,7 +952,9 @@ def _plan_nodes(root: dict[str, Any]) -> tuple[dict[str, Any], ...]:
     return tuple(nodes)
 
 
-def _validate_plan(payload: Any) -> None:
+def _validate_plan(
+    payload: Any,
+) -> tuple[tuple[str, ...], int | float, tuple[str, ...]]:
     nodes = _plan_nodes(_plan_root(payload))
     chunks = {
         relation
@@ -975,6 +990,31 @@ def _validate_plan(payload: Any) -> None:
                 "bounded minute query would sequentially scan the full hypertable",
                 context={"relation": relation, "schema": schema or None},
             )
+    return (
+        tuple(sorted(chunks)),
+        max(node["Plan Rows"] for node in nodes),
+        tuple(sorted({node["Node Type"].strip() for node in nodes})),
+    )
+
+
+def _minute_plan_summary(
+    payload: Any,
+    *,
+    query_kind: str,
+    candidates: Sequence[MinuteCandidate],
+    lower: datetime,
+    upper: datetime,
+) -> MinutePlanSummary:
+    chunks, maximum_plan_rows, node_types = _validate_plan(payload)
+    return MinutePlanSummary(
+        query_kind=query_kind,
+        lower_bound=lower.isoformat(),
+        upper_bound=upper.isoformat(),
+        candidate_contract_days=len(candidates),
+        referenced_chunks=chunks,
+        maximum_plan_rows=maximum_plan_rows,
+        node_types=node_types,
+    )
 
 
 def _validate_stream_frame(
@@ -1292,6 +1332,7 @@ class PublicMinuteSource:
         self._minute_query_months = 0
         self._minute_rows = 0
         self._candidate_contract_days: set[tuple[date, str]] = set()
+        self._plan_summaries: list[MinutePlanSummary] = []
 
     @property
     def audit(self) -> MinuteSourceAudit:
@@ -1303,6 +1344,11 @@ class PublicMinuteSource:
             minute_rows=self._minute_rows,
             minute_candidate_contract_days=len(self._candidate_contract_days),
         )
+
+    @property
+    def plan_audit(self) -> tuple[MinutePlanSummary, ...]:
+        """Return stable snapshots of successfully validated query plans."""
+        return tuple(self._plan_summaries)
 
     def load_table_bounds(self) -> tuple[datetime, datetime]:
         """Load and cache the exact first and last physical minute timestamps."""
@@ -1356,6 +1402,46 @@ class PublicMinuteSource:
         self._minute_table_max = table_max
         return table_min, table_max
 
+    def explain_month(
+        self,
+        candidate_frame: pd.DataFrame | Sequence[MinuteCandidate],
+        lower: datetime,
+        upper: datetime,
+    ) -> MinutePlanSummary:
+        """Validate and summarize a bounded monthly plan without selecting rows."""
+        candidates = _canonical_candidates(
+            candidate_frame,
+            lower=lower,
+            upper=upper,
+        )
+        select_text = build_minute_batch_query(
+            lower=lower,
+            upper=upper,
+        ).as_string(None)
+        explain_text = "EXPLAIN (FORMAT JSON) " + select_text
+        with _managed_connection(
+            self._connection_factory,
+            self._pg.copy(),
+        ) as connection:
+            cursor = connection.cursor()
+            try:
+                for setting in _TRANSACTION_SETTINGS:
+                    cursor.execute(setting)
+                cursor.execute(_CREATE_CANDIDATES)
+                _insert_candidates(cursor, candidates)
+                cursor.execute(explain_text)
+                summary = _minute_plan_summary(
+                    cursor.fetchone(),
+                    query_kind="explain_only",
+                    candidates=candidates,
+                    lower=lower,
+                    upper=upper,
+                )
+            finally:
+                _close_cursor_preserving(cursor)
+        self._plan_summaries.append(summary)
+        return summary
+
     def iter_month(
         self,
         candidate_frame: pd.DataFrame | Sequence[MinuteCandidate],
@@ -1389,7 +1475,14 @@ class PublicMinuteSource:
                 control_cursor.execute(_CREATE_CANDIDATES)
                 _insert_candidates(control_cursor, candidates)
                 control_cursor.execute(explain_text)
-                _validate_plan(control_cursor.fetchone())
+                summary = _minute_plan_summary(
+                    control_cursor.fetchone(),
+                    query_kind="iter_month",
+                    candidates=candidates,
+                    lower=lower,
+                    upper=upper,
+                )
+                self._plan_summaries.append(summary)
                 stream_cursor = connection.cursor(name="_carry_minute_stream")
                 stream_cursor.itersize = 100_000
                 stream_cursor.execute(select_text)

@@ -1,5 +1,6 @@
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, asdict, replace
 from datetime import date, datetime, timedelta
+import json
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -704,6 +705,108 @@ def test_iter_month_sets_up_transaction_and_uses_the_same_bounded_select(
     assert connection.commits == 1
     assert connection.rollbacks == 0
     assert connection.closes == 1
+
+
+def test_explain_month_returns_an_immutable_serializable_summary_without_select(
+    monkeypatch,
+):
+    from cta_carry import minute_pg_source
+
+    lower = datetime(2024, 1, 1, tzinfo=SHANGHAI)
+    upper = datetime(2024, 2, 1, tzinfo=SHANGHAI)
+    connection = FakeConnection(plan=_safe_plan(rows=123, chunks=2))
+    inserted = []
+    monkeypatch.setattr(
+        minute_pg_source,
+        "_insert_candidates",
+        lambda cursor, candidates: inserted.extend(candidates),
+    )
+    source = _source(connection)
+
+    summary = source.explain_month(
+        [_candidate("TA2405.CZC"), _candidate()],
+        lower=lower,
+        upper=upper,
+    )
+
+    assert summary.query_kind == "explain_only"
+    assert summary.lower_bound == lower.isoformat()
+    assert summary.upper_bound == upper.isoformat()
+    assert summary.candidate_contract_days == 2
+    assert summary.referenced_chunks == (
+        "_hyper_1_0_chunk",
+        "_hyper_1_1_chunk",
+    )
+    assert summary.maximum_plan_rows == 123
+    assert summary.node_types == ("Index Scan", "Nested Loop")
+    assert json.loads(json.dumps(asdict(summary)))["candidate_contract_days"] == 2
+    with pytest.raises(FrozenInstanceError):
+        summary.maximum_plan_rows = 999
+    assert source.plan_audit == (summary,)
+    assert source.audit.minute_query_months == 0
+    assert source.audit.minute_candidate_contract_days == 0
+    assert [(item.minute_symbol, item.trade_date) for item in inserted] == [
+        ("RB2405", date(2024, 1, 8)),
+        ("TA2405", date(2024, 1, 8)),
+    ]
+    executed = [event[1] for event in connection.events if event[0] == "execute"]
+    assert [text.strip() for text in executed[:5]] == SETTINGS
+    assert any(text.lstrip().startswith("EXPLAIN") for text in executed)
+    assert not any(text.lstrip().startswith("SELECT") for text in executed)
+    assert [event for event in connection.events if event[0] == "cursor_open"] == [
+        ("cursor_open", None)
+    ]
+    assert connection.commits == 1
+    assert connection.rollbacks == 0
+    assert connection.closes == 1
+
+
+def test_explain_month_rejects_an_unsafe_plan_without_select_and_cleans_up(
+    monkeypatch,
+):
+    from cta_carry import minute_pg_source
+
+    connection = FakeConnection(plan=_safe_plan(chunks=4))
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+    source = _source(connection)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        source.explain_month(
+            [_candidate()],
+            lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+        )
+
+    assert exc_info.value.check == "minute_query_plan"
+    assert source.plan_audit == ()
+    executed = [event[1] for event in connection.events if event[0] == "execute"]
+    assert not any(text.lstrip().startswith("SELECT") for text in executed)
+    assert [event for event in connection.events if event[0] == "cursor_open"] == [
+        ("cursor_open", None)
+    ]
+    assert connection.commits == 0
+    assert connection.rollbacks >= 1
+    assert connection.closes == 1
+
+
+def test_iter_month_exposes_stable_plan_audit_snapshots(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+    source = _source(FakeConnection(plan=_safe_plan(rows=17, chunks=1)))
+    lower = datetime(2024, 1, 1, tzinfo=SHANGHAI)
+    upper = datetime(2024, 2, 1, tzinfo=SHANGHAI)
+
+    assert list(source.iter_month([_candidate()], lower=lower, upper=upper)) == []
+    before = source.plan_audit
+
+    assert len(before) == 1
+    assert before[0].query_kind == "iter_month"
+    assert before[0].candidate_contract_days == 1
+    assert before[0].maximum_plan_rows == 17
+    assert list(source.iter_month([_candidate()], lower=lower, upper=upper)) == []
+    assert len(source.plan_audit) == 2
+    assert before == (source.plan_audit[0],)
 
 
 def test_source_audit_tracks_exact_table_bounds_and_integer_query_counters(
