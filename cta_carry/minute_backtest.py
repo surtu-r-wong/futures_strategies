@@ -378,6 +378,7 @@ _EXECUTION_COLUMNS = (
     "cost",
     "volume",
     "amount",
+    "missing_slots",
     "multiplier",
     "multiplier_source",
     "multiplier_pass_rate",
@@ -433,6 +434,7 @@ class _ExecutionOperation:
     raw_target_by_contract: Mapping[str, float]
     formal_target_by_contract: Mapping[str, float]
     reason: str
+    execution_kind: str
     signal_time: datetime | None
 
     @property
@@ -469,14 +471,9 @@ def _candidate_roles_for_date(
     dates: Sequence[date],
     active: Mapping[date, Mapping[str, Any]],
 ) -> dict[str, str]:
-    trade_date = dates[index]
     roles: dict[str, str] = {}
-    current = active.get(trade_date, {})
     previous = active.get(dates[index - 1], {}) if index >= 1 else {}
     prior = active.get(dates[index - 2], {}) if index >= 2 else {}
-
-    for row in current.values():
-        _add_candidate_role(roles, row.main_contract, "signal_main")
 
     products = sorted(set(previous) | set(prior))
     for product in products:
@@ -503,6 +500,47 @@ def _candidate_roles_for_date(
             _add_candidate_role(roles, old_contract, "exit")
         if new_contract is not None:
             _add_candidate_role(roles, new_contract, "close_mark")
+    return roles
+
+
+def _execution_roles(
+    before: PositionState,
+    after: PositionState,
+    contracts: set[str],
+    *,
+    old_contract_override: str | None = None,
+) -> dict[str, str]:
+    old_contract = old_contract_override or before.contract
+    new_contract = after.contract
+    before_direction = before.direction or before.locked_direction
+    after_direction = after.direction or after.locked_direction
+    roles: dict[str, str] = {}
+    reversal = (
+        before_direction != 0
+        and after_direction != 0
+        and before_direction != after_direction
+    )
+    if reversal:
+        if old_contract in contracts:
+            roles[old_contract] = "exit"
+        if new_contract in contracts:
+            roles[new_contract] = "signal_main"
+    elif old_contract != new_contract and old_contract and new_contract:
+        if old_contract in contracts:
+            roles[old_contract] = "roll_old"
+        if new_contract in contracts:
+            roles[new_contract] = "roll_new"
+    elif new_contract is None:
+        if old_contract in contracts:
+            roles[old_contract] = "exit"
+    elif old_contract is None:
+        roles[new_contract] = "signal_main"
+    elif new_contract in contracts:
+        roles[new_contract] = "carried"
+    if set(roles) != contracts:
+        raise ValueError(
+            "execution contracts must be exactly the before/after concrete legs"
+        )
     return roles
 
 
@@ -683,19 +721,83 @@ def _actual_reason(reason: str, old_weight: float, new_weight: float) -> str:
     return reason
 
 
-def _source_audit_value(source: Any, key: str) -> Any:
-    payload = getattr(source, "audit", None)
-    if callable(payload):
-        payload = payload()
-    if isinstance(payload, Mapping):
-        return payload.get(key)
-    if payload is not None:
-        return getattr(payload, key, None)
-    return None
+_SOURCE_AUDIT_FIELDS = (
+    "minute_table_min",
+    "minute_table_max",
+    "minute_query_months",
+    "minute_rows",
+    "minute_candidate_contract_days",
+)
 
 
-def _iso_or_none(value: Any) -> Any:
-    return value.isoformat() if isinstance(value, datetime) else value
+def _source_audit_error(
+    field: str,
+    reason: str,
+    *,
+    value: object | None = None,
+) -> MinuteDataError:
+    context: dict[str, object] = {"field": field}
+    if value is not None:
+        context.update(value=value, value_type=type(value).__name__)
+    return MinuteDataError(
+        check="minute_source_audit",
+        reason=reason,
+        context=context,
+    )
+
+
+def _validated_source_audit(source: Any) -> dict[str, object]:
+    try:
+        payload = source.audit
+    except AttributeError as exc:
+        raise _source_audit_error(
+            "audit",
+            "minute source must expose the Task 10 audit contract",
+        ) from exc
+    if payload is None or callable(payload):
+        raise _source_audit_error(
+            "audit",
+            "minute source audit must be a mapping or field object",
+            value=payload,
+        )
+
+    values: dict[str, object] = {}
+    for field in _SOURCE_AUDIT_FIELDS:
+        if isinstance(payload, Mapping):
+            if field not in payload:
+                raise _source_audit_error(field, "minute source audit field is missing")
+            values[field] = payload[field]
+        else:
+            try:
+                values[field] = getattr(payload, field)
+            except AttributeError as exc:
+                raise _source_audit_error(
+                    field,
+                    "minute source audit field is missing",
+                ) from exc
+
+    for field in ("minute_table_min", "minute_table_max"):
+        value = values[field]
+        if not _is_timezone_aware(value):
+            raise _source_audit_error(
+                field,
+                "minute table bound must be a timezone-aware datetime",
+                value=value,
+            )
+    if values["minute_table_min"] > values["minute_table_max"]:
+        raise _source_audit_error(
+            "minute_table_min",
+            "minute table minimum must not follow its maximum",
+        )
+    for field in _SOURCE_AUDIT_FIELDS[2:]:
+        value = values[field]
+        if type(value) is not int or value < 0:
+            raise _source_audit_error(
+                field,
+                "minute source audit counter must be a nonnegative integer",
+                value=value,
+            )
+    return values
 
 
 class CarryMinuteBacktester:
@@ -764,6 +866,7 @@ class CarryMinuteBacktester:
         shadow_account = EventAccount(cost_bps=self.config.cost_bps)
         stop_machine = IntradayStopMachine(self.config)
         shadow_window = ShadowVolWindow(self.config)
+        shadow_interval_enabled = False
         states: dict[str, PositionState] = {}
         pending_plan: TargetPlan | None = None
         pending_formal: dict[str, float] = {}
@@ -773,6 +876,7 @@ class CarryMinuteBacktester:
         mark_prices: dict[str, float] = {}
         resolution_cache: dict[tuple[date, str], MultiplierResolution] = {}
         execution_ids: set[str] = set()
+        audited_fill_windows: set[tuple[date, str, datetime, datetime]] = set()
         report_equity = 1.0
 
         daily_records: list[dict[str, object]] = []
@@ -780,6 +884,7 @@ class CarryMinuteBacktester:
         execution_records: list[dict[str, object]] = []
         stop_records: list[dict[str, object]] = []
         quality_records: list[dict[str, object]] = []
+        pending_final_stop_records: dict[str, dict[str, object]] = {}
         query_months: list[str] = []
         current_month: tuple[int, int] | None = None
         current_frames: dict[tuple[date, str], pd.DataFrame] = {}
@@ -830,13 +935,38 @@ class CarryMinuteBacktester:
                 resolution_cache[key] = cached
             return cached
 
+        def audit_fill(
+            fill: VwapFill,
+            *,
+            trade_date: date,
+            product: str,
+            role: str,
+        ) -> None:
+            key = (trade_date, fill.contract, fill.start, fill.end)
+            if fill.missing_slots <= 0 or key in audited_fill_windows:
+                return
+            audited_fill_windows.add(key)
+            quality_records.append(
+                {
+                    "check": "five_minute_fill_missing_slots",
+                    "trade_date": trade_date,
+                    "product": product,
+                    "contract": fill.contract,
+                    "candidate_role": role,
+                    "observed_rows": fill.traded_rows,
+                    "missing_slots": fill.missing_slots,
+                    "query_month": f"{trade_date:%Y-%m}",
+                    "detail": fill.start.isoformat(),
+                }
+            )
+
         def fill_for(
             trade_date: date,
             contract: str,
             role: str,
             slots: Sequence[datetime],
         ) -> tuple[VwapFill, MultiplierResolution]:
-            _, frame = require_frame(trade_date, contract, role)
+            context, frame = require_frame(trade_date, contract, role)
             resolved = resolution(trade_date, contract, frame)
             minute_symbol = minute_contract_identity(contract, trade_date)[1]
             fill = five_minute_vwap(
@@ -845,7 +975,14 @@ class CarryMinuteBacktester:
                 contract=minute_symbol,
                 multiplier=resolved.multiplier,
             )
-            return replace(fill, contract=contract), resolved
+            fill = replace(fill, contract=contract)
+            audit_fill(
+                fill,
+                trade_date=trade_date,
+                product=context.candidate.product,
+                role=role,
+            )
+            return fill, resolved
 
         def event_prices(
             account: EventAccount,
@@ -932,11 +1069,7 @@ class CarryMinuteBacktester:
                         "contract": record.contract,
                         "candidate_role": role,
                         "reason": reason,
-                        "execution_kind": (
-                            "intraday_stop"
-                            if reason.startswith("stop_")
-                            else "daily_target"
-                        ),
+                        "execution_kind": operation.execution_kind,
                         "signal_time": operation.signal_time,
                         "window_start": fill.start,
                         "window_end": fill.end,
@@ -949,6 +1082,7 @@ class CarryMinuteBacktester:
                         "cost": record.cost,
                         "volume": fill.volume,
                         "amount": fill.amount,
+                        "missing_slots": fill.missing_slots,
                         "multiplier": fill.multiplier,
                         "multiplier_source": resolved.source,
                         "multiplier_pass_rate": resolved.pass_rate,
@@ -1047,6 +1181,15 @@ class CarryMinuteBacktester:
                         frame = current_frames[
                             (candidate.trade_date, candidate.daily_contract)
                         ]
+                        context = contexts[
+                            (candidate.trade_date, candidate.daily_contract)
+                        ]
+                        observed_slots = set(frame["bar_time"])
+                        missing_slots = len(set(context.slots) - observed_slots)
+                        zero_volume_rows = frame.loc[
+                            frame["bar_time"].isin(context.slots)
+                            & frame["volume"].eq(0.0)
+                        ]
                         quality_records.append(
                             {
                                 "check": "candidate_coverage",
@@ -1055,11 +1198,25 @@ class CarryMinuteBacktester:
                                 "contract": candidate.daily_contract,
                                 "candidate_role": candidate.candidate_role,
                                 "observed_rows": len(frame),
-                                "missing_slots": None,
+                                "missing_slots": missing_slots,
                                 "query_month": query_months[-1],
                                 "detail": "covered",
                             }
                         )
+                        if not zero_volume_rows.empty:
+                            quality_records.append(
+                                {
+                                    "check": "zero_volume_minute_slots",
+                                    "trade_date": candidate.trade_date,
+                                    "product": candidate.product,
+                                    "contract": candidate.daily_contract,
+                                    "candidate_role": candidate.candidate_role,
+                                    "observed_rows": len(zero_volume_rows),
+                                    "missing_slots": 0,
+                                    "query_month": query_months[-1],
+                                    "detail": "authoritative slots with zero volume",
+                                }
+                            )
 
             day_prices = daily_by_date[trade_date]
             current_daily_opens = {
@@ -1086,7 +1243,10 @@ class CarryMinuteBacktester:
                     before = states.get(product, PositionState())
                     after = pending_plan.states.get(product, PositionState())
                     prospective_states[product] = after
+                    pending_stop = pending_final_stop_records.get(product)
                     old_contract = before.contract
+                    if old_contract is None and pending_stop is not None:
+                        old_contract = str(pending_stop["contract"])
                     new_contract = after.contract
                     involved = {
                         contract
@@ -1118,24 +1278,14 @@ class CarryMinuteBacktester:
                     execution_slots = context.slots[:5]
                     fill_by_contract: dict[str, VwapFill] = {}
                     resolved_by_contract: dict[str, MultiplierResolution] = {}
-                    role_by_contract: dict[str, str] = {}
+                    role_by_contract = _execution_roles(
+                        before,
+                        after,
+                        changed,
+                        old_contract_override=old_contract,
+                    )
                     for contract in sorted(changed):
-                        if (
-                            old_contract != new_contract
-                            and old_contract
-                            and new_contract
-                        ):
-                            role = (
-                                "roll_old" if contract == old_contract else "roll_new"
-                            )
-                        elif new_contract is None:
-                            role = "exit"
-                        elif (
-                            old_contract is None or before.direction != after.direction
-                        ):
-                            role = "signal_main"
-                        else:
-                            role = "carried"
+                        role = role_by_contract[contract]
                         fill, resolved = fill_for(
                             trade_date,
                             contract,
@@ -1144,7 +1294,6 @@ class CarryMinuteBacktester:
                         )
                         fill_by_contract[contract] = fill
                         resolved_by_contract[contract] = resolved
-                        role_by_contract[contract] = role
                     operation = _ExecutionOperation(
                         product=product,
                         before=before,
@@ -1162,12 +1311,13 @@ class CarryMinuteBacktester:
                         },
                         reason=pending_plan.reasons.get(product, "rebalance"),
                         signal_time=pending_signal_time,
+                        execution_kind="daily_target",
                     )
                     scheduled[operation.timestamp].append(operation)
 
             bar_events: dict[
                 datetime,
-                list[tuple[str, FifteenMinuteBar, tuple[datetime, ...]]],
+                list[tuple[str, FifteenMinuteBar, tuple[datetime, ...] | None]],
             ] = defaultdict(list)
             if index > 0:
                 for product, state in sorted(prospective_states.items()):
@@ -1186,15 +1336,30 @@ class CarryMinuteBacktester:
                             contract=minute_symbol,
                         )
                         bar = replace(bar, contract=state.contract)
+                        if bar.missing_slots > 0:
+                            quality_records.append(
+                                {
+                                    "check": "partial_fifteen_minute_bar",
+                                    "trade_date": trade_date,
+                                    "product": product,
+                                    "contract": state.contract,
+                                    "candidate_role": "carried",
+                                    "observed_rows": bar.traded_rows,
+                                    "missing_slots": bar.missing_slots,
+                                    "query_month": f"{trade_date:%Y-%m}",
+                                    "detail": bar.start.isoformat(),
+                                }
+                            )
                         try:
                             fill_slots = next_slots(context.slots, bar.end, 5)
                         except SessionClockError as exc:
                             if exc.check == "next_slots_count":
-                                continue
-                            raise
+                                fill_slots = None
+                            else:
+                                raise
                         bar_events[bar.end].append((product, bar, fill_slots))
 
-            last_decisions: dict[str, StopDecision] = {}
+            final_decisions: dict[str, StopDecision] = {}
             stop_metadata: dict[tuple[datetime, str], StopDecision] = {}
             event_times = set(scheduled) | set(bar_events)
             while event_times:
@@ -1211,6 +1376,15 @@ class CarryMinuteBacktester:
                             fill_end=event_time,
                         )
                         states[operation.product] = operation.after
+                        pending_stop = pending_final_stop_records.pop(
+                            operation.product,
+                            None,
+                        )
+                        if pending_stop is not None:
+                            stopped_contract = str(pending_stop["contract"])
+                            pending_stop["execution_id"] = linked.get(
+                                (operation.product, stopped_contract)
+                            )
                         decision = stop_metadata.pop(
                             (event_time, operation.product),
                             None,
@@ -1261,7 +1435,12 @@ class CarryMinuteBacktester:
                             reason="intraday stop requires finite positive ATR labeled T-1",
                             context={"atr_date": previous_trade_date, "atr": atr},
                         )
-                    fill_end = fill_slots[-1] + timedelta(minutes=1)
+                    is_final_bar = fill_slots is None
+                    fill_end = (
+                        bar.end + timedelta(microseconds=1)
+                        if is_final_bar
+                        else fill_slots[-1] + timedelta(minutes=1)
+                    )
                     decision = stop_machine.on_bar(
                         trade_date,
                         product,
@@ -1270,7 +1449,6 @@ class CarryMinuteBacktester:
                         float(atr),
                         fill_end,
                     )
-                    last_decisions[product] = decision
                     if not decision.triggered:
                         states[product] = decision.state
                         if bar.no_trade:
@@ -1288,6 +1466,31 @@ class CarryMinuteBacktester:
                                 }
                             )
                         continue
+                    if is_final_bar:
+                        states[product] = decision.state
+                        final_decisions[product] = decision
+                        record = {
+                            "trade_date": trade_date,
+                            "product": product,
+                            "contract": before.contract,
+                            "bar_start": decision.bar.start,
+                            "bar_end": decision.bar.end,
+                            "open": decision.bar.open,
+                            "high": decision.bar.high,
+                            "low": decision.bar.low,
+                            "close": decision.bar.close,
+                            "atr": float(atr),
+                            "threshold": decision.threshold,
+                            "tranches_before": before.tranches_remaining,
+                            "tranches_after": decision.state.tranches_remaining,
+                            "locked_direction": decision.state.locked_direction,
+                            "triggered": True,
+                            "execution_id": None,
+                        }
+                        stop_records.append(record)
+                        pending_final_stop_records[product] = record
+                        continue
+                    assert fill_slots is not None
                     _, frame = require_frame(
                         trade_date,
                         before.contract,
@@ -1304,6 +1507,12 @@ class CarryMinuteBacktester:
                         multiplier=resolved.multiplier,
                     )
                     fill = replace(fill, contract=before.contract)
+                    audit_fill(
+                        fill,
+                        trade_date=trade_date,
+                        product=product,
+                        role="carried",
+                    )
                     after = decision.state
                     ratio = (
                         after.tranches_remaining / before.tranches_remaining
@@ -1329,6 +1538,7 @@ class CarryMinuteBacktester:
                         },
                         reason=f"stop_{decision.stage}",
                         signal_time=event_time,
+                        execution_kind="intraday_stop",
                     )
                     scheduled[fill.end].append(operation)
                     stop_metadata[(fill.end, product)] = decision
@@ -1364,10 +1574,11 @@ class CarryMinuteBacktester:
             shadow_daily = shadow_account.drain_daily_row(trade_date, "ordinary")
             formal_daily = formal.drain_daily_row(trade_date, "ordinary")
             mark_prices.update(closes)
-            shadow_window.append(
-                shadow_daily.net_return,
-                active=shadow_daily.gross_leverage > 0.0,
-            )
+            if shadow_interval_enabled:
+                shadow_window.append(
+                    shadow_daily.net_return,
+                    active=shadow_daily.gross_leverage > 0.0,
+                )
             estimate = shadow_window.estimate()
 
             if trade_date == report_start_date and (
@@ -1413,16 +1624,17 @@ class CarryMinuteBacktester:
                 )
 
             day_signals = signals_by_date.get(trade_date, empty_signals)
-            final_decisions = {
-                product: decision
-                for product, decision in last_decisions.items()
-                if decision.triggered
-            }
             pending_plan = merge_close_plan(
                 states,
                 day_signals,
                 self.config,
                 final_stop_decisions=final_decisions,
+            )
+            shadow_interval_enabled = (
+                pending_signal_time is not None
+                and research.signal_result.signal_ready_date is not None
+                and pending_signal_time.date()
+                >= research.signal_result.signal_ready_date
             )
             pending_signal_time = close_timestamp
             pending_scale_ready = estimate.ready
@@ -1461,6 +1673,7 @@ class CarryMinuteBacktester:
         session_versions = sorted({rule.version for rule in self.session_rules})
         if session_versions != [SESSION_RULES_VERSION]:
             raise ValueError("session rules must use the repository rules version")
+        source_audit = _validated_source_audit(self.minute_source)
         config_rows: list[dict[str, object]] = [
             {"key": "requested_start", "value": self.start},
             {"key": "requested_end", "value": self.end},
@@ -1484,30 +1697,23 @@ class CarryMinuteBacktester:
             },
             {
                 "key": "minute_table_min",
-                "value": _iso_or_none(
-                    _source_audit_value(self.minute_source, "minute_table_min")
-                ),
+                "value": source_audit["minute_table_min"].isoformat(),
             },
             {
                 "key": "minute_table_max",
-                "value": _iso_or_none(
-                    _source_audit_value(self.minute_source, "minute_table_max")
-                ),
+                "value": source_audit["minute_table_max"].isoformat(),
             },
             {
                 "key": "minute_query_months",
-                "value": _source_audit_value(self.minute_source, "minute_query_months"),
+                "value": source_audit["minute_query_months"],
             },
             {
                 "key": "minute_rows",
-                "value": _source_audit_value(self.minute_source, "minute_rows"),
+                "value": source_audit["minute_rows"],
             },
             {
                 "key": "minute_candidate_contract_days",
-                "value": _source_audit_value(
-                    self.minute_source,
-                    "minute_candidate_contract_days",
-                ),
+                "value": source_audit["minute_candidate_contract_days"],
             },
         ]
         config_rows.extend(
