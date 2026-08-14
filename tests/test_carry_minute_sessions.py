@@ -54,6 +54,11 @@ def test_capture_coverage_includes_the_entire_backtest_prewarm():
         backtest_start=backtest_start,
         prewarm_calendar_days=730,
     ) == date(2011, 1, 5)
+    assert validate_capture_coverage(
+        capture_start=date(2011, 1, 5),
+        backtest_start=backtest_start,
+        prewarm_calendar_days=730,
+    ) == date(2011, 1, 5)
 
     with pytest.raises(
         SessionClockError,

@@ -86,6 +86,7 @@ def test_first_missing_signal_creates_a_signal_exit_target():
         "A": PositionState(
             direction=1,
             contract="A2405.SHF",
+            tranches_remaining=config.stop_tranches,
         )
     }
 
