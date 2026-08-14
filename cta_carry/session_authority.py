@@ -5,6 +5,7 @@ import csv
 from dataclasses import dataclass
 from datetime import date
 import hashlib
+import io
 from pathlib import Path
 import re
 from types import MappingProxyType
@@ -232,23 +233,36 @@ def _row_identity(
     return {"row_number": row_number, **row}
 
 
+def _read_asset_bytes(path: Path) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise SessionAuthorityError(
+            check="authority_asset_read",
+            reason="authority asset could not be read",
+            row_identity={"path": str(path)},
+            context={"error": str(exc)},
+        ) from exc
+
+
 def _read_csv_rows(
     path: Path,
+    payload: bytes,
     *,
     columns: tuple[str, ...],
     optional_fields: frozenset[str] = frozenset(),
 ) -> tuple[tuple[int, dict[str, str]], ...]:
     try:
-        handle = path.open("r", encoding="utf-8", newline="")
-    except OSError as exc:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
         raise SessionAuthorityError(
-            check="authority_asset_read",
-            reason="authority asset could not be opened",
+            check="authority_asset_decode",
+            reason="authority asset is not valid UTF-8",
             row_identity={"path": str(path)},
-            context={"error": str(exc)},
+            context={"start": exc.start, "end": exc.end},
         ) from exc
 
-    with handle:
+    with io.StringIO(text, newline="") as handle:
         reader = csv.DictReader(handle)
         actual = tuple(reader.fieldnames or ())
         if actual != columns:
@@ -327,11 +341,14 @@ def _range_sort_key(row: EffectiveAuthorityRange) -> tuple[object, ...]:
     )
 
 
-def load_no_night_dates(path: Path) -> tuple[NoNightDate, ...]:
-    """Load exchange-wide no-night dates with exact schema and unique keys."""
+def _load_no_night_dates_payload(
+    path: Path, payload: bytes
+) -> tuple[NoNightDate, ...]:
     parsed: list[NoNightDate] = []
     seen: set[tuple[str, str, date]] = set()
-    for row_number, row in _read_csv_rows(path, columns=_NO_NIGHT_COLUMNS):
+    for row_number, row in _read_csv_rows(
+        path, payload, columns=_NO_NIGHT_COLUMNS
+    ):
         trade_date = _parse_csv_date(
             path=path, row_number=row_number, row=row, field="trade_date"
         )
@@ -360,12 +377,21 @@ def load_no_night_dates(path: Path) -> tuple[NoNightDate, ...]:
     return tuple(sorted(parsed, key=_no_night_sort_key))
 
 
-def load_authority_ranges(path: Path) -> tuple[EffectiveAuthorityRange, ...]:
-    """Load product-effective authority ranges and reject inclusive overlap."""
+def load_no_night_dates(path: Path) -> tuple[NoNightDate, ...]:
+    """Load exchange-wide no-night dates with exact schema and unique keys."""
+    return _load_no_night_dates_payload(path, _read_asset_bytes(path))
+
+
+def _load_authority_ranges_payload(
+    path: Path, payload: bytes
+) -> tuple[EffectiveAuthorityRange, ...]:
     parsed: list[EffectiveAuthorityRange] = []
     seen: set[tuple[str, str, str, date]] = set()
     for row_number, row in _read_csv_rows(
-        path, columns=_RANGE_COLUMNS, optional_fields=frozenset({"effective_end"})
+        path,
+        payload,
+        columns=_RANGE_COLUMNS,
+        optional_fields=frozenset({"effective_end"}),
     ):
         effective_start = _parse_csv_date(
             path=path, row_number=row_number, row=row, field="effective_start"
@@ -442,6 +468,11 @@ def load_authority_ranges(path: Path) -> tuple[EffectiveAuthorityRange, ...]:
     return ordered
 
 
+def load_authority_ranges(path: Path) -> tuple[EffectiveAuthorityRange, ...]:
+    """Load product-effective authority ranges and reject inclusive overlap."""
+    return _load_authority_ranges_payload(path, _read_asset_bytes(path))
+
+
 def load_session_authority(
     *, no_night_path: Path, day_only_path: Path, history_exception_path: Path
 ) -> SessionAuthority:
@@ -451,13 +482,20 @@ def load_session_authority(
         "day_only": day_only_path,
         "history_exception": history_exception_path,
     }
+    payloads = {name: _read_asset_bytes(path) for name, path in paths.items()}
     return SessionAuthority(
-        no_night_dates=load_no_night_dates(no_night_path),
-        day_only_regimes=load_authority_ranges(day_only_path),
-        liquidity_history_exceptions=load_authority_ranges(history_exception_path),
+        no_night_dates=_load_no_night_dates_payload(
+            no_night_path, payloads["no_night"]
+        ),
+        day_only_regimes=_load_authority_ranges_payload(
+            day_only_path, payloads["day_only"]
+        ),
+        liquidity_history_exceptions=_load_authority_ranges_payload(
+            history_exception_path, payloads["history_exception"]
+        ),
         sha256_by_asset={
-            name: hashlib.sha256(path.read_bytes()).hexdigest()
-            for name, path in paths.items()
+            name: hashlib.sha256(payload).hexdigest()
+            for name, payload in payloads.items()
         },
     )
 

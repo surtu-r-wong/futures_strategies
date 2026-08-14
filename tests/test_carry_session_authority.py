@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError, replace
 from datetime import date, datetime
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -290,6 +291,53 @@ def test_load_session_authority_hashes_exact_asset_bytes(tmp_path):
         and set(digest) <= set("0123456789abcdef")
         for digest in authority.sha256_by_asset.values()
     )
+
+
+def test_session_authority_parses_the_exact_payload_bound_to_each_digest(
+    tmp_path, monkeypatch
+):
+    no_night_path = _write(tmp_path / "no-night.csv", NO_NIGHT_HEADER)
+    day_only_path = _write(tmp_path / "day-only.csv", RANGE_HEADER)
+    history_path = _write(tmp_path / "history.csv", RANGE_HEADER)
+    replacement = (
+        NO_NIGHT_HEADER
+        + "commodity-v1,DCE,2024-02-19,"
+        "holiday notice_evening=2024-02-08,https://www.dce.com.cn/\n"
+    ).encode()
+    original_read_bytes = Path.read_bytes
+    reads: dict[Path, int] = {}
+
+    def replace_between_parse_and_hash(path):
+        reads[path] = reads.get(path, 0) + 1
+        if path == no_night_path:
+            return replacement
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", replace_between_parse_and_hash)
+
+    authority = load_session_authority(
+        no_night_path=no_night_path,
+        day_only_path=day_only_path,
+        history_exception_path=history_path,
+    )
+
+    assert authority.no_night_dates == (
+        NoNightDate(
+            version="commodity-v1",
+            exchange="DCE",
+            trade_date=date(2024, 2, 19),
+            reason="holiday notice_evening=2024-02-08",
+            source_url="https://www.dce.com.cn/",
+        ),
+    )
+    assert authority.sha256_by_asset["no_night"] == hashlib.sha256(
+        replacement
+    ).hexdigest()
+    assert reads == {
+        no_night_path: 1,
+        day_only_path: 1,
+        history_path: 1,
+    }
 
 
 def test_notice_evening_maps_to_the_next_target_trade_date():
