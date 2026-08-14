@@ -111,6 +111,35 @@ class CapturedCandidate:
     causal_in_pool_date: date | None = None
     selection_source: str = "target_day_main"
 
+    def __post_init__(self) -> None:
+        role = self.candidate.candidate_role
+        if type(role) is not str or role.casefold() != "session_representative":
+            return
+        if type(self.causal_in_pool_date) is not date:
+            raise SessionCaptureError(
+                "captured_candidate_metadata: session representative outer "
+                "causal_in_pool_date must be a concrete date"
+            )
+        if (
+            type(self.selection_source) is not str
+            or not self.selection_source.strip()
+            or self.selection_source.casefold() == "unspecified"
+        ):
+            raise SessionCaptureError(
+                "captured_candidate_metadata: session representative outer "
+                "selection_source must be explicit"
+            )
+        if self.causal_in_pool_date != self.candidate.causal_in_pool_date:
+            raise SessionCaptureError(
+                "captured_candidate_metadata: outer causal_in_pool_date differs "
+                "from the MinuteCandidate provenance"
+            )
+        if self.selection_source != self.candidate.selection_source:
+            raise SessionCaptureError(
+                "captured_candidate_metadata: outer selection_source differs "
+                "from the MinuteCandidate provenance"
+            )
+
 
 @dataclass(frozen=True)
 class RepresentativeContract:

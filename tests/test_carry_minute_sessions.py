@@ -1160,6 +1160,37 @@ def test_synthetic_exit_candidate_keeps_target_day_without_daily_rows():
 
 
 @pytest.mark.parametrize(
+    ("outer_causal_date", "outer_selection_source"),
+    [
+        (date(2024, 1, 3), "causal_in_pool_main"),
+        (date(2024, 1, 2), "target_day_main"),
+        ("2024-01-02", "causal_in_pool_main"),
+        (date(2024, 1, 2), ""),
+    ],
+)
+def test_captured_representative_rejects_outer_provenance_mismatch_or_bad_types(
+    outer_causal_date,
+    outer_selection_source,
+):
+    source_day = date(2024, 1, 2)
+    target_day = date(2024, 1, 4)
+    selected = select_audit_candidates(
+        pd.DataFrame([_audit_price(source_day)]),
+        audit_keys={_audit_key(target_day)},
+        in_pool_source_keys={_audit_key(source_day)},
+        global_calendar=[source_day, date(2024, 1, 3), target_day],
+    )[0]
+
+    with pytest.raises(SessionCaptureError, match="captured_candidate_metadata"):
+        capture_module.CapturedCandidate(
+            candidate=selected.candidate,
+            previous_trade_date=selected.previous_trade_date,
+            causal_in_pool_date=outer_causal_date,
+            selection_source=outer_selection_source,
+        )
+
+
+@pytest.mark.parametrize(
     ("rows", "expected"),
     [
         (

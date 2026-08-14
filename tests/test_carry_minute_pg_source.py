@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -369,6 +370,25 @@ def _candidate(contract="RB2405.SHF", trade_date=date(2024, 1, 8)):
     )
 
 
+def _legacy_candidate_frame(candidate):
+    return pd.DataFrame(
+        [
+            {
+                column: getattr(candidate, column)
+                for column in (
+                    "trade_date",
+                    "product",
+                    "daily_contract",
+                    "minute_symbol",
+                    "exchange",
+                    "window_start",
+                    "window_end",
+                )
+            }
+        ]
+    )
+
+
 def _safe_plan(*, rows=10, chunks=1, node_type="Nested Loop"):
     children = [
         {
@@ -513,6 +533,103 @@ def _source(connection, captured_pg=None):
         return FakeConnectionScope(connection)
 
     return PublicMinuteSource(pg={"schema": "ignored"}, connection_factory=factory)
+
+
+@pytest.mark.parametrize("legacy_dataframe", [False, True])
+def test_session_boundaries_reject_unspecified_provenance_before_db_access(
+    legacy_dataframe,
+):
+    candidate = _candidate()
+    supplied = _legacy_candidate_frame(candidate) if legacy_dataframe else [candidate]
+    connection_calls = []
+
+    def forbidden_factory(pg):
+        connection_calls.append(pg)
+        raise AssertionError("database access must follow candidate provenance checks")
+
+    source = PublicMinuteSource(pg={}, connection_factory=forbidden_factory)
+    with pytest.raises(MinuteDataError) as exc_info:
+        source.iter_session_boundaries(
+            supplied,
+            lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+        )
+
+    error = exc_info.value
+    assert error.check == "session_candidate_metadata"
+    assert error.trade_date == candidate.trade_date
+    assert error.product == candidate.product
+    assert error.contract == candidate.daily_contract
+    assert error.context == {
+        "candidate_role": "unspecified",
+        "causal_in_pool_date": None,
+        "selection_source": "unspecified",
+    }
+    assert connection_calls == []
+
+
+@pytest.mark.parametrize(
+    ("causal_in_pool_date", "selection_source"),
+    [
+        (None, "target_day_main"),
+        (date(2024, 1, 5), "unspecified"),
+    ],
+)
+def test_session_representative_requires_complete_provenance_before_db_access(
+    causal_in_pool_date,
+    selection_source,
+):
+    candidate = replace(
+        _candidate(),
+        candidate_role="session_representative",
+        causal_in_pool_date=causal_in_pool_date,
+        selection_source=selection_source,
+    )
+    connection_calls = []
+
+    def forbidden_factory(pg):
+        connection_calls.append(pg)
+        raise AssertionError("database access must follow candidate provenance checks")
+
+    source = PublicMinuteSource(pg={}, connection_factory=forbidden_factory)
+    with pytest.raises(MinuteDataError) as exc_info:
+        source.iter_session_boundaries(
+            [candidate],
+            lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+        )
+
+    assert exc_info.value.check == "session_candidate_metadata"
+    assert exc_info.value.context == {
+        "candidate_role": "session_representative",
+        "causal_in_pool_date": causal_in_pool_date,
+        "selection_source": selection_source,
+    }
+    assert connection_calls == []
+
+
+def test_iter_month_preserves_legacy_dataframe_compatibility(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    candidate = _candidate()
+    captured = []
+    monkeypatch.setattr(
+        minute_pg_source,
+        "_insert_candidates",
+        lambda cursor, candidates: captured.extend(candidates),
+    )
+
+    assert list(
+        _source(FakeConnection()).iter_month(
+            _legacy_candidate_frame(candidate),
+            lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+        )
+    ) == []
+    assert len(captured) == 1
+    assert captured[0].candidate_role == "unspecified"
+    assert captured[0].causal_in_pool_date is None
+    assert captured[0].selection_source == "unspecified"
 
 
 def test_iter_month_sets_up_transaction_and_uses_the_same_bounded_select(
@@ -1356,6 +1473,29 @@ def test_zero_row_session_representative_has_exact_role_specific_failure(monkeyp
         "selection_source": "causal_in_pool_main",
     }
     assert error.check != "dynamic_execution_leg_missing_minutes"
+
+
+def test_boundary_cardinality_mismatch_structures_unhashable_identity(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    first = _session_candidate(date(2024, 1, 8))
+    second = _session_candidate(date(2024, 1, 9))
+    malformed = list(_boundary_row(first))
+    malformed[1] = ["RB"]
+    connection = FakeConnection(boundary_rows=[tuple(malformed)])
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).iter_session_boundaries(
+            [first, second],
+            lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+        )
+
+    assert exc_info.value.check == "session_boundaries"
+    assert "identity" in exc_info.value.reason
+    assert connection.rollbacks >= 1
+    assert connection.commits == 0
 
 
 @pytest.mark.parametrize(

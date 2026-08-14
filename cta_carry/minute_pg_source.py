@@ -755,6 +755,61 @@ def _canonical_candidates(
     return ordered
 
 
+def _session_candidate_metadata_error(
+    candidate: MinuteCandidate,
+    *,
+    reason: str,
+) -> MinuteDataError:
+    return MinuteDataError(
+        trade_date=candidate.trade_date,
+        product=candidate.product,
+        contract=candidate.daily_contract,
+        check="session_candidate_metadata",
+        reason=reason,
+        context={
+            "candidate_role": candidate.candidate_role,
+            "causal_in_pool_date": candidate.causal_in_pool_date,
+            "selection_source": candidate.selection_source,
+        },
+    )
+
+
+def _validate_session_candidate_provenance(
+    candidates: Sequence[MinuteCandidate],
+) -> None:
+    for candidate in candidates:
+        role = candidate.candidate_role
+        if (
+            type(role) is not str
+            or not role.strip()
+            or role.casefold() == "unspecified"
+        ):
+            raise _session_candidate_metadata_error(
+                candidate,
+                reason="boundary candidate_role must be explicit",
+            )
+        if role.casefold() != "session_representative":
+            continue
+        if type(candidate.causal_in_pool_date) is not date:
+            raise _session_candidate_metadata_error(
+                candidate,
+                reason=(
+                    "session representative causal_in_pool_date must be a "
+                    "concrete date"
+                ),
+            )
+        source = candidate.selection_source
+        if (
+            type(source) is not str
+            or not source.strip()
+            or source.casefold() == "unspecified"
+        ):
+            raise _session_candidate_metadata_error(
+                candidate,
+                reason="session representative selection_source must be explicit",
+            )
+
+
 def _insert_candidates(cursor, candidates: Sequence[MinuteCandidate]) -> None:
     rows = [
         (
@@ -986,6 +1041,47 @@ def _missing_candidate_minutes(candidate: MinuteCandidate) -> MinuteDataError:
     )
 
 
+def _returned_boundary_identity(
+    row: Sequence[Any],
+    *,
+    row_number: int,
+) -> tuple[Any, ...]:
+    if (
+        not isinstance(row, Sequence)
+        or isinstance(row, (str, bytes))
+        or len(row) != len(_BOUNDARY_COLUMNS)
+    ):
+        raise MinuteDataError(
+            check="session_boundaries",
+            reason="boundary row does not match the grouped SELECT shape",
+            context={"row": row_number},
+        )
+    identity = tuple(row[:7])
+    if (
+        type(identity[0]) is not date
+        or any(type(value) is not str for value in identity[1:5])
+        or not _is_aware(identity[5])
+        or not _is_aware(identity[6])
+    ):
+        raise MinuteDataError(
+            check="session_boundaries",
+            reason="boundary candidate identity has invalid scalar types",
+            context={"row": row_number},
+        )
+    try:
+        hash(identity)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MinuteDataError(
+            trade_date=identity[0],
+            product=identity[1],
+            contract=identity[2],
+            check="session_boundaries",
+            reason="boundary candidate identity is not hashable",
+            context={"row": row_number},
+        ) from exc
+    return identity
+
+
 def _validate_boundary_frame(
     rows: Sequence[Sequence[Any]],
     candidates: Sequence[MinuteCandidate],
@@ -996,11 +1092,8 @@ def _validate_boundary_frame(
     expected = sorted(candidate_by_identity)
     if len(rows) != len(expected):
         returned_identities = {
-            tuple(row[:7])
-            for row in rows
-            if isinstance(row, Sequence)
-            and not isinstance(row, (str, bytes))
-            and len(row) >= 7
+            _returned_boundary_identity(row, row_number=row_number)
+            for row_number, row in enumerate(rows)
         }
         missing = [
             candidate_by_identity[identity]
@@ -1022,28 +1115,7 @@ def _validate_boundary_frame(
     normalized_rows: list[Sequence[Any]] = []
     boundary_indexes = range(7, 15)
     for row_number, row in enumerate(rows):
-        if (
-            not isinstance(row, Sequence)
-            or isinstance(row, (str, bytes))
-            or len(row) != len(_BOUNDARY_COLUMNS)
-        ):
-            raise MinuteDataError(
-                check="session_boundaries",
-                reason="boundary row does not match the grouped SELECT shape",
-                context={"row": row_number},
-            )
-        identity = tuple(row[:7])
-        if (
-            type(identity[0]) is not date
-            or any(type(value) is not str for value in identity[1:5])
-            or not _is_aware(identity[5])
-            or not _is_aware(identity[6])
-        ):
-            raise MinuteDataError(
-                check="session_boundaries",
-                reason="boundary candidate identity has invalid scalar types",
-                context={"row": row_number},
-            )
+        identity = _returned_boundary_identity(row, row_number=row_number)
         for column_index in boundary_indexes:
             value = row[column_index]
             if value is not None and not _is_aware(value):
@@ -1256,6 +1328,7 @@ class PublicMinuteSource:
             lower=lower,
             upper=upper,
         )
+        _validate_session_candidate_provenance(candidates)
         select_text = build_session_boundary_query(
             lower=lower,
             upper=upper,
