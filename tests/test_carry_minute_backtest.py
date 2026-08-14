@@ -79,9 +79,7 @@ def _signal(
 
 
 def test_three_separate_bars_can_remove_all_tranches_in_one_day() -> None:
-    machine = IntradayStopMachine(
-        small_config(chandelier_atr_multiple=1.0)
-    )
+    machine = IntradayStopMachine(small_config(chandelier_atr_multiple=1.0))
     state = _long_state()
 
     for index in range(3):
@@ -103,9 +101,7 @@ def test_three_separate_bars_can_remove_all_tranches_in_one_day() -> None:
 
 
 def test_bar_overlapping_the_previous_fill_is_not_eligible() -> None:
-    machine = IntradayStopMachine(
-        small_config(chandelier_atr_multiple=1.0)
-    )
+    machine = IntradayStopMachine(small_config(chandelier_atr_multiple=1.0))
     first_bar = _bar(0)
     first = machine.on_bar(
         TRADE_DATE,
@@ -142,9 +138,7 @@ def test_bar_overlapping_the_previous_fill_is_not_eligible() -> None:
 
 
 def test_no_trade_bar_does_not_update_extreme_or_trigger() -> None:
-    machine = IntradayStopMachine(
-        small_config(chandelier_atr_multiple=1.0)
-    )
+    machine = IntradayStopMachine(small_config(chandelier_atr_multiple=1.0))
     state = _long_state(highest_high=105.0)
 
     decision = machine.on_bar(
@@ -205,9 +199,7 @@ def test_stop_limit_is_enforced_per_product_and_trade_date() -> None:
 
     state = _long_state(tranches=2)
     third_bar = _bar(2)
-    machine.reset_for_transition(
-        "A", second.state, state, fill_end=third_bar.start
-    )
+    machine.reset_for_transition("A", second.state, state, fill_end=third_bar.start)
 
     blocked = machine.on_bar(
         TRADE_DATE,
@@ -238,9 +230,7 @@ def test_signal_exit_reversal_and_roll_reset_the_gate() -> None:
     before = _long_state()
     fill_end = _bar(2).end
 
-    machine.reset_for_transition(
-        "A", before, PositionState(), fill_end=fill_end
-    )
+    machine.reset_for_transition("A", before, PositionState(), fill_end=fill_end)
     assert machine.not_before("A") is None
 
     reversed_state = PositionState(
@@ -248,20 +238,14 @@ def test_signal_exit_reversal_and_roll_reset_the_gate() -> None:
         contract="A2405.SHF",
         tranches_remaining=3,
     )
-    machine.reset_for_transition(
-        "A", before, reversed_state, fill_end=fill_end
-    )
+    machine.reset_for_transition("A", before, reversed_state, fill_end=fill_end)
     assert machine.not_before("A") == fill_end
 
     rolled_state = _long_state(contract="A2409.SHF", highest_high=None)
-    machine.reset_for_transition(
-        "A", before, rolled_state, fill_end=fill_end
-    )
+    machine.reset_for_transition("A", before, rolled_state, fill_end=fill_end)
     assert machine.not_before("A") == fill_end
 
-    machine.reset_for_transition(
-        "A", rolled_state, PositionState(), fill_end=fill_end
-    )
+    machine.reset_for_transition("A", rolled_state, PositionState(), fill_end=fill_end)
     assert machine.not_before("A") is None
 
 
@@ -286,6 +270,7 @@ def test_close_merge_final_stop_and_zero_signal_produces_one_exit() -> None:
     assert plan.states == {"A": PositionState()}
     assert plan.raw_weights == {}
     assert plan.reasons == {"A": "signal_exit"}
+
 
 def test_close_merge_full_stop_and_zero_signal_releases_lock_as_exit() -> None:
     config = small_config()

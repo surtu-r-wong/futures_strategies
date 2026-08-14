@@ -51,8 +51,7 @@ class IntradayStopMachine:
         exited = before_direction != 0 and after_direction == 0
         entered = before_direction == 0 and after.direction != 0
         reversed_direction = (
-            before_direction != 0
-            and after.direction == -before_direction
+            before_direction != 0 and after.direction == -before_direction
         )
         rolled = (
             before.direction == after.direction != 0
@@ -63,9 +62,7 @@ class IntradayStopMachine:
             self._not_before_by_product.pop(product, None)
         elif entered or reversed_direction or rolled:
             if fill_end is None:
-                raise ValueError(
-                    "fill_end is required for entry, reversal, or roll"
-                )
+                raise ValueError("fill_end is required for entry, reversal, or roll")
             self._not_before_by_product[product] = fill_end
 
     def on_bar(
@@ -82,8 +79,7 @@ class IntradayStopMachine:
         stopped_out = state.direction == 0
         before_gate = gate is not None and bar.start < gate
         limit_reached = (
-            self._trigger_counts.get(count_key, 0)
-            >= self.config.stop_tranches
+            self._trigger_counts.get(count_key, 0) >= self.config.stop_tranches
         )
         if bar.no_trade or stopped_out or before_gate or limit_reached:
             return StopDecision(
@@ -113,17 +109,13 @@ class IntradayStopMachine:
             threshold = extreme - self.config.chandelier_atr_multiple * atr
         else:
             extreme = (
-                bar.low
-                if state.lowest_low is None
-                else min(state.lowest_low, bar.low)
+                bar.low if state.lowest_low is None else min(state.lowest_low, bar.low)
             )
             threshold = extreme + self.config.chandelier_atr_multiple * atr
 
         stage = None
         if triggered:
-            self._trigger_counts[count_key] = (
-                self._trigger_counts.get(count_key, 0) + 1
-            )
+            self._trigger_counts[count_key] = self._trigger_counts.get(count_key, 0) + 1
             self._not_before_by_product[product] = next_fill_end
             gate = next_fill_end
             stage = self.config.stop_tranches - updated.tranches_remaining
