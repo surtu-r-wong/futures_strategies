@@ -92,6 +92,7 @@ class SessionSegment:
 _NIGHT_SEGMENTS = {
     "none": None,
     "23:00": SessionSegment(-180, -60),
+    "23:30": SessionSegment(-180, -30),
     "01:00": SessionSegment(-180, 60),
     "02:30": SessionSegment(-180, 150),
 }

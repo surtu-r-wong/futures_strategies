@@ -61,7 +61,7 @@ BOUNDARY_COLUMNS = (
     "day_3_first",
     "day_3_last",
 )
-ALLOWED_NIGHT_ENDS = ("none", "23:00", "01:00", "02:30")
+ALLOWED_NIGHT_ENDS = ("none", "23:00", "23:30", "01:00", "02:30")
 AuditKey = tuple[str, str, date]
 HISTORY_EXCEPTIONS_PATH = (
     Path(__file__).resolve().parents[2]
@@ -319,6 +319,9 @@ def _select_audit_candidates_from_index(
                     exchange=exchange,
                     window_start=_at(previous_trade_date, 21, 0),
                     window_end=_at(trade_date, 15, 1),
+                    candidate_role="session_representative",
+                    causal_in_pool_date=causal_date,
+                    selection_source=selection_source,
                 ),
                 previous_trade_date=previous_trade_date,
                 causal_in_pool_date=causal_date,
@@ -572,8 +575,13 @@ def select_session_candidates(
                     exchange=exchange,
                     window_start=_at(previous_trade_date, 21, 0),
                     window_end=_at(trade_date, 15, 1),
+                    candidate_role="session_representative",
+                    causal_in_pool_date=trade_date,
+                    selection_source="target_day_main",
                 ),
                 previous_trade_date=previous_trade_date,
+                causal_in_pool_date=trade_date,
+                selection_source="target_day_main",
             )
         )
     return tuple(selected)
@@ -676,6 +684,7 @@ def classify_session_boundary(row: Any) -> str:
     )
     endings = {
         "23:00": _at(previous_trade_date, 22, 59),
+        "23:30": _at(previous_trade_date, 23, 29),
         "01:00": _at(after_midnight, 0, 59),
         "02:30": _at(after_midnight, 2, 29),
     }
@@ -791,6 +800,7 @@ def _expected_night_end(rule: SessionRule) -> str:
         return "none"
     offsets = {
         (-180, -60): "23:00",
+        (-180, -30): "23:30",
         (-180, 60): "01:00",
         (-180, 150): "02:30",
     }

@@ -35,7 +35,7 @@ _CONCRETE_CONTRACT = re.compile(
     r"^(?P<product>[A-Za-z]+)(?P<delivery>\d{3,4})\.(?P<suffix>[A-Za-z]+)$"
 )
 _CHUNK_RELATION = re.compile(r"_hyper_\d+_\d+_chunk")
-_CANDIDATE_COLUMNS = (
+_LEGACY_CANDIDATE_COLUMNS = (
     "trade_date",
     "product",
     "daily_contract",
@@ -43,6 +43,12 @@ _CANDIDATE_COLUMNS = (
     "exchange",
     "window_start",
     "window_end",
+)
+_CANDIDATE_COLUMNS = (
+    *_LEGACY_CANDIDATE_COLUMNS,
+    "candidate_role",
+    "causal_in_pool_date",
+    "selection_source",
 )
 _STREAM_COLUMNS = (
     "trade_date",
@@ -231,6 +237,9 @@ class MinuteCandidate:
     exchange: str
     window_start: datetime
     window_end: datetime
+    candidate_role: str = "unspecified"
+    causal_in_pool_date: date | None = None
+    selection_source: str = "unspecified"
 
     def __post_init__(self) -> None:
         contract = self.daily_contract if type(self.daily_contract) is str else None
@@ -262,6 +271,26 @@ class MinuteCandidate:
                     check="minute_candidate",
                     reason=f"{name} must be a concrete built-in datetime",
                 )
+        for name, value in {
+            "candidate_role": self.candidate_role,
+            "selection_source": self.selection_source,
+        }.items():
+            if type(value) is not str or not value.strip():
+                raise MinuteDataError(
+                    trade_date=trade_date,
+                    contract=contract,
+                    check="minute_candidate",
+                    reason=f"{name} must be a nonempty concrete built-in string",
+                )
+        if self.causal_in_pool_date is not None and type(
+            self.causal_in_pool_date
+        ) is not date:
+            raise MinuteDataError(
+                trade_date=trade_date,
+                contract=contract,
+                check="minute_candidate",
+                reason="causal_in_pool_date must be a concrete date or None",
+            )
         expected_product, expected_symbol, expected_exchange = _minute_contract(
             self.daily_contract,
             trade_date,
@@ -323,6 +352,8 @@ class MinuteCandidate:
         object.__setattr__(self, "daily_contract", self.daily_contract.strip().upper())
         object.__setattr__(self, "minute_symbol", normalized["minute_symbol"])
         object.__setattr__(self, "exchange", normalized["exchange"])
+        object.__setattr__(self, "candidate_role", self.candidate_role.strip())
+        object.__setattr__(self, "selection_source", self.selection_source.strip())
 
 
 def _is_aware(value: object) -> bool:
@@ -557,6 +588,12 @@ def _dataframe_date(value: Any, *, column: str, row: int) -> date:
         ) from exc
 
 
+def _dataframe_optional_date(value: Any, *, column: str, row: int) -> date | None:
+    if value is None:
+        return None
+    return _dataframe_date(value, column=column, row=row)
+
+
 def _dataframe_datetime(value: Any, *, column: str, row: int) -> datetime:
     if type(value) is datetime:
         return _fresh_datetime(value)
@@ -606,6 +643,21 @@ def _dataframe_candidate(raw: dict[str, Any], *, row: int) -> MinuteCandidate:
             column="window_end",
             row=row,
         ),
+        candidate_role=_dataframe_text(
+            raw.get("candidate_role", "unspecified"),
+            column="candidate_role",
+            row=row,
+        ),
+        causal_in_pool_date=_dataframe_optional_date(
+            raw.get("causal_in_pool_date"),
+            column="causal_in_pool_date",
+            row=row,
+        ),
+        selection_source=_dataframe_text(
+            raw.get("selection_source", "unspecified"),
+            column="selection_source",
+            row=row,
+        ),
     )
 
 
@@ -618,14 +670,28 @@ def _canonical_candidates(
     lower, upper = _validated_bounds(lower, upper)
     if isinstance(candidate_frame, pd.DataFrame):
         actual = tuple(candidate_frame.columns)
-        if len(actual) != len(set(actual)) or set(actual) != set(_CANDIDATE_COLUMNS):
+        actual_set = set(actual)
+        supported_sets = {
+            frozenset(_LEGACY_CANDIDATE_COLUMNS),
+            frozenset(_CANDIDATE_COLUMNS),
+        }
+        if len(actual) != len(actual_set) or frozenset(actual_set) not in supported_sets:
             raise MinuteDataError(
                 check="minute_candidates",
-                reason="candidate frame must contain exactly the MinuteCandidate fields",
-                context={"columns": actual, "required": _CANDIDATE_COLUMNS},
+                reason="candidate frame must contain exactly a supported MinuteCandidate schema",
+                context={
+                    "columns": actual,
+                    "required": _CANDIDATE_COLUMNS,
+                    "legacy": _LEGACY_CANDIDATE_COLUMNS,
+                },
             )
+        selected_columns = (
+            _CANDIDATE_COLUMNS
+            if actual_set == set(_CANDIDATE_COLUMNS)
+            else _LEGACY_CANDIDATE_COLUMNS
+        )
         raw_candidates: Sequence[Any] = tuple(
-            candidate_frame.loc[:, _CANDIDATE_COLUMNS].to_dict("records")
+            candidate_frame.loc[:, selected_columns].to_dict("records")
         )
     elif isinstance(candidate_frame, Sequence) and not isinstance(
         candidate_frame, (str, bytes)
@@ -884,23 +950,68 @@ def _validate_stream_frame(
     return frame, current_previous
 
 
+def _candidate_boundary_identity(candidate: MinuteCandidate) -> tuple[Any, ...]:
+    return (
+        candidate.trade_date,
+        candidate.product,
+        candidate.daily_contract,
+        candidate.minute_symbol,
+        candidate.exchange,
+        candidate.window_start,
+        candidate.window_end,
+    )
+
+
+def _missing_candidate_minutes(candidate: MinuteCandidate) -> MinuteDataError:
+    if candidate.candidate_role == "session_representative":
+        return MinuteDataError(
+            trade_date=candidate.trade_date,
+            product=candidate.product,
+            contract=candidate.daily_contract,
+            check="session_representative_missing_minutes",
+            reason="session representative has no minute observations in its target window",
+            context={
+                "candidate_role": candidate.candidate_role,
+                "causal_in_pool_date": candidate.causal_in_pool_date,
+                "selection_source": candidate.selection_source,
+            },
+        )
+    return MinuteDataError(
+        trade_date=candidate.trade_date,
+        product=candidate.product,
+        contract=candidate.daily_contract,
+        check="session_boundaries",
+        reason="candidate has no classifiable minute observations",
+        context={"candidate_role": candidate.candidate_role},
+    )
+
+
 def _validate_boundary_frame(
     rows: Sequence[Sequence[Any]],
     candidates: Sequence[MinuteCandidate],
 ) -> pd.DataFrame:
-    expected = sorted(
-        (
-            candidate.trade_date,
-            candidate.product,
-            candidate.daily_contract,
-            candidate.minute_symbol,
-            candidate.exchange,
-            candidate.window_start,
-            candidate.window_end,
-        )
-        for candidate in candidates
-    )
+    candidate_by_identity = {
+        _candidate_boundary_identity(candidate): candidate for candidate in candidates
+    }
+    expected = sorted(candidate_by_identity)
     if len(rows) != len(expected):
+        returned_identities = {
+            tuple(row[:7])
+            for row in rows
+            if isinstance(row, Sequence)
+            and not isinstance(row, (str, bytes))
+            and len(row) >= 7
+        }
+        missing = [
+            candidate_by_identity[identity]
+            for identity in expected
+            if identity not in returned_identities
+        ]
+        if missing and all(
+            candidate.candidate_role == "session_representative"
+            for candidate in missing
+        ):
+            raise _missing_candidate_minutes(missing[0])
         raise MinuteDataError(
             check="session_boundaries",
             reason="boundary query must return exactly one row per candidate",
@@ -948,6 +1059,15 @@ def _validate_boundary_frame(
                     },
                 )
         observed_rows = row[15]
+        candidate = candidate_by_identity.get(identity)
+        if (
+            candidate is not None
+            and isinstance(observed_rows, Integral)
+            and not isinstance(observed_rows, bool)
+            and int(observed_rows) == 0
+            and all(value is None for value in row[7:15])
+        ):
+            raise _missing_candidate_minutes(candidate)
         if (
             isinstance(observed_rows, bool)
             or not isinstance(observed_rows, Integral)

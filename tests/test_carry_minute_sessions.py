@@ -200,11 +200,43 @@ def test_fifteen_minute_buckets_never_cross_a_recess():
     )
 
 
+def test_2330_night_session_produces_ten_buckets_without_crossing_into_day():
+    rule = SessionRule(
+        exchange="DCE",
+        product="I",
+        effective_start=date(2015, 5, 11),
+        effective_end=None,
+        segments=(
+            SessionSegment(-180, -30),
+            *(SessionSegment(*item) for item in DAY_SEGMENTS),
+        ),
+        version=SESSION_RULES_VERSION,
+    )
+    slots = build_trading_slots(
+        trade_date=date(2024, 1, 8),
+        previous_trade_date=date(2024, 1, 5),
+        rule=rule,
+    )
+
+    buckets = fifteen_minute_buckets(slots, rule)
+
+    night_buckets = buckets[:10]
+    assert len(slots) == 375
+    assert len(buckets) == 25
+    assert len(night_buckets) == 10
+    assert all(len(bucket) == 15 for bucket in night_buckets)
+    assert tuple(slot for bucket in night_buckets for slot in bucket) == slots[:150]
+    assert night_buckets[0][0] == _dt(2024, 1, 5, 21, 0)
+    assert night_buckets[-1][-1] == _dt(2024, 1, 5, 23, 29)
+    assert buckets[10][0] == _dt(2024, 1, 8, 9, 0)
+
+
 @pytest.mark.parametrize(
     ("night_end", "night_segment"),
     [
         ("none", None),
         ("23:00", SessionSegment(-180, -60)),
+        ("23:30", SessionSegment(-180, -30)),
         ("01:00", SessionSegment(-180, 60)),
         ("02:30", SessionSegment(-180, 150)),
     ],
@@ -864,6 +896,7 @@ def _captured_boundary(*, night_end):
     else:
         last = {
             "23:00": _dt(2024, 1, 5, 22, 59),
+            "23:30": _dt(2024, 1, 5, 23, 29),
             "01:00": _dt(2024, 1, 6, 0, 59),
             "02:30": _dt(2024, 1, 6, 2, 29),
         }[night_end]
@@ -874,11 +907,29 @@ def _captured_boundary(*, night_end):
     return values
 
 
-@pytest.mark.parametrize("night_end", ["none", "23:00", "01:00", "02:30"])
+@pytest.mark.parametrize(
+    "night_end", ["none", "23:00", "23:30", "01:00", "02:30"]
+)
 def test_capture_classifies_only_supported_exact_session_boundaries(night_end):
     assert classify_session_boundary(_captured_boundary(night_end=night_end)) == (
         night_end
     )
+
+
+def test_capture_reverse_maps_2330_session_segment():
+    rule = SessionRule(
+        exchange="DCE",
+        product="I",
+        effective_start=date(2015, 5, 11),
+        effective_end=None,
+        segments=(
+            SessionSegment(-180, -30),
+            *(SessionSegment(*item) for item in DAY_SEGMENTS),
+        ),
+        version=SESSION_RULES_VERSION,
+    )
+
+    assert capture_module._expected_night_end(rule) == "23:30"
 
 
 def test_capture_treats_pandas_nat_as_an_absent_night_session():
@@ -895,6 +946,32 @@ def test_capture_rejects_a_missing_standard_day_segment():
 
     with pytest.raises(SessionCaptureError, match="day_2_last"):
         classify_session_boundary(row)
+
+
+def test_capture_collapse_accepts_2330_as_an_allowed_boundary():
+    trade_date = date(2015, 5, 11)
+
+    assert collapse_session_rules(
+        pd.DataFrame(
+            [
+                {
+                    "exchange": "DCE",
+                    "product": "I",
+                    "trade_date": trade_date,
+                    "night_end": "23:30",
+                }
+            ]
+        )
+    ) == [
+        {
+            "exchange": "DCE",
+            "product": "I",
+            "effective_start": trade_date,
+            "effective_end": trade_date,
+            "night_end": "23:30",
+            "version": SESSION_RULES_VERSION,
+        }
+    ]
 
 
 def test_capture_collapses_every_observed_rule_change_even_inside_a_month():
@@ -1075,6 +1152,9 @@ def test_synthetic_exit_candidate_keeps_target_day_without_daily_rows():
     assert len(selected) == 1
     assert selected[0].candidate.trade_date == target_day
     assert selected[0].candidate.daily_contract == "RB2405.SHF"
+    assert selected[0].candidate.candidate_role == "session_representative"
+    assert selected[0].candidate.causal_in_pool_date == source_day
+    assert selected[0].candidate.selection_source == "causal_in_pool_main"
     assert selected[0].causal_in_pool_date == source_day
     assert selected[0].selection_source == "causal_in_pool_main"
 
@@ -1133,6 +1213,9 @@ def test_audit_representative_uses_oi_volume_contract_tie_breaks(rows, expected)
     )
 
     assert selected[0].candidate.daily_contract == expected
+    assert selected[0].candidate.candidate_role == "session_representative"
+    assert selected[0].candidate.causal_in_pool_date == target
+    assert selected[0].candidate.selection_source == "target_day_main"
     assert selected[0].selection_source == "target_day_main"
 
 
