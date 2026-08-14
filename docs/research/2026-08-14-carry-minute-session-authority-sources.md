@@ -26,8 +26,8 @@
 | SHFE | session_launch | BR 于 2023-07-28 上市，夜盘 21:00–23:00 | https://www.shfe.com.cn/publicnotice/notice/202307/t20230718_800481.html | 1 | `reviewed_direct` |
 | SHFE | session_launch | AD 于 2025-06-10 上市，夜盘 21:00–01:00 | https://www.shfe.com.cn/publicnotice/notice/202505/t20250526_827862.html | 1 | `reviewed_direct` |
 | SHFE | session_launch | OP 于 2025-09-10 上市，夜盘 21:00–23:00 | https://www.shfe.com.cn/publicnotice/notice/202508/t20250818_828697.html | 1 | `reviewed_direct` |
-| SHFE | night_suspension | 自 2020-02-03 晚起暂停夜盘，恢复日期另行通知 | https://www.shfe.com.cn/publicnotice/notice/202002/t20200202_795584.html | 0 | `reviewed_boundary`：逐目标日行数待全局日历展开 |
-| SHFE | night_resumption | 2020-05-06 晚恢复夜盘 | https://www.shfe.com.cn/publicnotice/notice/202004/t20200424_795871.html | 0 | `reviewed_boundary`：逐目标日行数待全局日历展开 |
+| SHFE | night_suspension | 自 2020-02-03 晚起暂停夜盘，恢复日期另行通知 | https://www.shfe.com.cn/publicnotice/notice/202002/t20200202_795584.html | 0 | `reviewed_boundary`：与恢复边界及全局日历已展开 63 个目标日 |
+| SHFE | night_resumption | 2020-05-06 晚恢复夜盘 | https://www.shfe.com.cn/publicnotice/notice/202004/t20200424_795871.html | 0 | `reviewed_boundary`：闭合暂停区间，不重复计行 |
 | SHFE | holiday_no_night | 2025 年 6 个公告前夕：2024-12-31、2025-01-27、04-03、04-30、05-30、09-30 | https://www.shfe.com.cn/publicnotice/notice/202412/t20241223_824109.html | 6 | `reviewed_direct`：公告同时列明恢复日期 |
 | SHFE | holiday_no_night | 截止日内 2026 年 3 个公告前夕：2025-12-31、2026-02-13、04-03 | https://www.shfe.com.cn/services/calenderandholidays/holiday/ | 3 | `reviewed_direct` |
 | INE | session_launch | SC 于 2018-03-26 上市，夜盘 21:00–02:30 | https://www.ine.cn/publicnotice/notice/201803/t20180312_811177.html | 1 | `reviewed_direct` |
@@ -35,15 +35,15 @@
 | INE | session_launch | LU 于 2020-06-22 上市，夜盘 21:00–23:00 | https://www.ine.cn/publicnotice/notice/202006/t20200610_812278.html | 1 | `reviewed_direct` |
 | INE | session_launch | BC 于 2020-11-19 上市，夜盘 21:00–01:00 | https://www.ine.cn/publicnotice/notice/202011/t20201111_812502.html | 1 | `reviewed_direct` |
 | INE | product_day_only | EC 于 2023-08-18 上市；通知完整枚举 09:00–10:15、10:30–11:30、13:30–15:00 | https://www.ine.cn/publicnotice/notice/202308/t20230811_814262.html | 1 | `reviewed_direct_with_note`：通知未使用“日盘”字样，但完整时段枚举无夜盘 |
-| INE | night_suspension | 自 2020-02-03 晚起暂停夜盘，恢复日期另行通知 | https://www.ine.cn/publicnotice/notice/202002/t20200202_812084.html | 0 | `reviewed_boundary`：逐目标日行数待全局日历展开 |
-| INE | night_resumption | 2020-05-06 晚恢复夜盘 | https://www.ine.cn/publicnotice/notice/202004/t20200424_812209.html | 0 | `reviewed_boundary`：逐目标日行数待全局日历展开 |
+| INE | night_suspension | 自 2020-02-03 晚起暂停夜盘，恢复日期另行通知 | https://www.ine.cn/publicnotice/notice/202002/t20200202_812084.html | 0 | `reviewed_boundary`：与恢复边界及全局日历已展开 63 个目标日 |
+| INE | night_resumption | 2020-05-06 晚恢复夜盘 | https://www.ine.cn/publicnotice/notice/202004/t20200424_812209.html | 0 | `reviewed_boundary`：闭合暂停区间，不重复计行 |
 | INE | holiday_no_night | 2025 年 6 个公告前夕，与 SHFE 2025 年安排一致 | https://www.ine.cn/publicnotice/notice/202412/t20241223_824108.html | 6 | `reviewed_direct` |
 | INE | holiday_no_night | 截止日内 2026 年 3 个公告前夕：2025-12-31、2026-02-13、04-03 | https://www.ine.cn/publicnotice/notice/202512/t20251217_829804.html | 3 | `reviewed_direct` |
 | INE | holiday_no_night | `notice_evening=2024-04-03` | https://www.ine.cn/eng/circularnews/circular/202403/t20240329_823079.html | 1 | `reviewed_direct`：其余四个 2024 候选日必须分别恢复对应 INE 官方通知 URL |
 | DCE | session_launch_and_clock_change | P/J 2014-07-04 首批；A/B/M/Y/JM/I 2014-12-26 加入，初始 02:30；2019-03-29 统一至 23:00 并新增 L/V/PP/EG/C/CS | https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf | 22 | `reviewed_direct`：官方回顾材料直接列明产品、日期与时段 |
 | DCE | session_clock_change | 自 2015-05-08 21:00（目标交易日 2015-05-11）起，既有 8 品种由 02:30 调整至 23:30 | https://www.dce.com.cn/dalianshangpin/resource/cms/2016/07/%E5%A4%A7%E8%BF%9E%E6%9C%9F%E8%B4%A7%E5%B8%82%E5%9C%BA%E6%9C%88%E6%8A%A5%EF%BC%882015%E5%B9%B45%E6%9C%88%EF%BC%89.pdf | 8 | `reviewed_direct`：与 2019 回顾材料按事件去重，不是重复键 |
-| DCE | night_suspension | 自 2020-02-03 晚起暂停全部夜盘 | http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6204446/index.html | 0 | `official_url_manual_fetch`：官方 URL 已恢复，但逐目标日行数待日历展开 |
-| DCE | night_resumption | 2020-05-06 晚恢复夜盘，并新增 PG 夜盘 | http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6215428/index.html | 1 | `official_url_manual_fetch`：1 行只指 PG 启动；暂停期逐目标日行数另行展开 |
+| DCE | night_suspension | 自 2020-02-03 晚起暂停全部夜盘 | http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6204446/index.html | 0 | `official_url_manual_fetch`：与恢复边界及全局日历已展开 63 个目标日 |
+| DCE | night_resumption | 2020-05-06 晚恢复夜盘，并新增 PG 夜盘 | http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6215428/index.html | 1 | `official_url_manual_fetch`：1 行只指 PG 启动；闭合暂停区间不重复计行 |
 | DCE | product_day_only | LG 于 2024-11-18 上市，通知明确“暂不开展夜盘交易” | http://www.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/8620259/index.html | 1 | `reviewed_direct` |
 | DCE | holiday_no_night | `notice_evening=2026-02-13` | http://www.dce.com.cn/dce/content/2026/ywggytz/18627505.html | 1 | `reviewed_direct` |
 | DCE | holiday_no_night | `notice_evening=2026-04-03` | http://www.dce.com.cn/dce/content/2026/ywggytz/18628241.html | 1 | `reviewed_direct` |
@@ -57,9 +57,16 @@
 | CZCE | session_launch | SH、PX 自 2023-09-15 晚起，21:00–23:00 | https://www.czce.com.cn/cn/rootfiles/2023/10/18/1697226838884489-1697226838904727.pdf | 2 | `reviewed_direct_batch` |
 | CZCE | session_launch | PR 自 2024-08-30 晚起，21:00–23:00 | https://www.czce.com.cn/cn/rootfiles/2024/09/14/1726389999932285-1726389999951648.pdf | 1 | `reviewed_direct_batch` |
 | CZCE | holiday_no_night | `notice_evening=2018-12-28`；2019-01-02 晚恢复夜盘 | https://www.czce.com.cn/cn/rootfiles/2018/12/24/1545632831296256-1545632831311552.pdf | 1 | `reviewed_direct`：只保存公告前夕，目标日由全局日历计算 |
+| CZCE | night_suspension | 自 2020-02-03 晚起暂停夜盘；首个疫情暂停目标日为 2020-02-04 | http://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2020/02/1572884629536892.htm | 0 | `official_url_manual_fetch`：官方旧页当前 412；与恢复边界及全局日历合用派生 63 行，2020-02-03 另按节后规则归因 |
+| CZCE | night_resumption | 2020-05-06 晚恢复商品期货、期权夜盘；首个恢复夜盘目标日为 2020-05-07 | http://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2020/04/1584386593065063.htm | 0 | `official_url_manual_fetch`：郑商函〔2020〕153号；闭合暂停区间，不重复计行 |
+| GFEX | session_launch_schedule | SI 于 2022-12-22 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202212/44ccfcb613e442658c8ac94861e0de18.shtml | 0 | `reviewed_direct_launch_but_blocked_history`：证明上市日与日盘安排，不足以授权连续 day-only 区间 |
+| GFEX | session_launch_schedule | LC 于 2023-07-21 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202307/33f2a342d80f4ee69966df4a554c26a4.shtml | 0 | `reviewed_direct_launch_but_blocked_history`：同上 |
+| GFEX | session_launch_schedule | PS 于 2024-12-26 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202412/34bc2f9dbfc34b4b81e1a043ff526589.shtml | 0 | `reviewed_direct_launch_but_blocked_history`：同上 |
+| GFEX | session_launch_schedule | PT 于 2025-11-27 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202508/4d8af56888c84490b525d5d8fdd729f6.shtml | 0 | `reviewed_direct_launch_but_blocked_history`：页面发文日为 2025-11-14，不得按 URL 的 202508 目录推断日期 |
+| GFEX | session_launch_schedule | PD 于 2025-11-27 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202508/5ff7c8717a4a44708e650a08b198254f.shtml | 0 | `reviewed_direct_launch_but_blocked_history`：页面发文日为 2025-11-14，不得按 URL 的 202508 目录推断日期 |
 | GFEX | current_day_schedule | SI 合约列明日盘三节；库内首日为 2022-12-22 | https://www.gfex.com.cn/gfex/llbb/202402/73cd6f4cc26b4dd5b3d127b5462b59a7/files/%E5%B9%BF%E5%B7%9E%E6%9C%9F%E8%B4%A7%E4%BA%A4%E6%98%93%E6%89%80%E5%B7%A5%E4%B8%9A%E7%A1%85%E6%9C%9F%E8%B4%A7%E5%90%88%E7%BA%A6%EF%BC%882022%E5%B9%B412%E6%9C%8812%E6%97%A5%E7%89%88%EF%BC%89.pdf | 0 | `review_blocked_history`：“及交易所规定的其他时间”不能证明自上市以来持续日盘 |
 | GFEX | current_day_schedule | LC 合约列明日盘三节；库内首日为 2023-07-21 | https://www.gfex.com.cn/gfex/sytslqhhy/202307/9ad927b8ec4c458594e172fd1ada2a9b.shtml | 0 | `review_blocked_history`：同上 |
-| GFEX | current_day_schedule | 当前产品页列明 PS、PT、PD 日盘时段；库内首日分别为 2024-12-26、2025-11-27、2025-11-27 | https://www.gfex.com.cn/gfex/sspzb/sspz.shtml | 0 | `review_blocked_history`：仍需按品种恢复上市通知和连续制度证据 |
+| GFEX | current_day_schedule | 当前产品页列明 PS、PT、PD 日盘时段；库内首日分别为 2024-12-26、2025-11-27、2025-11-27 | https://www.gfex.com.cn/gfex/sspzb/sspz.shtml | 0 | `review_blocked_history`：仍缺连续制度证据 |
 
 ## 数量与运行前门槛
 
@@ -108,18 +115,40 @@ ORDER BY exchange_suffix, product;
 
 | counter | current_value | publication_gate |
 |---|---:|---|
-| official source-register entries | 47 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源 |
+| official source-register entries | 54 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源 |
 | accepted exact no-night evening candidates | 22 | 必须逐行映射到下一全局 `trade_date` 后才能写 CSV |
 | holiday no-night rows working estimate | 300–450 | 只估四所节前日期，不含 2020 暂停期；以 inventory 为准 |
-| 2020 suspension expanded rows | not measured | 用六个已接受边界和全局交易日历展开；CZCE 边界恢复后另计 |
+| 2020 suspension expanded rows | 252 | SHFE、INE、DCE、CZCE 各 63 个目标日（2020-02-04 至 2020-05-06）；不含另按节后规则归因的 2020-02-03 |
 | expected total no-night rows | not measured | 节前日期与 2020 展开去重后的并集 |
 | products requiring regime classification | 80 | 每个实际 audit 产品必须有经验时段或权威 day-only 解释 |
-| accepted 2020 suspension/resumption boundaries | 6 | SHFE、INE、DCE 各一停一复；CZCE 两个边界仍待官方 URL |
+| accepted 2020 suspension/resumption boundaries | 8 | SHFE、INE、DCE、CZCE 各一停一复；CZCE 旧页当前按 `official_url_manual_fetch` 登记 |
 | unresolved empirical dates | not measured | round 1 必须一次性输出全量，禁止逐条挤牙膏 |
 | exact source-candidate duplicate keys | 0 | 当前已登记精确候选按来源键去重；非零禁止进入 capture |
 | expanded final-key duplicates | not measured | 日历展开后必须为 0，否则禁止写 authority CSV |
 
-`official source-register entries` 是登记行的唯一 URL 计数，不等于表格行数。
+`2020 suspension expanded rows` 于 2026-08-14 使用生产只读连接执行以下 SQL；
+四个日线后缀的结果均为 63 个目标交易日，合计 252：
+
+```sql
+SELECT
+    split_part(symbol, '.', 2) AS daily_suffix,
+    count(DISTINCT trade_date) AS target_days,
+    min(trade_date) AS first_target,
+    max(trade_date) AS last_target
+FROM public.futures_daily
+WHERE trade_date BETWEEN DATE '2020-02-04' AND DATE '2020-05-06'
+  AND split_part(symbol, '.', 2) = ANY(
+      ARRAY['SHF', 'INE', 'DCE', 'CZC']::text[]
+  )
+GROUP BY 1
+ORDER BY 1;
+```
+
+结果为 `CZC 63`、`DCE 63`、`INE 63`、`SHF 63`，每所首尾目标日均为
+`2020-02-04` 与 `2020-05-06`。
+
+`official source-register entries` 按唯一 URL 去重计数；当前恰为 54，与来源表
+行数相同。
 在首次全量 capture 前，上述“未测”允许存在；一旦 round 1 产生 inventory，必须替换为
 确定数字，并记录每轮剩余量。预计总共运行 2–3 轮：第一轮完整盘点，第二轮批量补表，
 第三轮只用于验证批量修订是否收敛；第三轮仍非零则停止发布。
@@ -130,13 +159,13 @@ ORDER BY exchange_suffix, product;
   现有交易所材料只能标为佐证。SHFE/INE 的完整 2013–2024 节前日期也未覆盖。
 - DCE 已整理 2014–2026 的 78 个候选公告前夕，但除 2026-02-13、2026-04-03
   外尚未恢复稳定官方 URL；这些日期全部保持 `reject_pending_official_url`。
-- CZCE 的 OI/FG/ZC 2015 夜盘启动、2019-12 的 23:30→23:00 变更、2020
-  暂停/恢复以及绝大多数逐年节前通知仍缺直接官方 URL。
-- GFEX 的 SI、LC、PS、PT、PD 当前页面只证明当前日盘结构，尚不足以授权从上市日至
-  2026-04-29 的连续 day-only 区间。
+- CZCE 的 OI/FG/ZC 2015 夜盘启动、2019-12 的 23:30→23:00 变更以及绝大多数
+  逐年节前通知仍缺直接官方 URL；2020 暂停/恢复边界已恢复官方旧 URL。
+- GFEX 的 SI、LC、PS、PT、PD 上市通知与当前页面只证明上市日和所列日盘结构，
+  尚不足以授权从上市日至 2026-04-29 的连续 day-only 区间。
 - WR、部分 CZCE 日盘品种以及代码迁移 ME/MA、TC/ZC 需要历史规则与别名复核。
-- 2020 暂停区间要先由“暂停边界 + 恢复边界 + 全局交易日历”展开为逐交易所目标日；
-  与区间内节假日公告重叠时只保留一个 `(version, exchange, trade_date)` 键。
+- 2020 暂停区间已由“暂停边界 + 恢复边界 + 全局交易日历”展开为 252 个来源候选；
+  2020-02-03 必须另按节后首交易日归因，与区间内节假日公告重叠时仍只保留一个键。
 
 这些缺口不会用第三方镜像、经验缺行、普通周末或当前规则反向外推填补。Task 7
 只有在官方来源、目标日期映射和经验 inventory 三者一致后才写权威 CSV。
