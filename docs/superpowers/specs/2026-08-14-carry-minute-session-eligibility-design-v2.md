@@ -1,7 +1,7 @@
 # Carry 分钟时段采集 eligibility 修正设计 v2
 
 **日期：** 2026-08-14
-**状态：** 待复核
+**状态：** 已确认
 **作用范围：** `2026-08-13-carry-minute-execution-design.md` 的时段规则采集补充；完整替代同日无 `-v2` 后缀的旧稿
 
 ## 1. 根因、数据库事实与证据范围
@@ -49,6 +49,14 @@ requested_range start=YYYY-MM-DD end=YYYY-MM-DD daily_load_start=YYYY-MM-DD
 `cta_carry.curve.aggregate_product_liquidity`，保留其 120 个实际观测、
 `min_periods=120`、向后移动一日、`>=` 门槛以及正式策略计算顺序。
 
+时段资产必须满足
+`capture_start <= backtest_start - timedelta(days=config.prewarm_calendar_days)`，
+因为预热期同样驱动日线信号、分钟执行状态和影子账户。基线
+`backtest_start=2013-01-04` 与默认 730 天得到最晚
+`capture_start=2011-01-05`，因此真实采集从 2011-01-01 开始。采集命令与
+分钟回测启动前都必须校验该不变量；将来修改回测起点或预热长度时，旧资产不能
+静默沿用。
+
 完整交易日历是预热期与请求期内所有规范化商品日线日期的有序并集；所有
 `prev`、`next` 都在这个全局交易日历上计算，不能在单品种现存行或请求范围
 切片上 `shift`，也不能用自然日加减替代。
@@ -63,6 +71,17 @@ requested_range start=YYYY-MM-DD end=YYYY-MM-DD daily_load_start=YYYY-MM-DD
 
 该检查同样适用于请求期中途首次出现的品种，不能由另一个历史完整的品种替它
 通过。测试还必须覆盖恰好等于阈值时 `in_pool=True`。
+
+长期停牌后复牌等确有来源的历史缺口，唯一豁免出口为
+`config/carry_liquidity_history_exceptions.csv`，精确表头为
+`version,exchange,product,effective_start,effective_end,reason,source_url`。
+同版本、交易所、品种区间禁止重叠，`version` 必须等于
+`SESSION_RULES_VERSION`，空表头资产表示无豁免。只有首个目标品种日恰好命中
+一个有官方来源的区间时，`liquidity_history_incomplete` 才改记为
+`authorized_history_gap` 并允许采集继续；该品种仍保持 `in_pool=False`，
+绝不由豁免抬入池。零匹配、多匹配或无来源仍硬失败。运行日志必须记录该资产
+版本、SHA-256 和实际命中行；不得增加代码内品种特判。
+
 
 ## 3. 被审计候选集合：策略访问包络
 
@@ -95,6 +114,14 @@ audit(T) = P(T) or P(prev(T)) or P(prev(prev(T)))
 失败，不能删除候选。时段规则按交易所和品种解析，同品种换月双腿共享规则，
 所以代表合约用于观测产品时段，不声称覆盖每条腿的行情可用性。
 
+时段采集的代表合约缺分钟必须抛
+`MinuteDataError(check="session_representative_missing_minutes")`，并在
+`context` 携带 `candidate_role="session_representative"`、
+`causal_in_pool_date` 和代表合约选择来源。Task 8 对实际持有、换月或退出腿
+缺分钟则使用独立的 `check="dynamic_execution_leg_missing_minutes"` 与
+真实 `candidate_role`。两类报错不得复用，以免把产品时段观测失败误诊成实际
+持仓腿行情缺失。
+
 Task 8 引擎的逐日动态访问集合仍须显式取当日非零信号主力、跨日携带合约、
 换月双腿、退出腿和收盘计价合约的并集。默认配置下动态产品日必须是
 `audit_keys` 子集；否则采集或回测硬失败并修订设计，不允许猜测时段。
@@ -126,7 +153,10 @@ CSV `night_end` 的完整枚举为：
 
 - `config/carry_minute_no_night_dates.csv`，精确表头
   `version,exchange,trade_date,reason,source_url`，唯一键为
-  `(version, exchange, trade_date)`；
+  `(version, exchange, trade_date)`。这里 `trade_date` 是夜盘缺失所归属的
+  **目标交易日**，不是公告所称的节前最后交易日或夜盘前夕自然日；整理时必须
+  用第 2 节完整交易日历把公告前夕映射到下一目标交易日；`reason` 必须包含
+  可机读的 `notice_evening=YYYY-MM-DD`，采集命令逐行复算并拒绝 off-by-one；
 - `config/carry_minute_day_only_regimes.csv`，精确表头
   `version,exchange,product,effective_start,effective_end,reason,source_url`，
   唯一键为 `(version, exchange, product, effective_start)`；空
@@ -217,22 +247,29 @@ products=N rules=N checked_days=N ambiguous=N
 
 - 默认 `CarryConfig()` 的 120 日窗口、50 亿元门槛和 730 天预热，以及配置、
   请求范围、加载起点日志；
+- `capture_start <= backtest_start - prewarm_calendar_days`，基线边界为
+  2011-01-05，采集起点 2011-01-01 合法，欠覆盖必须在采集与回测预检失败；
 - 一个品种预热完整而另一个截断、请求期中途首次出现品种、加载下界前历史
-  存在与不存在两条路径；
+  存在与不存在两条路径；长期停牌豁免 CSV 的严格 schema、非重叠、哈希、
+  零/一/多匹配，以及命中后仍保持 `in_pool=False`；
 - 阈值下方、恰好阈值、最高 OI 及两个 tie-break 排序；
-- `P(T)`、`P(T-1)`、`P(T-2)` 包络，首次出池后的持有与退出，以及目标日
-  无日线时候选仍保留；
+- `P(T)`、`P(T-1)`、`P(T-2)` 包络，范围首日由范围外在池日发射的候选，
+  首次出池后的持有与退出，以及目标日无日线时候选仍保留；首次缺信号生成
+  下一日清零目标必须直接测试真实 `plan_signal_targets` 行为；
 - `23:29` 分类、`23:30` 与 `SessionSegment(-180, -30)` 双向映射、未知尾点；
 - 普通周末假 `none`、未授权连续 `none` 必须失败，权威停夜盘日的
   `[night, none, night]` 产生三段；两个权威 CSV 的严格表头、版本、唯一键、
   区间非重叠、匹配优先级、清单声明 `none` 却实测完整夜盘的反向冲突，
-  以及内容哈希稳定；
+  以及内容哈希稳定；公告所列夜盘前夕日期必须经全局交易日历映射为下一目标
+  `trade_date`，直接把公告日期写入清单的 off-by-one 用例必须失败；
 - 同值和异值端点之间只要存在真实未审计交易日都不外推，实验配置访问间隙
   由 resolver 零匹配失败；
 - 整年零 audited、四个年度键集合、两种固定精度比率、可归键与不可归键的
   标准化排除计数、非零 unkeyable 发布阻断、`boundary_keys == audit_keys`
   与总计不变量；
-- 缺行、重复行、零分钟行、复读或反向校验失败均回滚且不发布部分资产。
+- 缺行、重复行、零分钟行、复读或反向校验失败均回滚且不发布部分资产；
+  代表合约缺分钟与动态执行腿缺分钟的 `check` 和 `candidate_role` 必须明确
+  区分。
 
 真实只读验收范围固定为 2011-01-01 至 2026-04-29，使用仓库外实际数据库
 配置，保留 FU 2016 一致性与 FU 2011–2015 流动性审计命令和摘要，并对每年

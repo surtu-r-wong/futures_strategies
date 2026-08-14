@@ -861,6 +861,15 @@ git commit -m "feat(carry): stream bounded minute batches from PostgreSQL"
 ```
 
 ### Task 5: Capture and validate the versioned session-rule asset
+> **Authoritative replacement (2026-08-14):** Do not execute the legacy
+> Steps 1–5 below. Execute every checked step in
+> [`2026-08-14-carry-minute-session-eligibility-v2.md`](2026-08-14-carry-minute-session-eligibility-v2.md)
+> Tasks 1–8 instead. The legacy text remains only to preserve the original plan
+> history.
+
+- [ ] Complete the authoritative Task 5 subplan with unit, database, authority-source,
+  asset-hash, and `ambiguous=0` evidence before starting Task 6.
+
 
 **Files:**
 - Create: `scripts/carry/capture_minute_sessions.py`
@@ -1249,11 +1258,36 @@ def test_minute_backtester_produces_auditable_tables_and_feedback():
     )
 ```
 
+Also prove the minute engine invokes the repository-asset prewarm preflight before
+daily research or minute queries:
+
+```python
+def test_minute_backtester_rejects_a_session_asset_that_misses_prewarm(
+    monkeypatch,
+):
+    data, source, rules, start, end = minute_backtest_fixture()
+    monkeypatch.setattr(
+        "cta_carry.minute_backtest.SESSION_RULES_CAPTURE_START", start
+    )
+    with pytest.raises(SessionClockError, match="session_asset_prewarm_coverage"):
+        CarryMinuteBacktester(
+            data=data, minute_source=source, session_rules=rules,
+            config=small_config(), start=start, end=end,
+        ).run()
+```
+
+
 - [ ] **Step 2: Verify red**
 
 Run the named test. Expected: FAIL because `CarryMinuteBacktester` is not defined.
 
 - [ ] **Step 3: Implement candidate-month preparation**
+Before `build_daily_research`, call `validate_capture_coverage` with
+`SESSION_RULES_CAPTURE_START`, the requested backtest `start`, and
+`config.prewarm_calendar_days`. This makes a future prewarm/start change fail at
+engine startup with `session_asset_prewarm_coverage`, rather than later as a resolver
+zero-match.
+
 
 `CarryMinuteBacktester.run()` first calls `build_daily_research`, then creates candidate rows from:
 
@@ -1261,6 +1295,15 @@ Run the named test. Expected: FAIL because `CarryMinuteBacktester` is not define
 - every carried contract;
 - both legs of a same-direction roll;
 - every contract required for a daily close mark.
+
+Tag every concrete candidate with exactly one role from `signal_main`, `carried`,
+`roll_old`, `roll_new`, `exit`, or `close_mark`. A missing actual candidate raises
+`MinuteDataError(check="dynamic_execution_leg_missing_minutes")` with that
+`candidate_role`; it must never reuse
+`session_representative_missing_minutes`. Convert the concrete candidate union to
+product-day keys and require it to be a subset of the Task 5 `audit_keys` evidence
+before the first monthly query.
+
 
 For each target trade date, attach `previous_trade_date`, resolve the session rule, and use the rule's first/last slot for `window_start/window_end`. Group by target trade-date calendar month while preserving one-session overlap at boundaries.
 
