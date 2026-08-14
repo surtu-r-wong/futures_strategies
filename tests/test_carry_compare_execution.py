@@ -220,6 +220,16 @@ def _remove_sheet_column(path, sheet: str, column: str) -> None:
     workbook.save(path)
 
 
+def _replace_sheet_column(path, sheet: str, column: str, values) -> None:
+    workbook = load_workbook(path)
+    worksheet = workbook[sheet]
+    headers = [cell.value for cell in worksheet[1]]
+    column_number = headers.index(column) + 1
+    for row_number, value in enumerate(values, start=2):
+        worksheet.cell(row=row_number, column=column_number, value=value)
+    workbook.save(path)
+
+
 @pytest.mark.parametrize(
     ("sheet", "column"),
     [
@@ -246,11 +256,27 @@ def test_compare_execution_requires_the_final_audit_schema(
     assert column in error.reason
 
 
-def test_compare_execution_rejects_empty_required_sheet_structurally(tmp_path):
+def test_compare_execution_accepts_empty_intraday_stops_with_schema(tmp_path):
     daily = write_fixture_workbook(tmp_path / "daily.xlsx", minute=False)
     minute = write_fixture_workbook(tmp_path / "minute.xlsx", minute=True)
     workbook = load_workbook(minute)
     worksheet = workbook["intraday_stops"]
+    worksheet.delete_rows(2, worksheet.max_row)
+    workbook.save(minute)
+
+    result = compare_workbooks(daily, minute, label="report_window")
+    row = result.iloc[0]
+
+    assert row["stop_row_count"] == 0
+    assert row["triggered_stop_count"] == 0
+    assert row["same_day_multi_stop_count"] == 0
+
+
+def test_compare_execution_still_rejects_other_empty_required_sheets(tmp_path):
+    daily = write_fixture_workbook(tmp_path / "daily.xlsx", minute=False)
+    minute = write_fixture_workbook(tmp_path / "minute.xlsx", minute=True)
+    workbook = load_workbook(minute)
+    worksheet = workbook["executions"]
     worksheet.delete_rows(2, worksheet.max_row)
     workbook.save(minute)
 
@@ -260,7 +286,7 @@ def test_compare_execution_rejects_empty_required_sheet_structurally(tmp_path):
     error = exc_info.value
     assert error.path == minute
     assert error.check == "sheet_empty"
-    assert error.sheet == "intraday_stops"
+    assert error.sheet == "executions"
 
 
 def test_compare_execution_rejects_missing_required_sheet_structurally(tmp_path):
@@ -315,6 +341,94 @@ def test_compare_execution_rejects_different_report_trading_dates(tmp_path):
     assert error.check == "paired_report_dates"
     assert error.sheet == "daily_returns"
     assert error.key == "trade_date"
+
+
+@pytest.mark.parametrize(
+    ("return_column", "returns"),
+    [
+        ("gross_return", [0.0, -1.0, 0.02, 0.01]),
+        ("net_return", [0.0, -1.5, -1.5, 0.01]),
+    ],
+)
+def test_compare_execution_rejects_any_depleted_equity_path(
+    tmp_path,
+    return_column,
+    returns,
+):
+    daily = write_fixture_workbook(tmp_path / "daily.xlsx", minute=False)
+    minute = write_fixture_workbook(tmp_path / "minute.xlsx", minute=True)
+    _replace_sheet_column(
+        daily,
+        "daily_returns",
+        return_column,
+        returns,
+    )
+
+    with pytest.raises(ComparisonInputError) as exc_info:
+        compare_workbooks(daily, minute, label="report_window")
+
+    error = exc_info.value
+    assert error.path == daily
+    assert error.check == "equity_depleted"
+    assert error.sheet == "daily_returns"
+    assert error.key == return_column
+
+
+def _replace_with_zero_return_series(path) -> None:
+    _replace_sheet_column(
+        path,
+        "daily_returns",
+        "gross_return",
+        [0.0, 0.0, 0.0, 0.0],
+    )
+    _replace_sheet_column(
+        path,
+        "daily_returns",
+        "net_return",
+        [0.0, 0.0, 0.0, 0.0],
+    )
+
+
+def test_compare_execution_rejects_nonfinite_recomputed_metric(tmp_path):
+    daily = write_fixture_workbook(tmp_path / "daily.xlsx", minute=False)
+    minute = write_fixture_workbook(tmp_path / "minute.xlsx", minute=True)
+    _replace_with_zero_return_series(daily)
+
+    with pytest.raises(ComparisonInputError) as exc_info:
+        compare_workbooks(daily, minute, label="report_window")
+
+    error = exc_info.value
+    assert error.path == daily
+    assert error.check == "performance_metric_nonfinite"
+    assert error.sheet == "daily_returns"
+    assert error.key == "gross_sharpe"
+
+
+def test_compare_execution_cli_rejects_nonfinite_metric_without_output(
+    tmp_path,
+    capsys,
+):
+    daily = write_fixture_workbook(tmp_path / "daily.xlsx", minute=False)
+    minute = write_fixture_workbook(tmp_path / "minute.xlsx", minute=True)
+    _replace_with_zero_return_series(daily)
+    output = tmp_path / "comparison.csv"
+
+    code = main(
+        [
+            "--pair",
+            "report_window",
+            str(daily),
+            str(minute),
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert code == 2
+    assert not output.exists()
+    error = capsys.readouterr().err
+    assert "check=performance_metric_nonfinite" in error
+    assert "key=gross_sharpe" in error
 
 
 def test_compare_execution_cli_writes_repeated_pairs(tmp_path):

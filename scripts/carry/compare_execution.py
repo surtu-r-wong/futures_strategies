@@ -13,7 +13,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-from common.metrics import summarize
+from common.metrics import cumulative_equity, summarize
 from cta_carry.config import CarryConfig
 
 
@@ -89,7 +89,12 @@ class ComparisonInputError(RuntimeError):
         super().__init__(f"{reason} [{', '.join(details)}]")
 
 
-def _required_sheets(path: Path, names: Sequence[str]) -> dict[str, pd.DataFrame]:
+def _required_sheets(
+    path: Path,
+    names: Sequence[str],
+    *,
+    allow_empty: Sequence[str] = (),
+) -> dict[str, pd.DataFrame]:
     if not path.is_file():
         raise ComparisonInputError(
             path=path,
@@ -116,8 +121,9 @@ def _required_sheets(path: Path, names: Sequence[str]) -> dict[str, pd.DataFrame
             reason=f"cannot read comparison workbook: {type(exc).__name__}: {exc}",
         ) from exc
 
+    allowed_empty = frozenset(allow_empty)
     for name, frame in frames.items():
-        if frame.empty:
+        if frame.empty and name not in allowed_empty:
             raise ComparisonInputError(
                 path=path,
                 check="sheet_empty",
@@ -298,7 +304,23 @@ def _validated_daily_returns(frame: pd.DataFrame, *, path: Path) -> pd.DataFrame
             reason="turnover, cost, and gross_leverage must be nonnegative",
         )
     result["trade_date"] = dates
-    return result.sort_values("trade_date", kind="mergesort").reset_index(drop=True)
+    result = result.sort_values("trade_date", kind="mergesort").reset_index(drop=True)
+    for return_column in ("gross_return", "net_return"):
+        equity = cumulative_equity(result[return_column])
+        depleted = equity <= 0.0
+        if depleted.any():
+            first = int(np.flatnonzero(depleted.to_numpy())[0])
+            raise ComparisonInputError(
+                path=path,
+                check="equity_depleted",
+                sheet="daily_returns",
+                key=return_column,
+                reason=(
+                    f"{return_column} cumulative equity is non-positive at "
+                    f"{result.loc[first, 'trade_date'].date().isoformat()}"
+                ),
+            )
+    return result
 
 
 def _calmar(summary: dict[str, float]) -> float:
@@ -308,7 +330,11 @@ def _calmar(summary: dict[str, float]) -> float:
     return float("nan")
 
 
-def _performance_metrics(daily: pd.DataFrame) -> dict[str, float]:
+def _performance_metrics(
+    daily: pd.DataFrame,
+    *,
+    path: Path,
+) -> dict[str, float]:
     indexed = daily.set_index("trade_date")
     gross = summarize(
         indexed["gross_return"],
@@ -320,7 +346,7 @@ def _performance_metrics(daily: pd.DataFrame) -> dict[str, float]:
         periods_per_year=_PERIODS_PER_YEAR,
         turnover=indexed["turnover"],
     )
-    return {
+    metrics = {
         "gross_ann_return": gross["ann_return"],
         "net_ann_return": net["ann_return"],
         "gross_sharpe": gross["sharpe"],
@@ -337,6 +363,17 @@ def _performance_metrics(daily: pd.DataFrame) -> dict[str, float]:
         "avg_gross_leverage": float(daily["gross_leverage"].mean()),
         "max_gross_leverage": float(daily["gross_leverage"].max()),
     }
+    for metric in _PERFORMANCE_METRICS:
+        value = metrics[metric]
+        if not math.isfinite(value):
+            raise ComparisonInputError(
+                path=path,
+                check="performance_metric_nonfinite",
+                sheet="daily_returns",
+                key=metric,
+                reason=f"required recomputed metric is non-finite: {metric}={value}",
+            )
+    return metrics
 
 
 def _validate_report_dates(
@@ -487,6 +524,7 @@ def compare_workbooks(
             "intraday_stops",
             "run_config",
         ),
+        allow_empty=("intraday_stops",),
     )
     _validate_pair_config(
         _run_config(daily_sheets["run_config"], path=daily_path),
@@ -506,8 +544,8 @@ def compare_workbooks(
         minute_returns,
         minute_path=minute_path,
     )
-    daily_metrics = _performance_metrics(daily_returns)
-    minute_metrics = _performance_metrics(minute_returns)
+    daily_metrics = _performance_metrics(daily_returns, path=daily_path)
+    minute_metrics = _performance_metrics(minute_returns, path=minute_path)
 
     row: dict[str, Any] = {"label": label.strip()}
     for metric in _PERFORMANCE_METRICS:
