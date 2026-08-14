@@ -59,6 +59,24 @@ _STREAM_COLUMNS = (
     "amount",
     "open_interest",
 )
+_BOUNDARY_COLUMNS = (
+    "trade_date",
+    "product",
+    "daily_contract",
+    "minute_symbol",
+    "exchange",
+    "window_start",
+    "window_end",
+    "night_first",
+    "night_last",
+    "day_1_first",
+    "day_1_last",
+    "day_2_first",
+    "day_2_last",
+    "day_3_first",
+    "day_3_last",
+    "observed_rows",
+)
 _TRANSACTION_SETTINGS = (
     "SET LOCAL max_parallel_workers_per_gather = 0;",
     "SET LOCAL work_mem = '32MB';",
@@ -195,6 +213,11 @@ def _minute_contract(contract: str, trade_date: date) -> tuple[str, str, str]:
         else f"{product}{delivery}"
     )
     return product, minute_symbol, _DAILY_TO_MINUTE_EXCHANGE[suffix]
+
+
+def minute_contract_identity(contract: str, trade_date: date) -> tuple[str, str, str]:
+    """Map one normalized daily contract to its small-side minute identity."""
+    return _minute_contract(contract, trade_date)
 
 
 @dataclass(frozen=True)
@@ -366,6 +389,94 @@ def build_minute_batch_query(*, lower: datetime, upper: datetime) -> sql.SQL:
         WHERE m.bar_time >= '{lower_literal}'::TIMESTAMPTZ
           AND m.bar_time < '{upper_literal}'::TIMESTAMPTZ
         ORDER BY m.bar_time, m.symbol
+        """
+    )
+
+
+def build_session_boundary_query(*, lower: datetime, upper: datetime) -> sql.SQL:
+    """Build one grouped session-boundary row per minute candidate."""
+    lower, upper = _validated_bounds(lower, upper)
+    lower_literal = lower.isoformat()
+    upper_literal = upper.isoformat()
+    return sql.SQL(
+        f"""
+        SELECT
+            c.trade_date,
+            c.product,
+            c.daily_contract,
+            c.minute_symbol,
+            c.exchange,
+            c.window_start,
+            c.window_end,
+            min(m.bar_time) FILTER (
+                WHERE m.bar_time < (
+                    c.trade_date::timestamp + TIME '09:00'
+                ) AT TIME ZONE 'Asia/Shanghai'
+            ) AS night_first,
+            max(m.bar_time) FILTER (
+                WHERE m.bar_time < (
+                    c.trade_date::timestamp + TIME '09:00'
+                ) AT TIME ZONE 'Asia/Shanghai'
+            ) AS night_last,
+            min(m.bar_time) FILTER (
+                WHERE m.bar_time >= (
+                    c.trade_date::timestamp + TIME '09:00'
+                ) AT TIME ZONE 'Asia/Shanghai'
+                  AND m.bar_time < (
+                    c.trade_date::timestamp + TIME '10:15'
+                ) AT TIME ZONE 'Asia/Shanghai'
+            ) AS day_1_first,
+            max(m.bar_time) FILTER (
+                WHERE m.bar_time >= (
+                    c.trade_date::timestamp + TIME '09:00'
+                ) AT TIME ZONE 'Asia/Shanghai'
+                  AND m.bar_time < (
+                    c.trade_date::timestamp + TIME '10:15'
+                ) AT TIME ZONE 'Asia/Shanghai'
+            ) AS day_1_last,
+            min(m.bar_time) FILTER (
+                WHERE m.bar_time >= (
+                    c.trade_date::timestamp + TIME '10:30'
+                ) AT TIME ZONE 'Asia/Shanghai'
+                  AND m.bar_time < (
+                    c.trade_date::timestamp + TIME '11:30'
+                ) AT TIME ZONE 'Asia/Shanghai'
+            ) AS day_2_first,
+            max(m.bar_time) FILTER (
+                WHERE m.bar_time >= (
+                    c.trade_date::timestamp + TIME '10:30'
+                ) AT TIME ZONE 'Asia/Shanghai'
+                  AND m.bar_time < (
+                    c.trade_date::timestamp + TIME '11:30'
+                ) AT TIME ZONE 'Asia/Shanghai'
+            ) AS day_2_last,
+            min(m.bar_time) FILTER (
+                WHERE m.bar_time >= (
+                    c.trade_date::timestamp + TIME '13:30'
+                ) AT TIME ZONE 'Asia/Shanghai'
+                  AND m.bar_time < (
+                    c.trade_date::timestamp + TIME '15:00'
+                ) AT TIME ZONE 'Asia/Shanghai'
+            ) AS day_3_first,
+            max(m.bar_time) FILTER (
+                WHERE m.bar_time >= (
+                    c.trade_date::timestamp + TIME '13:30'
+                ) AT TIME ZONE 'Asia/Shanghai'
+                  AND m.bar_time < (
+                    c.trade_date::timestamp + TIME '15:00'
+                ) AT TIME ZONE 'Asia/Shanghai'
+            ) AS day_3_last,
+            count(m.bar_time) AS observed_rows
+        FROM _carry_minute_candidates c
+        LEFT JOIN public.futures_minute m
+          ON m.symbol = c.minute_symbol
+         AND m.bar_time >= c.window_start
+         AND m.bar_time < c.window_end
+         AND m.bar_time >= '{lower_literal}'::TIMESTAMPTZ
+         AND m.bar_time < '{upper_literal}'::TIMESTAMPTZ
+        GROUP BY c.trade_date, c.product, c.daily_contract,
+                 c.minute_symbol, c.exchange, c.window_start, c.window_end
+        ORDER BY c.trade_date, c.product, c.daily_contract
         """
     )
 
@@ -773,6 +884,106 @@ def _validate_stream_frame(
     return frame, current_previous
 
 
+def _validate_boundary_frame(
+    rows: Sequence[Sequence[Any]],
+    candidates: Sequence[MinuteCandidate],
+) -> pd.DataFrame:
+    expected = sorted(
+        (
+            candidate.trade_date,
+            candidate.product,
+            candidate.daily_contract,
+            candidate.minute_symbol,
+            candidate.exchange,
+            candidate.window_start,
+            candidate.window_end,
+        )
+        for candidate in candidates
+    )
+    if len(rows) != len(expected):
+        raise MinuteDataError(
+            check="session_boundaries",
+            reason="boundary query must return exactly one row per candidate",
+            context={"expected_rows": len(expected), "actual_rows": len(rows)},
+        )
+
+    identities: list[tuple[Any, ...]] = []
+    normalized_rows: list[Sequence[Any]] = []
+    boundary_indexes = range(7, 15)
+    for row_number, row in enumerate(rows):
+        if (
+            not isinstance(row, Sequence)
+            or isinstance(row, (str, bytes))
+            or len(row) != len(_BOUNDARY_COLUMNS)
+        ):
+            raise MinuteDataError(
+                check="session_boundaries",
+                reason="boundary row does not match the grouped SELECT shape",
+                context={"row": row_number},
+            )
+        identity = tuple(row[:7])
+        if (
+            type(identity[0]) is not date
+            or any(type(value) is not str for value in identity[1:5])
+            or not _is_aware(identity[5])
+            or not _is_aware(identity[6])
+        ):
+            raise MinuteDataError(
+                check="session_boundaries",
+                reason="boundary candidate identity has invalid scalar types",
+                context={"row": row_number},
+            )
+        for column_index in boundary_indexes:
+            value = row[column_index]
+            if value is not None and not _is_aware(value):
+                raise MinuteDataError(
+                    trade_date=identity[0],
+                    product=identity[1],
+                    contract=identity[2],
+                    check="session_boundaries",
+                    reason="observed session boundaries must be aware datetimes",
+                    context={
+                        "row": row_number,
+                        "column": _BOUNDARY_COLUMNS[column_index],
+                    },
+                )
+        observed_rows = row[15]
+        if (
+            isinstance(observed_rows, bool)
+            or not isinstance(observed_rows, Integral)
+            or int(observed_rows) <= 0
+        ):
+            raise MinuteDataError(
+                trade_date=identity[0],
+                product=identity[1],
+                contract=identity[2],
+                check="session_boundaries",
+                reason="candidate has no classifiable minute observations",
+                context={"row": row_number, "observed_rows": observed_rows},
+            )
+        identities.append(identity)
+        normalized_rows.append((*row[:15], int(observed_rows)))
+
+    if len(identities) != len(set(identities)):
+        raise MinuteDataError(
+            check="session_boundaries",
+            reason="boundary query returned a candidate more than once",
+        )
+    if identities != expected:
+        raise MinuteDataError(
+            check="session_boundaries",
+            reason="boundary rows do not exactly match ordered candidates",
+            context={"expected": expected, "actual": identities},
+        )
+    try:
+        return pd.DataFrame.from_records(normalized_rows, columns=_BOUNDARY_COLUMNS)
+    except (TypeError, ValueError) as exc:
+        raise MinuteDataError(
+            check="session_boundaries",
+            reason="boundary rows cannot be represented as a table",
+        ) from exc
+
+
 def _metadata_integer(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
@@ -912,6 +1123,41 @@ class PublicMinuteSource:
                 if stream_cursor is not None:
                     _close_cursor_preserving(stream_cursor)
                 _close_cursor_preserving(control_cursor)
+
+    def iter_session_boundaries(
+        self,
+        candidate_frame: pd.DataFrame | Sequence[MinuteCandidate],
+        lower: datetime,
+        upper: datetime,
+    ) -> pd.DataFrame:
+        """Return one validated grouped boundary row per candidate."""
+        candidates = _canonical_candidates(
+            candidate_frame,
+            lower=lower,
+            upper=upper,
+        )
+        select_text = build_session_boundary_query(
+            lower=lower,
+            upper=upper,
+        ).as_string(None)
+        explain_text = "EXPLAIN (FORMAT JSON) " + select_text
+        with _managed_connection(
+            self._connection_factory,
+            self._pg.copy(),
+        ) as connection:
+            cursor = connection.cursor()
+            try:
+                for setting in _TRANSACTION_SETTINGS:
+                    cursor.execute(setting)
+                cursor.execute(_CREATE_CANDIDATES)
+                _insert_candidates(cursor, candidates)
+                cursor.execute(explain_text)
+                _validate_plan(cursor.fetchone())
+                cursor.execute(select_text)
+                frame = _validate_boundary_frame(cursor.fetchall(), candidates)
+            finally:
+                _close_cursor_preserving(cursor)
+        return frame
 
     def resolve_metadata_multiplier(
         self,

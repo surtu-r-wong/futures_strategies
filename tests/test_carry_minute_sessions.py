@@ -1,6 +1,8 @@
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 import pytest
 
 from cta_carry.minute_sessions import (
@@ -15,6 +17,12 @@ from cta_carry.minute_sessions import (
     load_session_rules,
     next_slots,
     resolve_session_rule,
+)
+from scripts.carry.capture_minute_sessions import (
+    SessionCaptureError,
+    classify_session_boundary,
+    collapse_session_rules,
+    select_session_candidates,
 )
 
 
@@ -740,3 +748,164 @@ def test_every_fifteen_minute_bucket_preserves_authoritative_clock_context():
     assert all(bucket == tuple(bucket) for bucket in buckets)
     for bucket in buckets:
         _assert_same_clock_context(bucket, slots)
+
+
+def test_repository_session_rules_are_nonoverlapping_and_cover_fixture_products():
+    rules = load_session_rules(Path("config/carry_minute_sessions.csv"))
+
+    assert rules
+    for product in ("RB", "AU", "SC", "AP", "JD"):
+        assert any(rule.product == product for rule in rules)
+
+    grouped = {}
+    for rule in rules:
+        grouped.setdefault((rule.exchange, rule.product), []).append(rule)
+    for product_rules in grouped.values():
+        ordered = sorted(product_rules, key=lambda item: item.effective_start)
+        for previous, current in zip(ordered, ordered[1:], strict=False):
+            assert previous.effective_end is not None
+            assert previous.effective_end < current.effective_start
+
+
+def _captured_boundary(*, night_end):
+    trade_date = date(2024, 1, 8)
+    previous = date(2024, 1, 5)
+    values = {
+        "trade_date": trade_date,
+        "previous_trade_date": previous,
+        "exchange": "SHFE",
+        "product": "AU",
+        "daily_contract": "AU2406.SHF",
+        "day_1_first": _dt(2024, 1, 8, 9, 0),
+        "day_1_last": _dt(2024, 1, 8, 10, 14),
+        "day_2_first": _dt(2024, 1, 8, 10, 30),
+        "day_2_last": _dt(2024, 1, 8, 11, 29),
+        "day_3_first": _dt(2024, 1, 8, 13, 30),
+        "day_3_last": _dt(2024, 1, 8, 14, 59),
+    }
+    if night_end == "none":
+        values.update(night_first=None, night_last=None)
+    else:
+        last = {
+            "23:00": _dt(2024, 1, 5, 22, 59),
+            "01:00": _dt(2024, 1, 6, 0, 59),
+            "02:30": _dt(2024, 1, 6, 2, 29),
+        }[night_end]
+        values.update(
+            night_first=_dt(2024, 1, 5, 21, 0),
+            night_last=last,
+        )
+    return values
+
+
+@pytest.mark.parametrize("night_end", ["none", "23:00", "01:00", "02:30"])
+def test_capture_classifies_only_supported_exact_session_boundaries(night_end):
+    assert classify_session_boundary(_captured_boundary(night_end=night_end)) == (
+        night_end
+    )
+
+
+def test_capture_treats_pandas_nat_as_an_absent_night_session():
+    row = _captured_boundary(night_end="none")
+    row["night_first"] = pd.NaT
+    row["night_last"] = pd.NaT
+
+    assert classify_session_boundary(row) == "none"
+
+
+def test_capture_rejects_a_missing_standard_day_segment():
+    row = _captured_boundary(night_end="none")
+    row["day_2_last"] = None
+
+    with pytest.raises(SessionCaptureError, match="day_2_last"):
+        classify_session_boundary(row)
+
+
+def test_capture_collapses_every_observed_rule_change_even_inside_a_month():
+    classified = pd.DataFrame(
+        [
+            {
+                "exchange": "SHFE",
+                "product": "AU",
+                "trade_date": date(2024, 1, 8),
+                "night_end": "none",
+            },
+            {
+                "exchange": "SHFE",
+                "product": "AU",
+                "trade_date": date(2024, 1, 9),
+                "night_end": "none",
+            },
+            {
+                "exchange": "SHFE",
+                "product": "AU",
+                "trade_date": date(2024, 1, 10),
+                "night_end": "02:30",
+            },
+            {
+                "exchange": "SHFE",
+                "product": "AU",
+                "trade_date": date(2024, 1, 11),
+                "night_end": "02:30",
+            },
+        ]
+    )
+
+    assert collapse_session_rules(classified) == [
+        {
+            "exchange": "SHFE",
+            "product": "AU",
+            "effective_start": date(2024, 1, 8),
+            "effective_end": date(2024, 1, 9),
+            "night_end": "none",
+            "version": SESSION_RULES_VERSION,
+        },
+        {
+            "exchange": "SHFE",
+            "product": "AU",
+            "effective_start": date(2024, 1, 10),
+            "effective_end": date(2024, 1, 11),
+            "night_end": "02:30",
+            "version": SESSION_RULES_VERSION,
+        },
+    ]
+
+
+def test_capture_selects_highest_oi_deterministically_and_uses_trading_lag():
+    prices = pd.DataFrame(
+        [
+            {
+                "trade_date": date(2024, 1, 5),
+                "product": "RB",
+                "contract": "RB2405.SHF",
+                "oi": 10.0,
+                "volume": 10.0,
+            },
+            {
+                "trade_date": date(2024, 1, 8),
+                "product": "RB",
+                "contract": "RB2405.SHF",
+                "oi": 100.0,
+                "volume": 50.0,
+            },
+            {
+                "trade_date": date(2024, 1, 8),
+                "product": "RB",
+                "contract": "RB2410.SHF",
+                "oi": 100.0,
+                "volume": 40.0,
+            },
+        ]
+    )
+
+    selected = select_session_candidates(
+        prices,
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 8),
+    )
+
+    assert len(selected) == 1
+    assert selected[0].previous_trade_date == date(2024, 1, 5)
+    assert selected[0].candidate.daily_contract == "RB2405.SHF"
+    assert selected[0].candidate.minute_symbol == "RB2405"
+    assert selected[0].candidate.window_start == _dt(2024, 1, 5, 21, 0)

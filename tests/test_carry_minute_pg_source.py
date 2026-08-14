@@ -11,6 +11,7 @@ from cta_carry.minute_pg_source import (
     MinuteCandidate,
     PublicMinuteSource,
     build_minute_batch_query,
+    build_session_boundary_query,
     czce_minute_symbol,
 )
 
@@ -43,6 +44,21 @@ def test_batch_query_keeps_minute_symbol_bare_and_has_literal_bounds():
     assert "regexp_replace(m.symbol" not in query
     assert "CASE WHEN m.exchange" not in query
     assert "ORDER BY m.bar_time, m.symbol" in query
+
+
+def test_session_boundary_query_is_grouped_bounded_and_keeps_symbol_bare():
+    lower = datetime(2024, 1, 1, 20, 0, tzinfo=SHANGHAI)
+    upper = datetime(2024, 2, 1, 15, 1, tzinfo=SHANGHAI)
+
+    query = build_session_boundary_query(lower=lower, upper=upper).as_string(None)
+
+    assert "LEFT JOIN public.futures_minute m" in query
+    assert "m.symbol = c.minute_symbol" in query
+    assert "GROUP BY c.trade_date, c.product, c.daily_contract" in query
+    assert "min(m.bar_time)" in query.lower()
+    assert "max(m.bar_time)" in query.lower()
+    assert "'2024-01-01T20:00:00+08:00'" in query
+    assert "'2024-02-01T15:01:00+08:00'" in query
 
 
 @pytest.mark.parametrize(
@@ -299,6 +315,24 @@ STREAM_COLUMNS = [
     "amount",
     "open_interest",
 ]
+BOUNDARY_COLUMNS = [
+    "trade_date",
+    "product",
+    "daily_contract",
+    "minute_symbol",
+    "exchange",
+    "window_start",
+    "window_end",
+    "night_first",
+    "night_last",
+    "day_1_first",
+    "day_1_last",
+    "day_2_first",
+    "day_2_last",
+    "day_3_first",
+    "day_3_last",
+    "observed_rows",
+]
 SETTINGS = [
     "SET LOCAL max_parallel_workers_per_gather = 0;",
     "SET LOCAL work_mem = '32MB';",
@@ -385,6 +419,8 @@ class FakeCursor:
         normalized = " ".join(text.split())
         if normalized.startswith("EXPLAIN (FORMAT JSON)"):
             self.mode = "plan"
+        elif normalized.startswith("SELECT c.trade_date") and "GROUP BY" in normalized:
+            self.mode = "boundary"
         elif normalized.startswith("SELECT c.trade_date"):
             self.mode = "stream"
         elif "FROM public.futures_contract_info" in normalized:
@@ -395,7 +431,9 @@ class FakeCursor:
         return (self.connection.plan,)
 
     def fetchall(self):
-        assert self.mode == "metadata"
+        assert self.mode in {"metadata", "boundary"}
+        if self.mode == "boundary":
+            return list(self.connection.boundary_rows)
         return list(self.connection.metadata_rows)
 
     def fetchmany(self, size):
@@ -420,12 +458,14 @@ class FakeConnection:
         *,
         plan=None,
         stream_chunks=(),
+        boundary_rows=(),
         metadata_rows=(),
         raise_on=None,
         rollback_error=False,
     ):
         self.plan = _safe_plan() if plan is None else plan
         self.stream_chunks = list(stream_chunks)
+        self.boundary_rows = list(boundary_rows)
         self.metadata_rows = list(metadata_rows)
         self.raise_on = raise_on
         self.rollback_error = rollback_error
@@ -1108,3 +1148,161 @@ def test_metadata_multiplier_delegates_frame_validation(monkeypatch):
 
     assert result is sentinel
     assert captured == {"frame": frame, "contract": "RB2405", "multiplier": 10}
+
+
+def _session_candidate(trade_date):
+    previous = trade_date - timedelta(days=1)
+    return MinuteCandidate(
+        trade_date=trade_date,
+        product="RB",
+        daily_contract="RB2405.SHF",
+        minute_symbol="RB2405",
+        exchange="SHFE",
+        window_start=datetime(
+            previous.year,
+            previous.month,
+            previous.day,
+            21,
+            tzinfo=SHANGHAI,
+        ),
+        window_end=datetime(
+            trade_date.year,
+            trade_date.month,
+            trade_date.day,
+            16,
+            tzinfo=SHANGHAI,
+        ),
+    )
+
+
+def _boundary_row(candidate, *, observed_rows=345):
+    previous = candidate.trade_date - timedelta(days=1)
+    return (
+        candidate.trade_date,
+        candidate.product,
+        candidate.daily_contract,
+        candidate.minute_symbol,
+        candidate.exchange,
+        candidate.window_start,
+        candidate.window_end,
+        datetime(
+            previous.year,
+            previous.month,
+            previous.day,
+            21,
+            tzinfo=SHANGHAI,
+        ),
+        datetime(
+            previous.year,
+            previous.month,
+            previous.day,
+            22,
+            59,
+            tzinfo=SHANGHAI,
+        ),
+        datetime(
+            candidate.trade_date.year,
+            candidate.trade_date.month,
+            candidate.trade_date.day,
+            9,
+            tzinfo=SHANGHAI,
+        ),
+        datetime(
+            candidate.trade_date.year,
+            candidate.trade_date.month,
+            candidate.trade_date.day,
+            10,
+            14,
+            tzinfo=SHANGHAI,
+        ),
+        datetime(
+            candidate.trade_date.year,
+            candidate.trade_date.month,
+            candidate.trade_date.day,
+            10,
+            30,
+            tzinfo=SHANGHAI,
+        ),
+        datetime(
+            candidate.trade_date.year,
+            candidate.trade_date.month,
+            candidate.trade_date.day,
+            11,
+            29,
+            tzinfo=SHANGHAI,
+        ),
+        datetime(
+            candidate.trade_date.year,
+            candidate.trade_date.month,
+            candidate.trade_date.day,
+            13,
+            30,
+            tzinfo=SHANGHAI,
+        ),
+        datetime(
+            candidate.trade_date.year,
+            candidate.trade_date.month,
+            candidate.trade_date.day,
+            14,
+            59,
+            tzinfo=SHANGHAI,
+        ),
+        observed_rows,
+    )
+
+
+def test_iter_session_boundaries_returns_one_ordered_row_per_candidate(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    first = _session_candidate(date(2024, 1, 8))
+    second = _session_candidate(date(2024, 1, 9))
+    connection = FakeConnection(
+        boundary_rows=[_boundary_row(first), _boundary_row(second)]
+    )
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    frame = _source(connection).iter_session_boundaries(
+        [second, first],
+        lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+        upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+    )
+
+    assert list(frame.columns) == BOUNDARY_COLUMNS
+    assert frame["trade_date"].tolist() == [date(2024, 1, 8), date(2024, 1, 9)]
+    executed = [event[1] for event in connection.events if event[0] == "execute"]
+    assert [text.strip() for text in executed[:5]] == SETTINGS
+    explain = next(text for text in executed if text.lstrip().startswith("EXPLAIN"))
+    select = next(text for text in executed if text.lstrip().startswith("SELECT"))
+    assert explain.removeprefix("EXPLAIN (FORMAT JSON) ") == select
+    assert connection.commits == 1
+    assert connection.rollbacks == 0
+
+
+@pytest.mark.parametrize("failure", ["missing", "duplicate", "no_bars"])
+def test_iter_session_boundaries_rejects_unclassified_candidates(monkeypatch, failure):
+    from cta_carry import minute_pg_source
+
+    first = _session_candidate(date(2024, 1, 8))
+    second = _session_candidate(date(2024, 1, 9))
+    candidates = [first, second]
+    rows = [_boundary_row(first), _boundary_row(second)]
+    if failure == "missing":
+        rows.pop()
+    elif failure == "duplicate":
+        rows[1] = _boundary_row(first)
+    else:
+        candidates = [first]
+        rows = [_boundary_row(first, observed_rows=0)]
+    connection = FakeConnection(boundary_rows=rows)
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).iter_session_boundaries(
+            candidates,
+            lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+        )
+
+    assert exc_info.value.check == "session_boundaries"
+    assert connection.rollbacks >= 1
+    assert connection.commits == 0
