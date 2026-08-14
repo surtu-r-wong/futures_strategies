@@ -2,16 +2,52 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
-from datetime import date, datetime
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, replace
+from datetime import date, datetime, time, timedelta
+import hashlib
+import math
+from typing import Any
+
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from .backtest import (
+    CarryBacktestResult,
+    WarmupInsufficientError,
+    _contract_products,
+    _position_rows,
+    _records_frame,
+    _summary_metrics,
+)
 from .config import CarryConfig
+from .data import CarryDataSet
 from .decision import TargetPlan, plan_signal_targets
-from .minute_bars import FifteenMinuteBar
-from .risk import PositionState, apply_chandelier
+from .decision import DailyResearch, build_daily_research
+from .minute_account import AccountEvent, EventAccount
+from .minute_bars import (
+    FifteenMinuteBar,
+    MinuteDataError,
+    MultiplierResolution,
+    VwapFill,
+    aggregate_fifteen_minute_bar,
+    five_minute_vwap,
+)
+from .minute_pg_source import MinuteCandidate, minute_contract_identity
+from .minute_sessions import (
+    SESSION_RULES_CAPTURE_START,
+    SESSION_RULES_VERSION,
+    SessionClockError,
+    SessionRule,
+    build_trading_slots,
+    fifteen_minute_buckets,
+    next_slots,
+    resolve_session_rule,
+    validate_capture_coverage,
+)
+from .risk import PositionState, ShadowVolWindow, apply_chandelier, scale_weights
 
 
 @dataclass(frozen=True)
@@ -272,3 +308,1224 @@ def merge_close_plan(
         previous_states=post_stop_states,
         reason_hints=reason_hints,
     )
+
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
+MINUTE_QUERY_RULES_VERSION = "timescale-bare-symbol-v1"
+MULTIPLIER_RESOLUTION_VERSION = "price-range-v1"
+
+_CANDIDATE_ROLES = frozenset(
+    {"signal_main", "carried", "roll_old", "roll_new", "exit", "close_mark"}
+)
+_ROLE_PRIORITY = {
+    "roll_old": 0,
+    "roll_new": 1,
+    "exit": 2,
+    "carried": 3,
+    "signal_main": 4,
+    "close_mark": 5,
+}
+_DAILY_COLUMNS = (
+    "trade_date",
+    "gross_return",
+    "turnover",
+    "cost",
+    "net_return",
+    "equity",
+    "gross_leverage",
+    "boundary_type",
+)
+_POSITION_COLUMNS = (
+    "trade_date",
+    "product",
+    "contract",
+    "direction",
+    "raw_weight",
+    "weight",
+    "gross_leverage",
+    "tranches_remaining",
+    "highest_high",
+    "lowest_low",
+    "locked_direction",
+    "carried_in",
+)
+_TRADE_COLUMNS = (
+    "trade_date",
+    "product",
+    "contract",
+    "old_weight",
+    "new_weight",
+    "weight_change",
+    "reason",
+)
+_EXECUTION_COLUMNS = (
+    "execution_id",
+    "trade_date",
+    "product",
+    "contract",
+    "candidate_role",
+    "reason",
+    "execution_kind",
+    "signal_time",
+    "window_start",
+    "window_end",
+    "vwap",
+    "daily_open",
+    "old_weight",
+    "new_weight",
+    "weight_change",
+    "turnover",
+    "cost",
+    "volume",
+    "amount",
+    "multiplier",
+    "multiplier_source",
+    "multiplier_pass_rate",
+    "multiplier_sample_rows",
+)
+_STOP_COLUMNS = (
+    "trade_date",
+    "product",
+    "contract",
+    "bar_start",
+    "bar_end",
+    "open",
+    "high",
+    "low",
+    "close",
+    "atr",
+    "threshold",
+    "tranches_before",
+    "tranches_after",
+    "locked_direction",
+    "triggered",
+    "execution_id",
+)
+_QUALITY_COLUMNS = (
+    "check",
+    "trade_date",
+    "product",
+    "contract",
+    "candidate_role",
+    "observed_rows",
+    "missing_slots",
+    "query_month",
+    "detail",
+)
+_RUN_CONFIG_COLUMNS = ("key", "value")
+
+
+@dataclass(frozen=True)
+class _CandidateContext:
+    candidate: MinuteCandidate
+    rule: SessionRule
+    slots: tuple[datetime, ...]
+
+
+@dataclass(frozen=True)
+class _ExecutionOperation:
+    product: str
+    before: PositionState
+    after: PositionState
+    role_by_contract: Mapping[str, str]
+    fill_by_contract: Mapping[str, VwapFill]
+    resolution_by_contract: Mapping[str, MultiplierResolution]
+    raw_target_by_contract: Mapping[str, float]
+    formal_target_by_contract: Mapping[str, float]
+    reason: str
+    signal_time: datetime | None
+
+    @property
+    def timestamp(self) -> datetime:
+        return next(iter(self.fill_by_contract.values())).end
+
+
+def _active_signals(signals: pd.DataFrame) -> dict[date, dict[str, Any]]:
+    result: dict[date, dict[str, Any]] = defaultdict(dict)
+    ordered = signals.sort_values(["trade_date", "product"], kind="mergesort")
+    for row in ordered.itertuples(index=False):
+        if int(row.effective_direction) != 0:
+            result[row.trade_date][row.product] = row
+    return dict(result)
+
+
+def _add_candidate_role(
+    roles: dict[str, str],
+    contract: str | None,
+    role: str,
+) -> None:
+    if contract is None:
+        return
+    if role not in _CANDIDATE_ROLES:
+        raise ValueError(f"unsupported dynamic candidate role: {role}")
+    current = roles.get(contract)
+    if current is None or _ROLE_PRIORITY[role] < _ROLE_PRIORITY[current]:
+        roles[contract] = role
+
+
+def _candidate_roles_for_date(
+    *,
+    index: int,
+    dates: Sequence[date],
+    active: Mapping[date, Mapping[str, Any]],
+) -> dict[str, str]:
+    trade_date = dates[index]
+    roles: dict[str, str] = {}
+    current = active.get(trade_date, {})
+    previous = active.get(dates[index - 1], {}) if index >= 1 else {}
+    prior = active.get(dates[index - 2], {}) if index >= 2 else {}
+
+    for row in current.values():
+        _add_candidate_role(roles, row.main_contract, "signal_main")
+
+    products = sorted(set(previous) | set(prior))
+    for product in products:
+        old = prior.get(product)
+        new = previous.get(product)
+        old_contract = getattr(old, "main_contract", None)
+        new_contract = getattr(new, "main_contract", None)
+        if old is not None and new is not None:
+            if old_contract != new_contract and int(old.effective_direction) == int(
+                new.effective_direction
+            ):
+                _add_candidate_role(roles, old_contract, "roll_old")
+                _add_candidate_role(roles, new_contract, "roll_new")
+            elif old_contract == new_contract and int(old.effective_direction) == int(
+                new.effective_direction
+            ):
+                _add_candidate_role(roles, new_contract, "carried")
+            else:
+                _add_candidate_role(roles, old_contract, "exit")
+                _add_candidate_role(roles, new_contract, "signal_main")
+        elif new is not None:
+            _add_candidate_role(roles, new_contract, "signal_main")
+        elif old is not None:
+            _add_candidate_role(roles, old_contract, "exit")
+        if new_contract is not None:
+            _add_candidate_role(roles, new_contract, "close_mark")
+    return roles
+
+
+def _prepare_candidates(
+    *,
+    dates: Sequence[date],
+    research: DailyResearch,
+    rules: Sequence[SessionRule],
+) -> dict[tuple[date, str], _CandidateContext]:
+    active = _active_signals(research.signal_result.signals)
+    contexts: dict[tuple[date, str], _CandidateContext] = {}
+    dynamic_keys: set[tuple[str, str, date]] = set()
+    audit_keys: set[tuple[str, str, date]] = set()
+
+    for rule in rules:
+        for trade_date in dates:
+            if rule.effective_start <= trade_date and (
+                rule.effective_end is None or trade_date <= rule.effective_end
+            ):
+                audit_keys.add((rule.exchange, rule.product, trade_date))
+
+    for index in range(1, len(dates)):
+        trade_date = dates[index]
+        previous_trade_date = dates[index - 1]
+        for contract, role in sorted(
+            _candidate_roles_for_date(index=index, dates=dates, active=active).items()
+        ):
+            product, minute_symbol, exchange = minute_contract_identity(
+                contract,
+                trade_date,
+            )
+            key = (exchange, product, trade_date)
+            dynamic_keys.add(key)
+            if key not in audit_keys:
+                raise SessionClockError(
+                    exchange=exchange,
+                    product=product,
+                    trade_date=trade_date,
+                    check="dynamic_audit_coverage",
+                    reason="dynamic product-day is absent from audited session evidence",
+                )
+            rule = resolve_session_rule(rules, exchange, product, trade_date)
+            slots = build_trading_slots(trade_date, previous_trade_date, rule)
+            candidate = MinuteCandidate(
+                trade_date=trade_date,
+                product=product,
+                daily_contract=contract,
+                minute_symbol=minute_symbol,
+                exchange=exchange,
+                window_start=slots[0],
+                window_end=slots[-1] + timedelta(minutes=1),
+                candidate_role=role,
+                causal_in_pool_date=dates[index - 1],
+                selection_source="dynamic_daily_research",
+            )
+            contexts[(trade_date, contract)] = _CandidateContext(
+                candidate=candidate,
+                rule=rule,
+                slots=slots,
+            )
+    if not dynamic_keys <= audit_keys:
+        raise AssertionError("dynamic session keys must be covered before querying")
+    return contexts
+
+
+def _month_key(value: date) -> tuple[int, int]:
+    return value.year, value.month
+
+
+def _monthly_candidates(
+    contexts: Mapping[tuple[date, str], _CandidateContext],
+) -> dict[tuple[int, int], tuple[MinuteCandidate, ...]]:
+    primary: dict[tuple[int, int], list[MinuteCandidate]] = defaultdict(list)
+    for context in contexts.values():
+        primary[_month_key(context.candidate.trade_date)].append(context.candidate)
+    result: dict[tuple[int, int], tuple[MinuteCandidate, ...]] = {}
+    previous_last: tuple[MinuteCandidate, ...] = ()
+    for month in sorted(primary):
+        ordered = tuple(
+            sorted(
+                primary[month],
+                key=lambda item: (item.trade_date, item.product, item.daily_contract),
+            )
+        )
+        combined = {
+            (
+                item.trade_date,
+                item.daily_contract,
+            ): item
+            for item in (*previous_last, *ordered)
+        }
+        result[month] = tuple(combined[key] for key in sorted(combined))
+        last_date = max(item.trade_date for item in ordered)
+        previous_last = tuple(item for item in ordered if item.trade_date == last_date)
+    return result
+
+
+def _dynamic_missing(candidate: MinuteCandidate, *, role: str) -> MinuteDataError:
+    return MinuteDataError(
+        trade_date=candidate.trade_date,
+        product=candidate.product,
+        contract=candidate.daily_contract,
+        check="dynamic_execution_leg_missing_minutes",
+        reason="actual dynamic candidate has no minute rows",
+        context={"candidate_role": role},
+    )
+
+
+def _load_month_rows(
+    minute_source: Any,
+    candidates: Sequence[MinuteCandidate],
+) -> tuple[dict[tuple[date, str], pd.DataFrame], int, datetime, datetime]:
+    lower = min(candidate.window_start for candidate in candidates)
+    upper = max(candidate.window_end for candidate in candidates)
+    chunks = list(minute_source.iter_month(candidates, lower, upper))
+    if chunks:
+        combined = pd.concat(chunks, ignore_index=True)
+    else:
+        combined = pd.DataFrame()
+
+    identity = ["trade_date", "daily_contract", "bar_time"]
+    if not combined.empty:
+        duplicates = combined.duplicated(identity, keep=False)
+        if duplicates.any():
+            duplicate_rows = combined.loc[duplicates]
+            conflicting = any(
+                len(group.drop_duplicates()) != 1
+                for _, group in duplicate_rows.groupby(identity, sort=True)
+            )
+            if conflicting:
+                first = duplicate_rows.iloc[0]
+                raise MinuteDataError(
+                    trade_date=first["trade_date"],
+                    timestamp=first["bar_time"],
+                    contract=first["daily_contract"],
+                    check="duplicate_overlap_minute_event",
+                    reason="monthly overlap returned conflicting minute rows",
+                )
+            combined = combined.drop_duplicates(identity, keep="first")
+        combined = combined.sort_values(
+            ["bar_time", "symbol"], kind="mergesort"
+        ).reset_index(drop=True)
+
+    frames: dict[tuple[date, str], pd.DataFrame] = {}
+    for candidate in candidates:
+        if combined.empty:
+            raise _dynamic_missing(candidate, role=candidate.candidate_role)
+        mask = combined["trade_date"].eq(candidate.trade_date) & combined[
+            "daily_contract"
+        ].eq(candidate.daily_contract)
+        frame = combined.loc[mask].copy().reset_index(drop=True)
+        if frame.empty:
+            raise _dynamic_missing(candidate, role=candidate.candidate_role)
+        frames[(candidate.trade_date, candidate.daily_contract)] = frame
+    return frames, len(combined), lower, upper
+
+
+def _slot_frame(
+    frame: pd.DataFrame,
+    slots: Sequence[datetime],
+) -> pd.DataFrame:
+    return frame.loc[frame["bar_time"].isin(tuple(slots))].copy().reset_index(drop=True)
+
+
+def _stable_id(*values: object) -> str:
+    payload = "\x1f".join(
+        value.isoformat() if isinstance(value, (date, datetime)) else repr(value)
+        for value in values
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _actual_reason(reason: str, old_weight: float, new_weight: float) -> str:
+    if old_weight == 0.0 and new_weight != 0.0 and not reason.startswith("roll"):
+        return "entry"
+    if old_weight != 0.0 and new_weight == 0.0 and reason == "rebalance":
+        return "exit"
+    return reason
+
+
+def _source_audit_value(source: Any, key: str) -> Any:
+    payload = getattr(source, "audit", None)
+    if callable(payload):
+        payload = payload()
+    if isinstance(payload, Mapping):
+        return payload.get(key)
+    if payload is not None:
+        return getattr(payload, key, None)
+    return None
+
+
+def _iso_or_none(value: Any) -> Any:
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
+class CarryMinuteBacktester:
+    """Run Carry through authoritative minute clocks and piecewise accounts."""
+
+    def __init__(
+        self,
+        *,
+        data: CarryDataSet,
+        minute_source: Any,
+        session_rules: Sequence[SessionRule],
+        config: CarryConfig,
+        start: date,
+        end: date,
+    ) -> None:
+        if start > end:
+            raise ValueError("start must be on or before end")
+        self.data = data
+        self.minute_source = minute_source
+        self.session_rules = tuple(session_rules)
+        self.config = config
+        self.start = start
+        self.end = end
+
+    def run(self) -> CarryBacktestResult:
+        validate_capture_coverage(
+            capture_start=SESSION_RULES_CAPTURE_START,
+            backtest_start=self.start,
+            prewarm_calendar_days=self.config.prewarm_calendar_days,
+        )
+        prices = self.data.prices.loc[self.data.prices["trade_date"] <= self.end].copy()
+        dates = sorted(prices["trade_date"].dropna().unique().tolist())
+        if not dates:
+            raise ValueError("no Carry prices on or before end")
+        report_dates = [trade_date for trade_date in dates if trade_date >= self.start]
+        if not report_dates:
+            raise ValueError("no strategy trading day on or after start")
+        query_start = dates[0]
+        report_start_date = report_dates[0]
+
+        research = build_daily_research(prices, self.config)
+        contexts = _prepare_candidates(
+            dates=dates,
+            research=research,
+            rules=self.session_rules,
+        )
+        month_candidates = _monthly_candidates(contexts)
+        signals_by_date = {
+            trade_date: frame.reset_index(drop=True)
+            for trade_date, frame in research.signal_result.signals.groupby(
+                "trade_date", sort=True
+            )
+        }
+        empty_signals = pd.DataFrame(columns=research.signal_result.signals.columns)
+        atr_lookup = {
+            (row.trade_date, row.contract): row.atr
+            for row in research.contract_atr.itertuples(index=False)
+        }
+        daily_by_date = {
+            trade_date: frame.reset_index(drop=True)
+            for trade_date, frame in prices.groupby("trade_date", sort=True)
+        }
+        contract_products = _contract_products(prices)
+
+        formal = EventAccount(cost_bps=self.config.cost_bps)
+        shadow_account = EventAccount(cost_bps=self.config.cost_bps)
+        stop_machine = IntradayStopMachine(self.config)
+        shadow_window = ShadowVolWindow(self.config)
+        states: dict[str, PositionState] = {}
+        pending_plan: TargetPlan | None = None
+        pending_formal: dict[str, float] = {}
+        pending_scale_ready = False
+        pending_signal_time: datetime | None = None
+        vol_ready_date: date | None = None
+        mark_prices: dict[str, float] = {}
+        resolution_cache: dict[tuple[date, str], MultiplierResolution] = {}
+        execution_ids: set[str] = set()
+        report_equity = 1.0
+
+        daily_records: list[dict[str, object]] = []
+        position_records: list[dict[str, object]] = []
+        execution_records: list[dict[str, object]] = []
+        stop_records: list[dict[str, object]] = []
+        quality_records: list[dict[str, object]] = []
+        query_months: list[str] = []
+        current_month: tuple[int, int] | None = None
+        current_frames: dict[tuple[date, str], pd.DataFrame] = {}
+        current_daily_opens: dict[str, float] = {}
+
+        def require_context(
+            trade_date: date,
+            contract: str,
+            role: str,
+        ) -> _CandidateContext:
+            context = contexts.get((trade_date, contract))
+            if context is None:
+                product = contract_products.get(contract)
+                raise MinuteDataError(
+                    trade_date=trade_date,
+                    product=product,
+                    contract=contract,
+                    check="dynamic_execution_leg_missing_minutes",
+                    reason="actual dynamic candidate was absent before monthly query",
+                    context={"candidate_role": role},
+                )
+            return context
+
+        def require_frame(
+            trade_date: date,
+            contract: str,
+            role: str,
+        ) -> tuple[_CandidateContext, pd.DataFrame]:
+            context = require_context(trade_date, contract, role)
+            frame = current_frames.get((trade_date, contract))
+            if frame is None or frame.empty:
+                raise _dynamic_missing(context.candidate, role=role)
+            return context, frame
+
+        def resolution(
+            trade_date: date,
+            contract: str,
+            frame: pd.DataFrame,
+        ) -> MultiplierResolution:
+            key = (trade_date, contract)
+            cached = resolution_cache.get(key)
+            if cached is None:
+                cached = self.minute_source.resolve_metadata_multiplier(
+                    daily_contract=contract,
+                    trade_date=trade_date,
+                    frame=frame,
+                )
+                resolution_cache[key] = cached
+            return cached
+
+        def fill_for(
+            trade_date: date,
+            contract: str,
+            role: str,
+            slots: Sequence[datetime],
+        ) -> tuple[VwapFill, MultiplierResolution]:
+            _, frame = require_frame(trade_date, contract, role)
+            resolved = resolution(trade_date, contract, frame)
+            minute_symbol = minute_contract_identity(contract, trade_date)[1]
+            fill = five_minute_vwap(
+                _slot_frame(frame, slots),
+                slots=slots,
+                contract=minute_symbol,
+                multiplier=resolved.multiplier,
+            )
+            return replace(fill, contract=contract), resolved
+
+        def event_prices(
+            account: EventAccount,
+            trade_date: date,
+            timestamp: datetime,
+            overrides: Mapping[str, float],
+            target: Mapping[str, float],
+        ) -> dict[str, float]:
+            required = set(account.weights) | set(target)
+            result: dict[str, float] = {}
+            for contract in sorted(required):
+                if contract in overrides:
+                    result[contract] = float(overrides[contract])
+                    continue
+                _, frame = require_frame(trade_date, contract, "carried")
+                eligible = frame.loc[
+                    frame["bar_time"].lt(timestamp) & frame["volume"].gt(0)
+                ]
+                if not eligible.empty:
+                    result[contract] = float(eligible.iloc[-1]["close"])
+                elif contract in mark_prices:
+                    result[contract] = mark_prices[contract]
+                else:
+                    raise MinuteDataError(
+                        trade_date=trade_date,
+                        timestamp=timestamp,
+                        product=contract_products.get(contract),
+                        contract=contract,
+                        check="dynamic_execution_leg_missing_minutes",
+                        reason="held leg has no price at execution event",
+                        context={"candidate_role": "carried"},
+                    )
+            return result
+
+        def append_executions(
+            *,
+            trade_date: date,
+            account_event: AccountEvent,
+            operations: Sequence[_ExecutionOperation],
+        ) -> dict[tuple[str, str], str]:
+            operation_by_contract = {
+                contract: operation
+                for operation in operations
+                for contract in operation.fill_by_contract
+            }
+            linked: dict[tuple[str, str], str] = {}
+            for record in account_event.executions:
+                operation = operation_by_contract[record.contract]
+                fill = operation.fill_by_contract[record.contract]
+                resolved = operation.resolution_by_contract[record.contract]
+                role = operation.role_by_contract[record.contract]
+                reason = _actual_reason(
+                    record.reason,
+                    record.old_weight,
+                    record.new_weight,
+                )
+                execution_id = _stable_id(
+                    trade_date,
+                    operation.product,
+                    record.contract,
+                    fill.start,
+                    fill.end,
+                    reason,
+                    record.old_weight,
+                    record.new_weight,
+                )
+                if execution_id in execution_ids:
+                    raise MinuteDataError(
+                        trade_date=trade_date,
+                        timestamp=fill.end,
+                        product=operation.product,
+                        contract=record.contract,
+                        check="duplicate_execution_id",
+                        reason="stable execution ID was emitted more than once",
+                        context={"execution_id": execution_id},
+                    )
+                execution_ids.add(execution_id)
+                linked[(operation.product, record.contract)] = execution_id
+                execution_records.append(
+                    {
+                        "execution_id": execution_id,
+                        "trade_date": trade_date,
+                        "product": operation.product,
+                        "contract": record.contract,
+                        "candidate_role": role,
+                        "reason": reason,
+                        "execution_kind": (
+                            "intraday_stop"
+                            if reason.startswith("stop_")
+                            else "daily_target"
+                        ),
+                        "signal_time": operation.signal_time,
+                        "window_start": fill.start,
+                        "window_end": fill.end,
+                        "vwap": fill.price,
+                        "daily_open": current_daily_opens[record.contract],
+                        "old_weight": record.old_weight,
+                        "new_weight": record.new_weight,
+                        "weight_change": record.weight_change,
+                        "turnover": record.turnover,
+                        "cost": record.cost,
+                        "volume": fill.volume,
+                        "amount": fill.amount,
+                        "multiplier": fill.multiplier,
+                        "multiplier_source": resolved.source,
+                        "multiplier_pass_rate": resolved.pass_rate,
+                        "multiplier_sample_rows": resolved.sample_rows,
+                    }
+                )
+            return linked
+
+        def apply_operations(
+            trade_date: date,
+            operations: Sequence[_ExecutionOperation],
+        ) -> dict[tuple[str, str], str]:
+            raw_target = dict(shadow_account.weights)
+            formal_target = dict(formal.weights)
+            fills: dict[str, VwapFill] = {}
+            reasons: dict[str, str] = {}
+            for operation in operations:
+                for contract, value in operation.raw_target_by_contract.items():
+                    if value == 0.0:
+                        raw_target.pop(contract, None)
+                    else:
+                        raw_target[contract] = value
+                for contract, value in operation.formal_target_by_contract.items():
+                    if value == 0.0:
+                        formal_target.pop(contract, None)
+                    else:
+                        formal_target[contract] = value
+                fills.update(operation.fill_by_contract)
+                for contract in operation.fill_by_contract:
+                    reasons[contract] = operation.reason
+            timestamp = operations[0].timestamp
+            overrides = {contract: fill.price for contract, fill in fills.items()}
+            shadow_event = shadow_account.rebalance(
+                timestamp,
+                event_prices(
+                    shadow_account,
+                    trade_date,
+                    timestamp,
+                    overrides,
+                    raw_target,
+                ),
+                raw_target,
+                {
+                    contract: _actual_reason(
+                        reasons[contract],
+                        float(shadow_account.weights.get(contract, 0.0)),
+                        float(raw_target.get(contract, 0.0)),
+                    )
+                    for contract in set(shadow_account.weights) | set(raw_target)
+                    if shadow_account.weights.get(contract, 0.0)
+                    != raw_target.get(contract, 0.0)
+                },
+            )
+            del shadow_event
+            formal_event = formal.rebalance(
+                timestamp,
+                event_prices(
+                    formal,
+                    trade_date,
+                    timestamp,
+                    overrides,
+                    formal_target,
+                ),
+                formal_target,
+                {
+                    contract: _actual_reason(
+                        reasons[contract],
+                        float(formal.weights.get(contract, 0.0)),
+                        float(formal_target.get(contract, 0.0)),
+                    )
+                    for contract in set(formal.weights) | set(formal_target)
+                    if formal.weights.get(contract, 0.0)
+                    != formal_target.get(contract, 0.0)
+                },
+            )
+            mark_prices.update(overrides)
+            return append_executions(
+                trade_date=trade_date,
+                account_event=formal_event,
+                operations=operations,
+            )
+
+        for index, trade_date in enumerate(dates):
+            month = _month_key(trade_date)
+            if month != current_month:
+                current_month = month
+                current_frames = {}
+                candidates = month_candidates.get(month, ())
+                if candidates:
+                    current_frames, _, _, _ = _load_month_rows(
+                        self.minute_source,
+                        candidates,
+                    )
+                    query_months.append(f"{month[0]:04d}-{month[1]:02d}")
+                    for candidate in candidates:
+                        frame = current_frames[
+                            (candidate.trade_date, candidate.daily_contract)
+                        ]
+                        quality_records.append(
+                            {
+                                "check": "candidate_coverage",
+                                "trade_date": candidate.trade_date,
+                                "product": candidate.product,
+                                "contract": candidate.daily_contract,
+                                "candidate_role": candidate.candidate_role,
+                                "observed_rows": len(frame),
+                                "missing_slots": None,
+                                "query_month": query_months[-1],
+                                "detail": "covered",
+                            }
+                        )
+
+            day_prices = daily_by_date[trade_date]
+            current_daily_opens = {
+                row.contract: float(row.open)
+                for row in day_prices.itertuples(index=False)
+            }
+            closes = {
+                row.contract: float(row.close)
+                for row in day_prices.itertuples(index=False)
+            }
+            if index == 0:
+                formal.initialize(closes)
+                shadow_account.initialize(closes)
+                mark_prices.update(closes)
+            carried_formal = dict(formal.weights)
+            scale_ready_for_day = pending_scale_ready
+            estimate_before_day = shadow_window.estimate()
+
+            scheduled: dict[datetime, list[_ExecutionOperation]] = defaultdict(list)
+            prospective_states = dict(states)
+            if pending_plan is not None:
+                products = sorted(set(states) | set(pending_plan.states))
+                for product in products:
+                    before = states.get(product, PositionState())
+                    after = pending_plan.states.get(product, PositionState())
+                    prospective_states[product] = after
+                    old_contract = before.contract
+                    new_contract = after.contract
+                    involved = {
+                        contract
+                        for contract in (old_contract, new_contract)
+                        if contract is not None
+                    }
+                    changed = {
+                        contract
+                        for contract in involved
+                        if (
+                            shadow_account.weights.get(contract, 0.0)
+                            != pending_plan.raw_weights.get(contract, 0.0)
+                            or formal.weights.get(contract, 0.0)
+                            != pending_formal.get(contract, 0.0)
+                        )
+                    }
+                    if not changed:
+                        stop_machine.reset_for_transition(
+                            product,
+                            before,
+                            after,
+                            fill_end=None,
+                        )
+                        states[product] = after
+                        continue
+                    anchor = new_contract or old_contract
+                    assert anchor is not None
+                    context = require_context(trade_date, anchor, "signal_main")
+                    execution_slots = context.slots[:5]
+                    fill_by_contract: dict[str, VwapFill] = {}
+                    resolved_by_contract: dict[str, MultiplierResolution] = {}
+                    role_by_contract: dict[str, str] = {}
+                    for contract in sorted(changed):
+                        if (
+                            old_contract != new_contract
+                            and old_contract
+                            and new_contract
+                        ):
+                            role = (
+                                "roll_old" if contract == old_contract else "roll_new"
+                            )
+                        elif new_contract is None:
+                            role = "exit"
+                        elif (
+                            old_contract is None or before.direction != after.direction
+                        ):
+                            role = "signal_main"
+                        else:
+                            role = "carried"
+                        fill, resolved = fill_for(
+                            trade_date,
+                            contract,
+                            role,
+                            execution_slots,
+                        )
+                        fill_by_contract[contract] = fill
+                        resolved_by_contract[contract] = resolved
+                        role_by_contract[contract] = role
+                    operation = _ExecutionOperation(
+                        product=product,
+                        before=before,
+                        after=after,
+                        role_by_contract=role_by_contract,
+                        fill_by_contract=fill_by_contract,
+                        resolution_by_contract=resolved_by_contract,
+                        raw_target_by_contract={
+                            contract: pending_plan.raw_weights.get(contract, 0.0)
+                            for contract in changed
+                        },
+                        formal_target_by_contract={
+                            contract: pending_formal.get(contract, 0.0)
+                            for contract in changed
+                        },
+                        reason=pending_plan.reasons.get(product, "rebalance"),
+                        signal_time=pending_signal_time,
+                    )
+                    scheduled[operation.timestamp].append(operation)
+
+            bar_events: dict[
+                datetime,
+                list[tuple[str, FifteenMinuteBar, tuple[datetime, ...]]],
+            ] = defaultdict(list)
+            if index > 0:
+                for product, state in sorted(prospective_states.items()):
+                    if state.direction == 0 or state.contract is None:
+                        continue
+                    context, frame = require_frame(
+                        trade_date,
+                        state.contract,
+                        "carried",
+                    )
+                    minute_symbol = context.candidate.minute_symbol
+                    for bucket in fifteen_minute_buckets(context.slots, context.rule):
+                        bar = aggregate_fifteen_minute_bar(
+                            _slot_frame(frame, bucket),
+                            slots=bucket,
+                            contract=minute_symbol,
+                        )
+                        bar = replace(bar, contract=state.contract)
+                        try:
+                            fill_slots = next_slots(context.slots, bar.end, 5)
+                        except SessionClockError as exc:
+                            if exc.check == "next_slots_count":
+                                continue
+                            raise
+                        bar_events[bar.end].append((product, bar, fill_slots))
+
+            last_decisions: dict[str, StopDecision] = {}
+            stop_metadata: dict[tuple[datetime, str], StopDecision] = {}
+            event_times = set(scheduled) | set(bar_events)
+            while event_times:
+                event_time = min(event_times)
+                event_times.remove(event_time)
+                operations = tuple(scheduled.pop(event_time, ()))
+                if operations:
+                    linked = apply_operations(trade_date, operations)
+                    for operation in operations:
+                        stop_machine.reset_for_transition(
+                            operation.product,
+                            operation.before,
+                            operation.after,
+                            fill_end=event_time,
+                        )
+                        states[operation.product] = operation.after
+                        decision = stop_metadata.pop(
+                            (event_time, operation.product),
+                            None,
+                        )
+                        if decision is None:
+                            continue
+                        contract = operation.before.contract
+                        assert contract is not None
+                        stop_records.append(
+                            {
+                                "trade_date": trade_date,
+                                "product": operation.product,
+                                "contract": contract,
+                                "bar_start": decision.bar.start,
+                                "bar_end": decision.bar.end,
+                                "open": decision.bar.open,
+                                "high": decision.bar.high,
+                                "low": decision.bar.low,
+                                "close": decision.bar.close,
+                                "atr": atr_lookup[(dates[index - 1], contract)],
+                                "threshold": decision.threshold,
+                                "tranches_before": operation.before.tranches_remaining,
+                                "tranches_after": operation.after.tranches_remaining,
+                                "locked_direction": operation.after.locked_direction,
+                                "triggered": True,
+                                "execution_id": linked.get(
+                                    (operation.product, contract)
+                                ),
+                            }
+                        )
+
+                for product, bar, fill_slots in bar_events.pop(event_time, ()):
+                    before = states.get(product, PositionState())
+                    if before.direction == 0 or before.contract != bar.contract:
+                        continue
+                    previous_trade_date = dates[index - 1]
+                    atr = atr_lookup.get((previous_trade_date, before.contract))
+                    try:
+                        valid_atr = math.isfinite(float(atr)) and float(atr) > 0.0
+                    except (TypeError, ValueError, OverflowError):
+                        valid_atr = False
+                    if not valid_atr:
+                        raise MinuteDataError(
+                            trade_date=trade_date,
+                            product=product,
+                            contract=before.contract,
+                            check="prior_day_atr",
+                            reason="intraday stop requires finite positive ATR labeled T-1",
+                            context={"atr_date": previous_trade_date, "atr": atr},
+                        )
+                    fill_end = fill_slots[-1] + timedelta(minutes=1)
+                    decision = stop_machine.on_bar(
+                        trade_date,
+                        product,
+                        before,
+                        bar,
+                        float(atr),
+                        fill_end,
+                    )
+                    last_decisions[product] = decision
+                    if not decision.triggered:
+                        states[product] = decision.state
+                        if bar.no_trade:
+                            quality_records.append(
+                                {
+                                    "check": "no_trade_fifteen_minute_bar",
+                                    "trade_date": trade_date,
+                                    "product": product,
+                                    "contract": before.contract,
+                                    "candidate_role": "carried",
+                                    "observed_rows": bar.traded_rows,
+                                    "missing_slots": bar.missing_slots,
+                                    "query_month": f"{trade_date:%Y-%m}",
+                                    "detail": bar.start.isoformat(),
+                                }
+                            )
+                        continue
+                    _, frame = require_frame(
+                        trade_date,
+                        before.contract,
+                        "carried",
+                    )
+                    resolved = resolution(trade_date, before.contract, frame)
+                    minute_symbol = minute_contract_identity(
+                        before.contract, trade_date
+                    )[1]
+                    fill = five_minute_vwap(
+                        _slot_frame(frame, fill_slots),
+                        slots=fill_slots,
+                        contract=minute_symbol,
+                        multiplier=resolved.multiplier,
+                    )
+                    fill = replace(fill, contract=before.contract)
+                    after = decision.state
+                    ratio = (
+                        after.tranches_remaining / before.tranches_remaining
+                        if before.tranches_remaining
+                        else 0.0
+                    )
+                    operation = _ExecutionOperation(
+                        product=product,
+                        before=before,
+                        after=after,
+                        role_by_contract={before.contract: "carried"},
+                        fill_by_contract={before.contract: fill},
+                        resolution_by_contract={before.contract: resolved},
+                        raw_target_by_contract={
+                            before.contract: shadow_account.weights.get(
+                                before.contract, 0.0
+                            )
+                            * ratio
+                        },
+                        formal_target_by_contract={
+                            before.contract: formal.weights.get(before.contract, 0.0)
+                            * ratio
+                        },
+                        reason=f"stop_{decision.stage}",
+                        signal_time=event_time,
+                    )
+                    scheduled[fill.end].append(operation)
+                    stop_metadata[(fill.end, product)] = decision
+                    event_times.add(fill.end)
+
+            held_contracts = set(formal.weights) | set(shadow_account.weights)
+            missing_closes = sorted(held_contracts - set(closes))
+            if missing_closes:
+                contract = missing_closes[0]
+                raise MinuteDataError(
+                    trade_date=trade_date,
+                    product=contract_products.get(contract),
+                    contract=contract,
+                    check="daily_close_mark",
+                    reason="active execution leg has no futures_daily.close",
+                    context={"candidate_role": "close_mark"},
+                )
+            close_timestamp = datetime.combine(
+                trade_date,
+                time(15, 0),
+                tzinfo=SHANGHAI,
+            )
+            shadow_account.mark_close(
+                trade_date,
+                close_timestamp,
+                {contract: closes[contract] for contract in held_contracts},
+            )
+            formal.mark_close(
+                trade_date,
+                close_timestamp,
+                {contract: closes[contract] for contract in held_contracts},
+            )
+            shadow_daily = shadow_account.drain_daily_row(trade_date, "ordinary")
+            formal_daily = formal.drain_daily_row(trade_date, "ordinary")
+            mark_prices.update(closes)
+            shadow_window.append(
+                shadow_daily.net_return,
+                active=shadow_daily.gross_leverage > 0.0,
+            )
+            estimate = shadow_window.estimate()
+
+            if trade_date == report_start_date and (
+                not scale_ready_for_day or not estimate_before_day.ready
+            ):
+                raise WarmupInsufficientError(
+                    query_start=query_start,
+                    report_start_date=report_start_date,
+                    signal_ready_date=research.signal_result.signal_ready_date,
+                    shadow_observations=estimate_before_day.observations,
+                    active_days=estimate_before_day.active_days,
+                    required_observations=self.config.vol_window,
+                    required_active_days=self.config.min_shadow_active_days,
+                )
+
+            if trade_date >= report_start_date:
+                report_equity *= 1.0 + formal_daily.net_return
+                daily_records.append(
+                    {
+                        "trade_date": trade_date,
+                        "gross_return": formal_daily.gross_return,
+                        "turnover": formal_daily.turnover,
+                        "cost": formal_daily.cost,
+                        "net_return": formal_daily.net_return,
+                        "equity": report_equity,
+                        "gross_leverage": formal_daily.gross_leverage,
+                        "boundary_type": (
+                            "report_start_initialization"
+                            if trade_date == report_start_date
+                            else "ordinary"
+                        ),
+                    }
+                )
+                position_records.extend(
+                    _position_rows(
+                        trade_date=trade_date,
+                        states=states,
+                        raw_weights=dict(shadow_account.weights),
+                        formal_weights=dict(formal.weights),
+                        carried_weights=carried_formal,
+                        report_start_date=report_start_date,
+                    )
+                )
+
+            day_signals = signals_by_date.get(trade_date, empty_signals)
+            final_decisions = {
+                product: decision
+                for product, decision in last_decisions.items()
+                if decision.triggered
+            }
+            pending_plan = merge_close_plan(
+                states,
+                day_signals,
+                self.config,
+                final_stop_decisions=final_decisions,
+            )
+            pending_signal_time = close_timestamp
+            pending_scale_ready = estimate.ready
+            if estimate.ready:
+                pending_formal = scale_weights(
+                    pending_plan.raw_weights,
+                    estimate.vol_scale,
+                    self.config,
+                )
+                if vol_ready_date is None and index + 1 < len(dates):
+                    vol_ready_date = dates[index + 1]
+            else:
+                pending_formal = {}
+
+        daily = _records_frame(daily_records, _DAILY_COLUMNS)
+        positions = _records_frame(position_records, _POSITION_COLUMNS)
+        executions = _records_frame(execution_records, _EXECUTION_COLUMNS)
+        stops = _records_frame(stop_records, _STOP_COLUMNS)
+        minute_quality = _records_frame(quality_records, _QUALITY_COLUMNS)
+        reported_executions = executions.loc[
+            executions["trade_date"] >= report_start_date
+        ].reset_index(drop=True)
+        trade_records = [
+            {
+                "trade_date": row.trade_date,
+                "product": row.product,
+                "contract": row.contract,
+                "old_weight": row.old_weight,
+                "new_weight": row.new_weight,
+                "weight_change": row.weight_change,
+                "reason": row.reason,
+            }
+            for row in reported_executions.itertuples(index=False)
+        ]
+        trades = _records_frame(trade_records, _TRADE_COLUMNS)
+        session_versions = sorted({rule.version for rule in self.session_rules})
+        if session_versions != [SESSION_RULES_VERSION]:
+            raise ValueError("session rules must use the repository rules version")
+        config_rows: list[dict[str, object]] = [
+            {"key": "requested_start", "value": self.start},
+            {"key": "requested_end", "value": self.end},
+            {"key": "query_start", "value": query_start},
+            {"key": "report_start_date", "value": report_start_date},
+            {
+                "key": "signal_ready_date",
+                "value": research.signal_result.signal_ready_date,
+            },
+            {"key": "vol_ready_date", "value": vol_ready_date},
+            {"key": "execution_mode", "value": "minute"},
+            {"key": "accounting_clock", "value": "piecewise_close_marked"},
+            {
+                "key": "minute_query_rules_version",
+                "value": MINUTE_QUERY_RULES_VERSION,
+            },
+            {"key": "session_rules_version", "value": SESSION_RULES_VERSION},
+            {
+                "key": "multiplier_resolution_version",
+                "value": MULTIPLIER_RESOLUTION_VERSION,
+            },
+            {
+                "key": "minute_table_min",
+                "value": _iso_or_none(
+                    _source_audit_value(self.minute_source, "minute_table_min")
+                ),
+            },
+            {
+                "key": "minute_table_max",
+                "value": _iso_or_none(
+                    _source_audit_value(self.minute_source, "minute_table_max")
+                ),
+            },
+            {
+                "key": "minute_query_months",
+                "value": _source_audit_value(self.minute_source, "minute_query_months"),
+            },
+            {
+                "key": "minute_rows",
+                "value": _source_audit_value(self.minute_source, "minute_rows"),
+            },
+            {
+                "key": "minute_candidate_contract_days",
+                "value": _source_audit_value(
+                    self.minute_source,
+                    "minute_candidate_contract_days",
+                ),
+            },
+        ]
+        config_rows.extend(
+            {"key": key, "value": value} for key, value in asdict(self.config).items()
+        )
+        return CarryBacktestResult(
+            daily_returns=daily,
+            positions=positions,
+            trades=trades,
+            signals=research.signal_result.signals.reset_index(drop=True),
+            curve_selection=research.curve_result.audit.reset_index(drop=True),
+            data_quality=self.data.data_quality.reset_index(drop=True),
+            run_config=_records_frame(config_rows, _RUN_CONFIG_COLUMNS),
+            metrics=_summary_metrics(daily),
+            executions=reported_executions,
+            intraday_stops=stops.loc[
+                stops["trade_date"] >= report_start_date
+            ].reset_index(drop=True),
+            minute_data_quality=minute_quality,
+            execution_mode="minute",
+        )

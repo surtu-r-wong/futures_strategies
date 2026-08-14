@@ -1,22 +1,575 @@
 from dataclasses import FrozenInstanceError, replace
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
 
+import cta_carry.minute_backtest as minute_backtest_module
+from cta_carry.backtest import CarryBacktestResult
+from cta_carry.data import CarryDataSet
 from cta_carry.minute_backtest import (
     IntradayStopMachine,
     StopDecision,
     merge_close_plan,
 )
-from cta_carry.minute_bars import FifteenMinuteBar
+from cta_carry.minute_bars import FifteenMinuteBar, MultiplierResolution
+from cta_carry.minute_pg_source import MinuteCandidate
+from cta_carry.minute_sessions import (
+    DAY_SEGMENTS,
+    SESSION_RULES_VERSION,
+    SessionClockError,
+    SessionRule,
+    SessionSegment,
+)
 from cta_carry.risk import PositionState
-from tests.carry_fixtures import small_config
+from tests.carry_fixtures import make_carry_panel, small_config
 
 
 TZ = ZoneInfo("Asia/Shanghai")
 TRADE_DATE = date(2024, 1, 8)
+
+
+class FakeMinuteSource:
+    """Named deterministic small-side source used by the orchestrator tests."""
+
+    def __init__(
+        self,
+        *,
+        transform=None,
+        chunks: int = 1,
+        duplicate_rows: bool = False,
+        omit_role: str | None = None,
+    ) -> None:
+        self.calls: list[tuple[tuple[MinuteCandidate, ...], datetime, datetime]] = []
+        self.transform = transform
+        self.chunks = chunks
+        self.duplicate_rows = duplicate_rows
+        self.omit_role = omit_role
+        self._minute_rows = 0
+        self._candidate_days: set[tuple[date, str]] = set()
+        self._minute_table_min: datetime | None = None
+        self._minute_table_max: datetime | None = None
+
+    @property
+    def audit(self):
+        return {
+            "minute_table_min": self._minute_table_min,
+            "minute_table_max": self._minute_table_max,
+            "minute_query_months": len(self.calls),
+            "minute_rows": self._minute_rows,
+            "minute_candidate_contract_days": len(self._candidate_days),
+        }
+
+    def iter_month(self, candidates, lower, upper):
+        materialized = tuple(candidates)
+        self.calls.append((materialized, lower, upper))
+        self._candidate_days.update(
+            (candidate.trade_date, candidate.daily_contract)
+            for candidate in materialized
+        )
+        rows: list[dict[str, object]] = []
+        for candidate in materialized:
+            current = candidate.window_start
+            product_offset = ord(candidate.product[0]) - ord("A")
+            while current < candidate.window_end:
+                local = current.astimezone(TZ)
+                minute = local.hour * 60 + local.minute
+                is_night = local.date() < candidate.trade_date and 21 * 60 <= minute
+                is_day = any(start <= minute < end for start, end in DAY_SEGMENTS)
+                if is_night or is_day:
+                    day_offset = (candidate.trade_date - date(2024, 1, 2)).days
+                    price = 100.0 + 10.0 * product_offset + 0.02 * day_offset
+                    price += (minute % 17) * 0.001
+                    volume = 2.0
+                    rows.append(
+                        {
+                            "trade_date": candidate.trade_date,
+                            "product": candidate.product,
+                            "daily_contract": candidate.daily_contract,
+                            "bar_time": current,
+                            "symbol": candidate.minute_symbol,
+                            "exchange": candidate.exchange,
+                            "open": price,
+                            "high": price + 0.1,
+                            "low": price - 0.1,
+                            "close": price,
+                            "volume": volume,
+                            "amount": price * volume * 10,
+                            "open_interest": 1000.0,
+                        }
+                    )
+                current += timedelta(minutes=1)
+        if rows:
+            frame = (
+                pd.DataFrame(rows)
+                .sort_values(["bar_time", "symbol"], kind="mergesort")
+                .reset_index(drop=True)
+            )
+            if self.omit_role is not None:
+                omitted = {
+                    (candidate.trade_date, candidate.daily_contract)
+                    for candidate in materialized
+                    if candidate.candidate_role == self.omit_role
+                }
+                frame = frame.loc[
+                    ~pd.MultiIndex.from_frame(
+                        frame[["trade_date", "daily_contract"]]
+                    ).isin(omitted)
+                ].reset_index(drop=True)
+            if self.transform is not None:
+                frame = self.transform(frame.copy())
+            if self.duplicate_rows:
+                frame = pd.concat([frame, frame], ignore_index=True)
+            self._minute_rows += len(frame)
+            observed_min = frame["bar_time"].min()
+            observed_max = frame["bar_time"].max()
+            self._minute_table_min = (
+                observed_min
+                if self._minute_table_min is None
+                else min(self._minute_table_min, observed_min)
+            )
+            self._minute_table_max = (
+                observed_max
+                if self._minute_table_max is None
+                else max(self._minute_table_max, observed_max)
+            )
+            for chunk in (
+                frame.iloc[index :: self.chunks].sort_values(
+                    ["bar_time", "symbol"], kind="mergesort"
+                )
+                for index in range(self.chunks)
+            ):
+                if not chunk.empty:
+                    yield chunk.reset_index(drop=True)
+
+    def resolve_metadata_multiplier(self, *, daily_contract, trade_date, frame=None):
+        assert frame is not None
+        return MultiplierResolution(
+            multiplier=10,
+            source="fake_metadata",
+            sample_rows=len(frame),
+            pass_rate=1.0,
+            sample_dates=1,
+            sample_start=frame["bar_time"].min(),
+            sample_end=frame["bar_time"].max(),
+        )
+
+
+def minute_backtest_fixture():
+    base = make_carry_panel(periods=14)
+    prices = base.prices.copy()
+    shifted_dates = pd.bdate_range("2024-01-23", periods=14).date.tolist()
+    date_map = dict(zip(base.dates, shifted_dates, strict=True))
+    prices["trade_date"] = prices["trade_date"].map(date_map)
+    prices["contract"] = prices["contract"] + ".SHF"
+    prices["exchange_suffix"] = "SHF"
+    data = CarryDataSet(prices=prices, data_quality=base.data_quality)
+    day_segments = tuple(SessionSegment(*segment) for segment in DAY_SEGMENTS)
+    rules = tuple(
+        SessionRule(
+            exchange="SHFE",
+            product=product,
+            effective_start=data.dates[0],
+            effective_end=data.dates[-1],
+            segments=(SessionSegment(-180, -60), *day_segments)
+            if product == "A"
+            else day_segments,
+            version=SESSION_RULES_VERSION,
+        )
+        for product in ("A", "B", "C", "D", "E")
+    )
+    return data, FakeMinuteSource(), rules, data.dates[6], data.dates[-1]
+
+
+def test_minute_backtester_produces_auditable_tables_and_feedback() -> None:
+    data, source, rules, start, end = minute_backtest_fixture()
+
+    result = minute_backtest_module.CarryMinuteBacktester(
+        data=data,
+        minute_source=source,
+        session_rules=rules,
+        config=small_config(vol_window=3, min_shadow_active_days=2),
+        start=start,
+        end=end,
+    ).run()
+
+    assert not result.daily_returns.empty
+    assert set(result.executions["reason"]) >= {"entry", "rebalance"}
+    assert {"execution_kind", "daily_open"} <= set(result.executions)
+    assert {
+        "bar_start",
+        "bar_end",
+        "threshold",
+        "tranches_before",
+        "tranches_after",
+        "execution_id",
+    } <= set(result.intraday_stops)
+    assert {
+        "session_rules_version",
+        "minute_query_rules_version",
+        "accounting_clock",
+    } <= set(result.run_config["key"])
+    assert (
+        result.run_config.set_index("key").loc["accounting_clock", "value"]
+        == "piecewise_close_marked"
+    )
+    queried_roles = {
+        candidate.candidate_role
+        for candidates, _, _ in source.calls
+        for candidate in candidates
+    }
+    assert queried_roles <= {
+        "signal_main",
+        "carried",
+        "roll_old",
+        "roll_new",
+        "exit",
+        "close_mark",
+    }
+    assert "session_representative" not in queried_roles
+    run_config = result.run_config.set_index("key")["value"]
+    assert run_config["minute_query_months"] == source.audit["minute_query_months"]
+    assert run_config["minute_rows"] == source.audit["minute_rows"]
+    assert (
+        run_config["minute_candidate_contract_days"]
+        == source.audit["minute_candidate_contract_days"]
+    )
+    assert (
+        run_config["minute_table_min"] == source.audit["minute_table_min"].isoformat()
+    )
+    assert (
+        run_config["minute_table_max"] == source.audit["minute_table_max"].isoformat()
+    )
+
+
+def test_minute_backtester_rejects_a_session_asset_that_misses_prewarm(
+    monkeypatch,
+) -> None:
+    data, source, rules, start, end = minute_backtest_fixture()
+    monkeypatch.setattr(
+        minute_backtest_module,
+        "SESSION_RULES_CAPTURE_START",
+        start,
+    )
+
+    with pytest.raises(SessionClockError) as exc_info:
+        minute_backtest_module.CarryMinuteBacktester(
+            data=data,
+            minute_source=source,
+            session_rules=rules,
+            config=small_config(),
+            start=start,
+            end=end,
+        ).run()
+
+    assert getattr(exc_info.value, "check", None) == "session_asset_prewarm_coverage"
+    assert source.calls == []
+
+
+def _run_fixture(source: FakeMinuteSource | None = None, **config_overrides):
+    data, default_source, rules, start, end = minute_backtest_fixture()
+    return minute_backtest_module.CarryMinuteBacktester(
+        data=data,
+        minute_source=source or default_source,
+        session_rules=rules,
+        config=small_config(
+            vol_window=3,
+            min_shadow_active_days=2,
+            **config_overrides,
+        ),
+        start=start,
+        end=end,
+    ).run()
+
+
+def test_public_api_exports_minute_engine_and_structured_error() -> None:
+    import cta_carry
+
+    assert (
+        cta_carry.CarryMinuteBacktester is minute_backtest_module.CarryMinuteBacktester
+    )
+    assert cta_carry.MinuteDataError is minute_backtest_module.MinuteDataError
+
+
+def test_daily_result_defaults_keep_minute_frames_empty() -> None:
+    empty = pd.DataFrame()
+    result = CarryBacktestResult(
+        daily_returns=empty,
+        positions=empty,
+        trades=empty,
+        signals=empty,
+        curve_selection=empty,
+        data_quality=empty,
+        run_config=empty,
+    )
+
+    assert result.execution_mode == "daily"
+    assert result.executions.empty
+    assert result.intraday_stops.empty
+    assert result.minute_data_quality.empty
+
+
+def test_dynamic_candidate_union_assigns_roll_exit_carried_and_signal_roles() -> None:
+    days = [date(2024, 1, day) for day in (2, 3, 4)]
+
+    def signal(product, contract, direction=1):
+        return SimpleNamespace(
+            product=product,
+            main_contract=contract,
+            effective_direction=direction,
+        )
+
+    active = {
+        days[0]: {
+            "A": signal("A", "A2401.SHF"),
+            "B": signal("B", "B2401.SHF"),
+            "D": signal("D", "D2401.SHF"),
+        },
+        days[1]: {
+            "A": signal("A", "A2405.SHF"),
+            "C": signal("C", "C2401.SHF"),
+            "D": signal("D", "D2401.SHF"),
+        },
+        days[2]: {"E": signal("E", "E2401.SHF")},
+    }
+
+    roles = minute_backtest_module._candidate_roles_for_date(
+        index=2,
+        dates=days,
+        active=active,
+    )
+
+    assert roles == {
+        "A2401.SHF": "roll_old",
+        "A2405.SHF": "roll_new",
+        "B2401.SHF": "exit",
+        "C2401.SHF": "signal_main",
+        "D2401.SHF": "carried",
+        "E2401.SHF": "signal_main",
+    }
+
+
+def test_missing_dynamic_leg_reports_actual_candidate_role() -> None:
+    source = FakeMinuteSource(omit_role="carried")
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    error = exc_info.value
+    assert error.check == "dynamic_execution_leg_missing_minutes"
+    assert error.context == {"candidate_role": "carried"}
+    assert error.context["candidate_role"] != "session_representative"
+
+
+def test_dynamic_session_audit_fails_before_first_month_query() -> None:
+    data, source, rules, start, end = minute_backtest_fixture()
+
+    with pytest.raises(SessionClockError) as exc_info:
+        minute_backtest_module.CarryMinuteBacktester(
+            data=data,
+            minute_source=source,
+            session_rules=tuple(rule for rule in rules if rule.product != "E"),
+            config=small_config(vol_window=3, min_shadow_active_days=2),
+            start=start,
+            end=end,
+        ).run()
+
+    assert getattr(exc_info.value, "check", None) == "dynamic_audit_coverage"
+    assert source.calls == []
+
+
+def test_month_chunks_and_exact_overlap_duplicates_do_not_change_results() -> None:
+    expected = _run_fixture(FakeMinuteSource())
+    actual = _run_fixture(FakeMinuteSource(chunks=7, duplicate_rows=True))
+
+    for name in (
+        "daily_returns",
+        "positions",
+        "trades",
+        "executions",
+        "intraday_stops",
+    ):
+        pd.testing.assert_frame_equal(getattr(actual, name), getattr(expected, name))
+    assert actual.executions["execution_id"].is_unique
+
+
+def test_intraday_stop_receives_only_the_atr_labeled_previous_trade_date(
+    monkeypatch,
+) -> None:
+    captured: list[tuple[date, str, float]] = []
+    original = minute_backtest_module.IntradayStopMachine.on_bar
+
+    def recording(self, trade_date, product, state, bar, atr, next_fill_end):
+        captured.append((trade_date, state.contract, atr))
+        return original(
+            self,
+            trade_date,
+            product,
+            state,
+            bar,
+            atr,
+            next_fill_end,
+        )
+
+    monkeypatch.setattr(minute_backtest_module.IntradayStopMachine, "on_bar", recording)
+    data, source, rules, start, end = minute_backtest_fixture()
+    config = small_config(vol_window=3, min_shadow_active_days=2)
+    minute_backtest_module.CarryMinuteBacktester(
+        data=data,
+        minute_source=source,
+        session_rules=rules,
+        config=config,
+        start=start,
+        end=end,
+    ).run()
+    research = minute_backtest_module.build_daily_research(data.prices, config)
+    atr = research.contract_atr.set_index(["trade_date", "contract"])["atr"]
+    previous = {
+        day: data.dates[index - 1] for index, day in enumerate(data.dates[1:], 1)
+    }
+
+    assert captured
+    for trade_date, contract, value in captured:
+        assert value == pytest.approx(atr.loc[(previous[trade_date], contract)])
+
+
+def _shift_first_fill_on(trade_date: date, amount: float):
+    def transform(frame: pd.DataFrame) -> pd.DataFrame:
+        for (_, contract), group in frame.loc[
+            frame["trade_date"].eq(trade_date)
+        ].groupby(["trade_date", "daily_contract"], sort=True):
+            slots = group.nsmallest(5, "bar_time").index
+            if contract.startswith("A"):
+                for column in ("open", "high", "low", "close"):
+                    frame.loc[slots, column] += amount
+                frame.loc[slots, "amount"] = (
+                    frame.loc[slots, "close"] * frame.loc[slots, "volume"] * 10
+                )
+        return frame
+
+    return transform
+
+
+def test_minute_change_affects_only_that_fill_and_the_next_close_scale() -> None:
+    data, _, _, _, _ = minute_backtest_fixture()
+    changed_date = data.dates[10]
+    next_date = data.dates[11]
+    baseline = _run_fixture(
+        FakeMinuteSource(),
+        target_vol=0.01,
+    )
+    changed = _run_fixture(
+        FakeMinuteSource(transform=_shift_first_fill_on(changed_date, 0.25)),
+        target_vol=0.01,
+    )
+
+    before = baseline.executions["trade_date"] < changed_date
+    pd.testing.assert_frame_equal(
+        baseline.executions.loc[before].reset_index(drop=True),
+        changed.executions.loc[before].reset_index(drop=True),
+    )
+    baseline_same = baseline.executions.loc[
+        baseline.executions["trade_date"].eq(changed_date)
+        & baseline.executions["contract"].str.startswith("A")
+    ].reset_index(drop=True)
+    changed_same = changed.executions.loc[
+        changed.executions["trade_date"].eq(changed_date)
+        & changed.executions["contract"].str.startswith("A")
+    ].reset_index(drop=True)
+    pd.testing.assert_series_equal(
+        baseline_same["new_weight"], changed_same["new_weight"]
+    )
+    assert not baseline_same["vwap"].equals(changed_same["vwap"])
+    baseline_next = baseline.executions.loc[
+        baseline.executions["trade_date"].eq(next_date), "new_weight"
+    ].reset_index(drop=True)
+    changed_next = changed.executions.loc[
+        changed.executions["trade_date"].eq(next_date), "new_weight"
+    ].reset_index(drop=True)
+    assert not baseline_next.equals(changed_next)
+
+
+def test_formal_and_shadow_positions_share_state_but_use_scaled_weights() -> None:
+    result = _run_fixture()
+    active = result.positions.loc[
+        result.positions["raw_weight"].ne(0.0) & result.positions["weight"].ne(0.0)
+    ]
+
+    assert not active.empty
+    assert (active["raw_weight"] * active["weight"] > 0.0).all()
+    assert active["raw_weight"].ne(active["weight"]).any()
+    assert active["tranches_remaining"].between(1, 3).all()
+
+
+def _full_short_stop_on(trade_date: date):
+    def transform(frame: pd.DataFrame) -> pd.DataFrame:
+        mask = frame["trade_date"].eq(trade_date) & frame[
+            "daily_contract"
+        ].str.startswith("A")
+        frame.loc[mask, "open"] = 106.0
+        frame.loc[mask, "high"] = 106.0
+        frame.loc[mask, "low"] = 100.0
+        frame.loc[mask, "close"] = 106.0
+        frame.loc[mask, "amount"] = frame.loc[mask, "volume"] * 106.0 * 10
+        return frame
+
+    return transform
+
+
+def test_full_stop_locks_direction_without_same_window_intermediate_rows() -> None:
+    data, _, _, _, _ = minute_backtest_fixture()
+    stop_date = data.dates[9]
+    result = _run_fixture(
+        FakeMinuteSource(transform=_full_short_stop_on(stop_date)),
+        cost_bps=0.0,
+    )
+    stops = result.intraday_stops.loc[
+        result.intraday_stops["trade_date"].eq(stop_date)
+        & result.intraday_stops["product"].eq("A")
+    ]
+
+    assert len(stops) == 3
+    assert stops["triggered"].all()
+    assert stops[["product", "bar_start", "bar_end"]].drop_duplicates().shape[0] == 3
+    stop_fills = result.executions.loc[
+        result.executions["execution_kind"].eq("intraday_stop")
+        & result.executions["trade_date"].eq(stop_date)
+        & result.executions["product"].eq("A")
+    ]
+    assert len(stop_fills) == 3
+    assert not stop_fills.duplicated(["product", "window_start", "window_end"]).any()
+    locked = result.positions.loc[
+        result.positions["trade_date"].ge(stop_date)
+        & result.positions["product"].eq("A")
+    ]
+    assert not locked.empty
+    assert locked["direction"].eq(0).all()
+    assert locked["locked_direction"].eq(-1).all()
+    assert result.executions.loc[
+        result.executions["trade_date"].gt(stop_date)
+        & result.executions["product"].eq("A")
+        & result.executions["new_weight"].ne(0.0)
+    ].empty
+
+
+def test_minute_result_tables_are_deterministic_across_two_runs() -> None:
+    first = _run_fixture()
+    second = _run_fixture()
+
+    for name in (
+        "daily_returns",
+        "positions",
+        "trades",
+        "signals",
+        "curve_selection",
+        "run_config",
+        "executions",
+        "intraday_stops",
+        "minute_data_quality",
+    ):
+        pd.testing.assert_frame_equal(getattr(first, name), getattr(second, name))
 
 
 def _bar(

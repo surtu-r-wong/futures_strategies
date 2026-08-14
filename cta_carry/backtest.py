@@ -12,7 +12,7 @@ from .config import CarryConfig
 from .data import CarryDataSet
 from .decision import (
     DailyResearch,
-    SignalInputError,
+    SignalInputError as SignalInputError,
     TargetPlan,
     _valid_positive,
     build_daily_research,
@@ -545,6 +545,10 @@ class CarryBacktestResult:
     data_quality: pd.DataFrame
     run_config: pd.DataFrame
     metrics: dict = field(default_factory=dict)
+    executions: pd.DataFrame = field(default_factory=pd.DataFrame)
+    intraday_stops: pd.DataFrame = field(default_factory=pd.DataFrame)
+    minute_data_quality: pd.DataFrame = field(default_factory=pd.DataFrame)
+    execution_mode: str = "daily"
 
 
 def _gross_leverage(weights: dict[str, float]) -> float:
