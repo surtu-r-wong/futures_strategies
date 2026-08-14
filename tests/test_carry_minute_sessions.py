@@ -20,10 +20,14 @@ from cta_carry.minute_sessions import (
     resolve_session_rule,
     validate_capture_coverage,
 )
+from cta_carry.session_authority import EffectiveAuthorityRange
 from scripts.carry.capture_minute_sessions import (
     SessionCaptureError,
+    build_audit_key_sets,
+    build_default_liquidity_audit,
     classify_session_boundary,
     collapse_session_rules,
+    select_audit_candidates,
     select_session_candidates,
 )
 
@@ -979,3 +983,264 @@ def test_capture_selects_highest_oi_deterministically_and_uses_trading_lag():
     assert selected[0].candidate.daily_contract == "RB2405.SHF"
     assert selected[0].candidate.minute_symbol == "RB2405"
     assert selected[0].candidate.window_start == _dt(2024, 1, 5, 21, 0)
+
+
+def _audit_key(day):
+    return ("SHFE", "RB", day)
+
+
+def _audit_price(
+    day,
+    *,
+    product="RB",
+    contract="RB2405.SHF",
+    oi=100.0,
+    volume=50.0,
+    turnover=5_000_000_000.0,
+):
+    return {
+        "trade_date": day,
+        "product": product,
+        "contract": contract,
+        "oi": oi,
+        "volume": volume,
+        "turnover": turnover,
+    }
+
+
+def test_audit_envelope_emits_across_the_requested_start_boundary():
+    calendar = [date(2023, 12, 28), date(2023, 12, 29), date(2024, 1, 2)]
+    pool = {_audit_key(date(2023, 12, 28))}
+
+    envelope = build_audit_key_sets(
+        normalized_keys={_audit_key(date(2024, 1, 2))},
+        in_pool_keys=pool,
+        global_calendar=calendar,
+        start=date(2024, 1, 2),
+        end=date(2024, 1, 2),
+    )
+
+    target = _audit_key(date(2024, 1, 2))
+    assert envelope.normalized_keys == frozenset({target})
+    assert envelope.in_pool_keys == frozenset()
+    assert envelope.audit_universe_keys == frozenset({target})
+    assert envelope.audit_keys == frozenset({target})
+
+
+@pytest.mark.parametrize("pool_offset", [0, 1, 2])
+def test_audit_envelope_includes_pool_membership_at_t_and_two_lags(pool_offset):
+    calendar = [date(2024, 1, day) for day in (2, 3, 4)]
+    target = calendar[2]
+
+    envelope = build_audit_key_sets(
+        normalized_keys={_audit_key(target)},
+        in_pool_keys={_audit_key(calendar[2 - pool_offset])},
+        global_calendar=calendar,
+        start=target,
+        end=target,
+    )
+
+    assert envelope.audit_keys == frozenset({_audit_key(target)})
+
+
+def test_audit_envelope_with_no_pool_membership_has_no_audit_keys():
+    target = date(2024, 1, 4)
+    envelope = build_audit_key_sets(
+        normalized_keys={_audit_key(target)},
+        in_pool_keys=set(),
+        global_calendar=[date(2024, 1, day) for day in (2, 3, 4)],
+        start=target,
+        end=target,
+    )
+
+    assert envelope.in_pool_keys == frozenset()
+    assert envelope.audit_keys == frozenset()
+    assert envelope.audit_universe_keys == envelope.normalized_keys
+
+
+def test_synthetic_exit_candidate_keeps_target_day_without_daily_rows():
+    source_day = date(2024, 1, 2)
+    target_day = date(2024, 1, 4)
+    prices = pd.DataFrame([_audit_price(source_day)])
+
+    selected = select_audit_candidates(
+        prices,
+        audit_keys={_audit_key(target_day)},
+        in_pool_source_keys={_audit_key(source_day)},
+        global_calendar=[source_day, date(2024, 1, 3), target_day],
+    )
+
+    assert len(selected) == 1
+    assert selected[0].candidate.trade_date == target_day
+    assert selected[0].candidate.daily_contract == "RB2405.SHF"
+    assert selected[0].causal_in_pool_date == source_day
+    assert selected[0].selection_source == "causal_in_pool_main"
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        (
+            [
+                _audit_price(
+                    date(2024, 1, 4),
+                    contract="RB2405.SHF",
+                    oi=101,
+                    volume=1,
+                ),
+                _audit_price(
+                    date(2024, 1, 4),
+                    contract="RB2410.SHF",
+                    oi=100,
+                    volume=999,
+                ),
+            ],
+            "RB2405.SHF",
+        ),
+        (
+            [
+                _audit_price(
+                    date(2024, 1, 4),
+                    contract="RB2405.SHF",
+                    volume=20,
+                ),
+                _audit_price(
+                    date(2024, 1, 4),
+                    contract="RB2410.SHF",
+                    volume=30,
+                ),
+            ],
+            "RB2410.SHF",
+        ),
+        (
+            [
+                _audit_price(date(2024, 1, 4), contract="RB2410.SHF"),
+                _audit_price(date(2024, 1, 4), contract="RB2405.SHF"),
+            ],
+            "RB2405.SHF",
+        ),
+    ],
+)
+def test_audit_representative_uses_oi_volume_contract_tie_breaks(rows, expected):
+    target = date(2024, 1, 4)
+    selected = select_audit_candidates(
+        pd.DataFrame([_audit_price(date(2024, 1, 3)), *rows]),
+        audit_keys={_audit_key(target)},
+        in_pool_source_keys={_audit_key(target)},
+        global_calendar=[date(2024, 1, 3), target],
+    )
+
+    assert selected[0].candidate.daily_contract == expected
+    assert selected[0].selection_source == "target_day_main"
+
+
+def _liquidity_prices(days, *, product="RB", contract="RB2405.SHF", turnover=None):
+    values = turnover or [5_000_000_000.0] * len(days)
+    return [
+        _audit_price(
+            day,
+            product=product,
+            contract=contract,
+            turnover=value,
+        )
+        for day, value in zip(days, values, strict=True)
+    ]
+
+
+def test_default_liquidity_envelope_uses_threshold_equality_and_per_product_means():
+    days = [date(2023, 9, 1) + timedelta(days=offset) for offset in range(121)]
+    prices = pd.DataFrame(
+        [
+            *_liquidity_prices(days),
+            *_liquidity_prices(
+                days,
+                product="AU",
+                contract="AU2406.SHF",
+                turnover=[6_000_000_000.0] * len(days),
+            ),
+        ]
+    )
+
+    audit = build_default_liquidity_audit(
+        prices,
+        history_starts=pd.DataFrame(
+            [
+                {"product": "AU", "first_trade_date": days[0]},
+                {"product": "RB", "first_trade_date": days[0]},
+            ]
+        ),
+        history_exceptions=(),
+        start=days[-1],
+        end=days[-1],
+    )
+
+    assert audit.config.prewarm_calendar_days == 730
+    assert audit.config.liquidity_window == 120
+    assert audit.history_status_by_key == {
+        ("SHFE", "AU", days[-1]): "finite",
+        ("SHFE", "RB", days[-1]): "finite",
+    }
+    assert audit.key_sets.in_pool_keys == frozenset(
+        {
+            ("SHFE", "AU", days[-1]),
+            _audit_key(days[-1]),
+        }
+    )
+
+
+def test_default_liquidity_envelope_marks_short_new_listing_out_of_pool():
+    days = [date(2024, 1, day) for day in (2, 3, 4)]
+    audit = build_default_liquidity_audit(
+        pd.DataFrame(_liquidity_prices(days)),
+        history_starts=pd.DataFrame([{"product": "RB", "first_trade_date": days[0]}]),
+        history_exceptions=(),
+        start=days[-1],
+        end=days[-1],
+    )
+
+    key = _audit_key(days[-1])
+    assert audit.history_status_by_key[key] == "insufficient_since_inception"
+    assert key not in audit.key_sets.in_pool_keys
+
+
+def test_default_liquidity_envelope_rejects_unexplained_old_history_gap():
+    days = [date(2024, 1, day) for day in (2, 3, 4)]
+
+    with pytest.raises(SessionCaptureError, match="liquidity_history_incomplete"):
+        build_default_liquidity_audit(
+            pd.DataFrame(_liquidity_prices(days)),
+            history_starts=pd.DataFrame(
+                [{"product": "RB", "first_trade_date": date(2004, 8, 25)}]
+            ),
+            history_exceptions=(),
+            start=days[-1],
+            end=days[-1],
+        )
+
+
+def test_exact_history_exception_authorizes_gap_but_does_not_enter_pool():
+    days = [date(2024, 1, day) for day in (2, 3, 4)]
+    target = days[-1]
+    exception = EffectiveAuthorityRange(
+        version=SESSION_RULES_VERSION,
+        exchange="SHFE",
+        product="RB",
+        effective_start=target,
+        effective_end=target,
+        reason="documented suspension",
+        source_url="https://www.shfe.com.cn/official-notice",
+    )
+
+    audit = build_default_liquidity_audit(
+        pd.DataFrame(_liquidity_prices(days)),
+        history_starts=pd.DataFrame(
+            [{"product": "RB", "first_trade_date": date(2004, 8, 25)}]
+        ),
+        history_exceptions=(exception,),
+        start=target,
+        end=target,
+    )
+
+    key = _audit_key(target)
+    assert audit.history_status_by_key[key] == "authorized_history_gap"
+    assert key not in audit.key_sets.in_pool_keys
