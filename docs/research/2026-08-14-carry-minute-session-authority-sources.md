@@ -80,6 +80,7 @@
 | DCE | holiday_no_night | `notice_evening=2026-04-03` | http://www.dce.com.cn/dce/content/2026/ywggytz/18628241.html | 1 | `reviewed_direct` |
 | CZCE | session_launch | SR、CF、RM、ME/MA、TA 自 2014-12-12 开展夜盘；需与下一条 23:30 时段材料配对 | https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf | 5 | `reviewed_pair_required` |
 | CZCE | session_clock | 初始夜盘为周一至周五 21:00–23:30；交易日从前一工作日 21:00 至当日 15:00 | https://www.czce.com.cn/cn/rootfiles/2014/11/27/1415698819273217-1415698819275752.pdf | 0 | `reviewed_direct_policy`：为上一条提供时段，不单独生成重复产品行 |
+| CZCE | session_launch | OI、FG、TC/ZC 自 `notice_evening=2015-06-11` 起开展夜盘，目标交易日 2015-06-12，21:00–23:30 | https://www.czce.com.cn/cn/rootfiles/2015/05/27/1431080885614168-1431080885616494.pdf | 3 | `reviewed_direct`：郑商发〔2015〕93号直接列明自然日晚间、生效品种和完整时段；TC 按数据库身份归一为 ZC |
 | CZCE | session_clock_snapshot | 2019 年末材料列明相关品种夜盘为 21:00–23:30 | https://www.czce.com.cn/cn/rootfiles/2020/01/13/1572882898738930-1572882898769401.pdf | 0 | `reviewed_direct_corroborative`：只证明材料所述时点的 23:30，不证明后续改为 23:00 的生效日 |
 | CZCE | holiday_no_night_rule | 法定节假日后的首个交易日没有前一晚夜盘 | https://www.czce.com.cn/cn/rootfiles/2014/11/24/1415698818159779-1415698818161921.pdf | 0 | `reviewed_rule_only`：没有权威逐年日历时不得批量生成事件行 |
 | CZCE | session_launch | CY 自 2017-08-18 晚起，21:00–23:30 | https://www.czce.com.cn/cn/rootfiles/2018/06/29/1505472870185096-1531036138963055.pdf | 1 | `reviewed_direct` |
@@ -146,7 +147,7 @@ ORDER BY exchange_suffix, product;
 
 | counter | current_value | publication_gate |
 |---|---:|---|
-| official source-register entries | 78 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源 |
+| official source-register entries | 79 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源 |
 | accepted exact no-night evening candidates | 143 | 原 22 减去改为佐证的 INE 单样本 1，再加 SHFE 77、INE 45 共 122 个 canonical 候选；必须逐行映射到下一全局 `trade_date` 后才能写 CSV |
 | holiday no-night rows working estimate | 300–450 | 只估四所节前日期，不含 2020 暂停期；以 inventory 为准 |
 | 2020 suspension expanded rows | 252 | SHFE、INE、DCE、CZCE 各 63 个目标日（2020-02-04 至 2020-05-06）；不含另按节后规则归因的 2020-02-03 |
@@ -178,7 +179,7 @@ ORDER BY 1;
 结果为 `CZC 63`、`DCE 63`、`INE 63`、`SHF 63`，每所首尾目标日均为
 `2020-02-04` 与 `2020-05-06`。
 
-`official source-register entries` 按唯一 URL 去重计数；当前恰为 78，与来源表
+`official source-register entries` 按唯一 URL 去重计数；当前恰为 79，与来源表
 行数相同。
 
 本轮历史节前来源 canonical 集合共 122 个 `(exchange, notice_evening)`：SHFE 77、
@@ -200,8 +201,10 @@ INE 45。现有 INE `notice_evening=2024-04-03` 英文 circular 已改为只作�
   前夕：2023-12-29、2024-02-08、04-03、04-30、06-07、09-13、09-30。
 - DCE 已整理 2014–2026 的 78 个候选公告前夕，但除 2026-02-13、2026-04-03
   外尚未恢复稳定官方 URL；这些日期全部保持 `reject_pending_official_url`。
-- CZCE 的 OI/FG/ZC 2015 夜盘启动、2019-12 的 23:30→23:00 变更以及绝大多数
-  逐年节前通知仍缺直接官方 URL；2020 暂停/恢复边界已恢复官方旧 URL。
+- CZCE 的 OI/FG/TC(ZC) 2015 夜盘启动已由郑商发〔2015〕93号闭合；2019-12 的
+  23:30→23:00 变更已定位为郑商函〔2019〕473号，签发日 2019-12-10、自然日晚间
+  2019-12-11 生效、目标交易日 2019-12-12，但仍缺可登记的 CZCE 原页或附件 URL；
+  绝大多数逐年节前通知也仍缺直接官方 URL，2020 暂停/恢复边界已恢复官方旧 URL。
 - GFEX 的 SI、LC、PS、PT、PD 上市通知与当前页面只证明上市日和所列日盘结构，
   尚不足以授权从上市日至 2026-04-29 的连续 day-only 区间。
 - WR、部分 CZCE 日盘品种以及代码迁移 ME/MA、TC/ZC 需要历史规则与别名复核。
