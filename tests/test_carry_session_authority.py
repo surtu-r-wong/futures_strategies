@@ -33,6 +33,53 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
+class _AtomicReplaceOnClose:
+    def __init__(self, handle, owner, replacement_payload: bytes) -> None:
+        self._handle = handle
+        self._owner = owner
+        self._replacement_payload = replacement_payload
+
+    def __enter__(self):
+        self._handle.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        try:
+            return self._handle.__exit__(*args)
+        finally:
+            target = Path(str(self._owner))
+            replacement = target.with_name(f"{target.name}.next")
+            replacement.write_bytes(self._replacement_payload)
+            replacement.replace(target)
+            self._owner._replacement_pending = False
+
+    def __getattr__(self, name):
+        return getattr(self._handle, name)
+
+    def __iter__(self):
+        return iter(self._handle)
+
+
+class _AtomicReplacingPath(type(Path())):
+    __slots__ = ("_replacement_payload", "_replacement_pending")
+
+    def arm_atomic_replacement(self, payload: bytes):
+        self._replacement_payload = payload
+        self._replacement_pending = True
+        return self
+
+    def open(self, *args, **kwargs):
+        handle = super().open(*args, **kwargs)
+        mode = kwargs.get("mode", args[0] if args else "r")
+        if self._replacement_pending and "r" in mode:
+            return _AtomicReplaceOnClose(
+                handle,
+                self,
+                self._replacement_payload,
+            )
+        return handle
+
+
 def _no_night_row(**overrides) -> NoNightDate:
     values = {
         "version": SESSION_RULES_VERSION,
@@ -293,10 +340,9 @@ def test_load_session_authority_hashes_exact_asset_bytes(tmp_path):
     )
 
 
-def test_session_authority_parses_the_exact_payload_bound_to_each_digest(
-    tmp_path, monkeypatch
-):
-    no_night_path = _write(tmp_path / "no-night.csv", NO_NIGHT_HEADER)
+def test_session_authority_parses_the_same_snapshot_bound_to_each_digest(tmp_path):
+    original = NO_NIGHT_HEADER.encode()
+    raw_no_night_path = _write(tmp_path / "no-night.csv", NO_NIGHT_HEADER)
     day_only_path = _write(tmp_path / "day-only.csv", RANGE_HEADER)
     history_path = _write(tmp_path / "history.csv", RANGE_HEADER)
     replacement = (
@@ -304,16 +350,9 @@ def test_session_authority_parses_the_exact_payload_bound_to_each_digest(
         + "commodity-v1,DCE,2024-02-19,"
         "holiday notice_evening=2024-02-08,https://www.dce.com.cn/\n"
     ).encode()
-    original_read_bytes = Path.read_bytes
-    reads: dict[Path, int] = {}
-
-    def replace_between_parse_and_hash(path):
-        reads[path] = reads.get(path, 0) + 1
-        if path == no_night_path:
-            return replacement
-        return original_read_bytes(path)
-
-    monkeypatch.setattr(Path, "read_bytes", replace_between_parse_and_hash)
+    no_night_path = _AtomicReplacingPath(raw_no_night_path).arm_atomic_replacement(
+        replacement
+    )
 
     authority = load_session_authority(
         no_night_path=no_night_path,
@@ -321,23 +360,11 @@ def test_session_authority_parses_the_exact_payload_bound_to_each_digest(
         history_exception_path=history_path,
     )
 
-    assert authority.no_night_dates == (
-        NoNightDate(
-            version="commodity-v1",
-            exchange="DCE",
-            trade_date=date(2024, 2, 19),
-            reason="holiday notice_evening=2024-02-08",
-            source_url="https://www.dce.com.cn/",
-        ),
-    )
+    assert Path(no_night_path).read_bytes() == replacement
+    assert authority.no_night_dates == ()
     assert authority.sha256_by_asset["no_night"] == hashlib.sha256(
-        replacement
+        original
     ).hexdigest()
-    assert reads == {
-        no_night_path: 1,
-        day_only_path: 1,
-        history_path: 1,
-    }
 
 
 def test_notice_evening_maps_to_the_next_target_trade_date():
