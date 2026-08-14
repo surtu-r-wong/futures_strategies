@@ -1,4 +1,4 @@
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -10,6 +10,7 @@ import pytest
 from cta_carry.minute_bars import MinuteDataError
 from cta_carry.minute_pg_source import (
     MinuteCandidate,
+    MinuteSourceAudit,
     PublicMinuteSource,
     build_minute_batch_query,
     build_session_boundary_query,
@@ -445,8 +446,12 @@ class FakeCursor:
             self.mode = "stream"
         elif "FROM public.futures_contract_info" in normalized:
             self.mode = "metadata"
+        elif "SELECT min(bar_time), max(bar_time)" in normalized:
+            self.mode = "table_bounds"
 
     def fetchone(self):
+        if self.mode == "table_bounds":
+            return self.connection.table_bounds
         assert self.mode == "plan"
         return (self.connection.plan,)
 
@@ -480,6 +485,10 @@ class FakeConnection:
         stream_chunks=(),
         boundary_rows=(),
         metadata_rows=(),
+        table_bounds=(
+            datetime(2005, 1, 4, 9, 0, tzinfo=SHANGHAI),
+            datetime(2026, 8, 5, 23, 59, tzinfo=SHANGHAI),
+        ),
         raise_on=None,
         rollback_error=False,
     ):
@@ -487,6 +496,7 @@ class FakeConnection:
         self.stream_chunks = list(stream_chunks)
         self.boundary_rows = list(boundary_rows)
         self.metadata_rows = list(metadata_rows)
+        self.table_bounds = table_bounds
         self.raise_on = raise_on
         self.rollback_error = rollback_error
         self.events = []
@@ -619,13 +629,16 @@ def test_iter_month_preserves_legacy_dataframe_compatibility(monkeypatch):
         lambda cursor, candidates: captured.extend(candidates),
     )
 
-    assert list(
-        _source(FakeConnection()).iter_month(
-            _legacy_candidate_frame(candidate),
-            lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
-            upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+    assert (
+        list(
+            _source(FakeConnection()).iter_month(
+                _legacy_candidate_frame(candidate),
+                lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+                upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+            )
         )
-    ) == []
+        == []
+    )
     assert len(captured) == 1
     assert captured[0].candidate_role == "unspecified"
     assert captured[0].causal_in_pool_date is None
@@ -691,6 +704,226 @@ def test_iter_month_sets_up_transaction_and_uses_the_same_bounded_select(
     assert connection.commits == 1
     assert connection.rollbacks == 0
     assert connection.closes == 1
+
+
+def test_source_audit_tracks_exact_table_bounds_and_integer_query_counters(
+    monkeypatch,
+):
+    from cta_carry import minute_pg_source
+
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+    lower = datetime(2024, 1, 1, tzinfo=SHANGHAI)
+    upper = datetime(2024, 2, 1, tzinfo=SHANGHAI)
+    table_min = datetime(2005, 1, 4, 9, 0, tzinfo=SHANGHAI)
+    table_max = datetime(2026, 8, 5, 23, 59, tzinfo=SHANGHAI)
+    first = _candidate()
+    second = _candidate("TA2405.CZC")
+    rows = [
+        _minute_row(datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI)),
+        _minute_row(datetime(2024, 1, 8, 9, 1, tzinfo=SHANGHAI)),
+    ]
+    source = _source(
+        FakeConnection(
+            stream_chunks=[rows],
+            table_bounds=(table_min, table_max),
+        )
+    )
+
+    assert source.load_table_bounds() == (table_min, table_max)
+    streamed = list(
+        source.iter_month(
+            [first, second],
+            lower=lower,
+            upper=upper,
+        )
+    )
+
+    assert sum(len(frame) for frame in streamed) == 2
+    assert source.audit == MinuteSourceAudit(
+        minute_table_min=table_min,
+        minute_table_max=table_max,
+        minute_query_months=1,
+        minute_rows=2,
+        minute_candidate_contract_days=2,
+    )
+
+
+def test_table_bounds_are_cached_and_connection_resources_close_once():
+    connection = FakeConnection()
+    source = _source(connection)
+
+    first = source.load_table_bounds()
+    second = source.load_table_bounds()
+
+    assert second == first
+    bound_queries = [
+        event
+        for event in connection.events
+        if event[0] == "execute" and "SELECT min(bar_time), max(bar_time)" in event[1]
+    ]
+    assert len(bound_queries) == 1
+    assert connection.events.count(("cursor_close",)) == 1
+    assert connection.commits == 1
+    assert connection.rollbacks == 0
+    assert connection.closes == 1
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        (),
+        (datetime(2024, 1, 1, tzinfo=SHANGHAI),),
+        (
+            datetime(2024, 1, 1, tzinfo=SHANGHAI),
+            datetime(2024, 1, 2, tzinfo=SHANGHAI),
+            datetime(2024, 1, 3, tzinfo=SHANGHAI),
+        ),
+    ],
+)
+def test_table_bounds_reject_malformed_row_shape_and_close_resources(bounds):
+    connection = FakeConnection(table_bounds=bounds)
+    source = _source(connection)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        source.load_table_bounds()
+
+    assert exc_info.value.check == "minute_table_bounds"
+    assert connection.events.count(("cursor_close",)) == 1
+    assert connection.commits == 1
+    assert connection.rollbacks == 0
+    assert connection.closes == 1
+
+
+def test_table_bounds_query_failure_rolls_back_and_closes_resources():
+    connection = FakeConnection(raise_on="SELECT min(bar_time), max(bar_time)")
+    source = _source(connection)
+
+    with pytest.raises(RuntimeError, match="cursor exploded"):
+        source.load_table_bounds()
+
+    assert connection.events.count(("cursor_close",)) == 1
+    assert connection.commits == 0
+    assert connection.rollbacks >= 1
+    assert connection.closes == 1
+
+
+def test_source_audit_snapshots_are_frozen_and_do_not_change_retroactively(
+    monkeypatch,
+):
+    from cta_carry import minute_pg_source
+
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+    connection = FakeConnection(
+        stream_chunks=[[_minute_row(datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI))]]
+    )
+    source = _source(connection)
+    before = source.audit
+
+    with pytest.raises(FrozenInstanceError):
+        before.minute_rows = 999
+
+    source.load_table_bounds()
+    list(
+        source.iter_month(
+            [_candidate()],
+            lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+        )
+    )
+
+    assert before == MinuteSourceAudit()
+    assert source.audit.minute_rows == 1
+    assert source.audit.minute_query_months == 1
+    assert source.audit.minute_table_min is not None
+
+
+def test_source_audit_counts_repeated_queries_but_deduplicates_candidates(
+    monkeypatch,
+):
+    from cta_carry import minute_pg_source
+
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+    row = _minute_row(datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI))
+    source = _source(FakeConnection(stream_chunks=[[row]]))
+    bounds = {
+        "lower": datetime(2024, 1, 1, tzinfo=SHANGHAI),
+        "upper": datetime(2024, 2, 1, tzinfo=SHANGHAI),
+    }
+
+    list(source.iter_month([_candidate()], **bounds))
+    list(source.iter_month([_candidate()], **bounds))
+
+    assert source.audit.minute_query_months == 2
+    assert source.audit.minute_rows == 2
+    assert source.audit.minute_candidate_contract_days == 1
+
+
+def test_source_audit_records_started_failed_query_without_rows(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+    connection = FakeConnection(raise_on="EXPLAIN")
+    source = _source(connection)
+
+    with pytest.raises(RuntimeError, match="cursor exploded"):
+        list(
+            source.iter_month(
+                [_candidate()],
+                lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+                upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+            )
+        )
+
+    assert source.audit.minute_query_months == 1
+    assert source.audit.minute_rows == 0
+    assert source.audit.minute_candidate_contract_days == 1
+    assert connection.rollbacks >= 1
+    assert connection.closes == 1
+
+
+def test_source_audit_partial_consumption_counts_only_yielded_rows(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+    first_rows = [_minute_row(datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI))]
+    second_rows = [_minute_row(datetime(2024, 1, 8, 9, 1, tzinfo=SHANGHAI))]
+    connection = FakeConnection(stream_chunks=[first_rows, second_rows])
+    source = _source(connection)
+    stream = source.iter_month(
+        [_candidate()],
+        lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+        upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+    )
+
+    assert len(next(stream)) == 1
+    stream.close()
+
+    assert source.audit.minute_query_months == 1
+    assert source.audit.minute_rows == 1
+    assert source.audit.minute_candidate_contract_days == 1
+    assert connection.rollbacks >= 1
+    assert connection.closes == 1
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        (None, None),
+        (datetime(2024, 1, 1), datetime(2024, 1, 2)),
+        (
+            datetime(2024, 1, 2, tzinfo=SHANGHAI),
+            datetime(2024, 1, 1, tzinfo=SHANGHAI),
+        ),
+        (datetime(2024, 1, 1, tzinfo=SHANGHAI), None),
+    ],
+)
+def test_table_bounds_reject_empty_naive_regressed_or_partial_metadata(bounds):
+    source = _source(FakeConnection(table_bounds=bounds))
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        source.load_table_bounds()
+
+    assert exc_info.value.check == "minute_table_bounds"
 
 
 def test_iter_month_accepts_an_exact_candidate_dataframe(monkeypatch):

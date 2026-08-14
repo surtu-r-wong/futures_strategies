@@ -1,7 +1,9 @@
 """Excel, chart, and CLI integration tests for Carry."""
 
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -9,6 +11,8 @@ import pytest
 import cta_carry.__main__ as carry_cli
 import cta_carry.report as carry_report
 from cta_carry.backtest import CarryBacktester
+from cta_carry.minute_bars import MinuteDataError
+from cta_carry.minute_pg_source import MinuteSourceAudit
 from cta_carry.report import (
     ReportWriteError,
     console_summary,
@@ -19,6 +23,9 @@ from cta_carry.__main__ import _config_from_args, build_parser, main
 from cta_carry.config import CarryConfig
 from cta_carry.provenance import GitState
 from tests.carry_fixtures import make_carry_panel, small_config
+
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 def _result():
@@ -306,12 +313,14 @@ def test_runtime_config_includes_git_provenance(monkeypatch):
     runtime = dict(
         carry_cli._runtime_config(
             source="files",
+            execution_mode="daily",
             products=["CU"],
             data=make_carry_panel(),
         )[["key", "value"]].itertuples(index=False)
     )
 
     assert runtime["code_version"] == "abc123"
+    assert runtime["execution_mode"] == "daily"
     assert runtime["code_dirty"] is True
     assert runtime["code_diff_sha256"] == "f" * 64
 
@@ -394,6 +403,41 @@ def test_cli_config_defaults_come_from_carry_config():
     assert _config_from_args(args) == CarryConfig()
 
 
+def test_cli_execution_defaults_to_daily():
+    args = build_parser().parse_args(["--start", "2024-01-01", "--end", "2024-02-01"])
+
+    assert args.execution == "daily"
+
+
+def test_minute_execution_rejects_file_source_before_data_read(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    def unexpected_data_read(*args, **kwargs):
+        raise AssertionError("mode validation must precede file data access")
+
+    monkeypatch.setattr(carry_cli.CarryDataSet, "from_dir", unexpected_data_read)
+
+    code = main(
+        [
+            "--execution",
+            "minute",
+            "--source",
+            "files",
+            "--data-dir",
+            str(tmp_path),
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-02-01",
+        ]
+    )
+
+    assert code == 2
+    assert "--execution minute requires --source public-pg" in capsys.readouterr().err
+
+
 def test_file_cli_runs_writes_outputs_and_runtime_metadata(tmp_path):
     data = make_carry_panel()
     data_dir = tmp_path / "input"
@@ -471,6 +515,248 @@ def test_public_pg_cli_forwards_products_config_and_connection_options(
     }
 
 
+@pytest.mark.parametrize("execution", ["daily", "minute"])
+def test_public_pg_cli_constructs_only_the_selected_execution_engine(
+    tmp_path,
+    monkeypatch,
+    execution,
+):
+    data = make_carry_panel()
+    base_result = _result()
+    engine_calls = []
+    source_calls = []
+    rule_calls = []
+    written_results = []
+
+    class FakeDailyBacktester:
+        def __init__(self, data, config, *, start, end):
+            engine_calls.append(("daily", data, config, start, end))
+
+        def run(self):
+            return replace(base_result, execution_mode="daily")
+
+    class FakeMinuteBacktester:
+        def __init__(
+            self,
+            *,
+            data,
+            minute_source,
+            session_rules,
+            config,
+            start,
+            end,
+        ):
+            self.minute_source = minute_source
+            engine_calls.append(
+                (
+                    "minute",
+                    data,
+                    minute_source,
+                    session_rules,
+                    config,
+                    start,
+                    end,
+                )
+            )
+
+        def run(self):
+            audit = self.minute_source.audit
+            return replace(
+                base_result,
+                execution_mode="minute",
+                run_config=pd.concat(
+                    [
+                        base_result.run_config,
+                        pd.DataFrame(
+                            [
+                                {"key": "execution_mode", "value": "minute"},
+                                {
+                                    "key": "accounting_clock",
+                                    "value": "piecewise_close_marked",
+                                },
+                                {
+                                    "key": "minute_query_rules_version",
+                                    "value": "timescale-bare-symbol-v1",
+                                },
+                                {
+                                    "key": "session_rules_version",
+                                    "value": "commodity-v1",
+                                },
+                                {
+                                    "key": "multiplier_resolution_version",
+                                    "value": "price-range-v1",
+                                },
+                                {
+                                    "key": "minute_table_min",
+                                    "value": audit.minute_table_min.isoformat(),
+                                },
+                                {
+                                    "key": "minute_table_max",
+                                    "value": audit.minute_table_max.isoformat(),
+                                },
+                                {
+                                    "key": "minute_query_months",
+                                    "value": audit.minute_query_months,
+                                },
+                                {
+                                    "key": "minute_rows",
+                                    "value": audit.minute_rows,
+                                },
+                                {
+                                    "key": "minute_candidate_contract_days",
+                                    "value": audit.minute_candidate_contract_days,
+                                },
+                            ]
+                        ),
+                    ],
+                    ignore_index=True,
+                ),
+            )
+
+    class FakeMinuteSource:
+        def __init__(self, **kwargs):
+            source_calls.append(("construct", kwargs))
+            self.audit = MinuteSourceAudit(
+                minute_table_min=datetime(2005, 1, 4, 9, 0, tzinfo=SHANGHAI),
+                minute_table_max=datetime(2026, 8, 5, 23, 59, tzinfo=SHANGHAI),
+                minute_query_months=7,
+                minute_rows=123_456,
+                minute_candidate_contract_days=89,
+            )
+
+        def load_table_bounds(self):
+            source_calls.append(("bounds",))
+            return self.audit.minute_table_min, self.audit.minute_table_max
+
+    monkeypatch.setattr(carry_cli, "CarryBacktester", FakeDailyBacktester)
+    monkeypatch.setattr(carry_cli, "CarryMinuteBacktester", FakeMinuteBacktester)
+    monkeypatch.setattr(carry_cli, "PublicMinuteSource", FakeMinuteSource)
+    monkeypatch.setattr(
+        carry_cli,
+        "load_session_rules",
+        lambda path: rule_calls.append(path) or ("rule",),
+    )
+    monkeypatch.setattr(
+        carry_cli,
+        "load_public_carry_data",
+        lambda **kwargs: data,
+    )
+    monkeypatch.setattr(
+        carry_cli,
+        "write_carry_outputs",
+        lambda result, prefix: (
+            written_results.append(result)
+            or (tmp_path / "result.xlsx", tmp_path / "result.png")
+        ),
+    )
+    monkeypatch.setattr(carry_cli, "console_summary", lambda result: "ok")
+    args = _small_cli_args(
+        None,
+        tmp_path / execution,
+        data.dates[12],
+        data.dates[-1],
+        source="public-pg",
+    )
+    args.extend(
+        [
+            "--execution",
+            execution,
+            "--settings",
+            "settings.yaml",
+            "--use-test",
+        ]
+    )
+
+    assert main(args) == 0
+    assert [call[0] for call in engine_calls] == [execution]
+    final_config = written_results[0].run_config
+    assert final_config["key"].eq("execution_mode").sum() == 1
+    assert final_config.set_index("key").loc["execution_mode", "value"] == execution
+    if execution == "daily":
+        assert source_calls == []
+        assert rule_calls == []
+    else:
+        assert source_calls == [
+            (
+                "construct",
+                {"config_path": "settings.yaml", "use_test": True},
+            ),
+            ("bounds",),
+        ]
+        assert len(rule_calls) == 1
+        assert rule_calls[0].name == "carry_minute_sessions.csv"
+        final_values = dict(final_config[["key", "value"]].itertuples(index=False))
+        assert final_values["minute_table_min"] == "2005-01-04T09:00:00+08:00"
+        assert final_values["minute_table_max"] == "2026-08-05T23:59:00+08:00"
+        assert type(final_values["minute_query_months"]) is int
+        assert final_values["minute_query_months"] == 7
+        assert type(final_values["minute_rows"]) is int
+        assert final_values["minute_rows"] == 123_456
+        assert type(final_values["minute_candidate_contract_days"]) is int
+        assert final_values["minute_candidate_contract_days"] == 89
+
+
+def test_minute_cli_rejects_result_missing_source_provenance(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    data = make_carry_panel()
+    base_result = _result()
+
+    class FakeMinuteSource:
+        def __init__(self, **kwargs):
+            self.audit = MinuteSourceAudit(
+                minute_table_min=datetime(2005, 1, 4, 9, 0, tzinfo=SHANGHAI),
+                minute_table_max=datetime(2026, 8, 5, 23, 59, tzinfo=SHANGHAI),
+                minute_query_months=7,
+                minute_rows=123_456,
+                minute_candidate_contract_days=89,
+            )
+
+        def load_table_bounds(self):
+            return self.audit.minute_table_min, self.audit.minute_table_max
+
+    class MissingProvenanceBacktester:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self):
+            return replace(base_result, execution_mode="minute")
+
+    monkeypatch.setattr(carry_cli, "PublicMinuteSource", FakeMinuteSource)
+    monkeypatch.setattr(
+        carry_cli,
+        "CarryMinuteBacktester",
+        MissingProvenanceBacktester,
+    )
+    monkeypatch.setattr(
+        carry_cli,
+        "load_public_carry_data",
+        lambda **kwargs: data,
+    )
+    monkeypatch.setattr(carry_cli, "load_session_rules", lambda path: ("rule",))
+    monkeypatch.setattr(
+        carry_cli,
+        "write_carry_outputs",
+        lambda result, prefix: (tmp_path / "result.xlsx", tmp_path / "result.png"),
+    )
+    monkeypatch.setattr(carry_cli, "console_summary", lambda result: "ok")
+    args = _small_cli_args(
+        None,
+        tmp_path / "missing_provenance",
+        data.dates[12],
+        data.dates[-1],
+        source="public-pg",
+    )
+    args.extend(["--execution", "minute"])
+
+    assert main(args) == 2
+    error = capsys.readouterr().err
+    assert "minute_source_provenance" in error
+    assert "accounting_clock" in error
+
+
 def test_cli_returns_two_when_database_load_fails(tmp_path, capsys, monkeypatch):
     """A psycopg2 connection/query error is an expected failure mode: exit 2
     with a clean message, not an uncaught traceback."""
@@ -495,6 +781,136 @@ def test_cli_returns_two_when_database_load_fails(tmp_path, capsys, monkeypatch)
     assert exit_code == 2
     assert "could not connect" in capsys.readouterr().err
     assert not prefix.with_suffix(".xlsx").exists()
+
+
+def test_minute_cli_returns_two_when_stream_query_disconnects(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    """A PostgreSQL failure during the minute engine is an expected CLI error."""
+    import psycopg2
+
+    data = make_carry_panel()
+
+    class FakeMinuteSource:
+        def __init__(self, **kwargs):
+            self.audit = MinuteSourceAudit(
+                minute_table_min=datetime(2005, 1, 4, 9, 0, tzinfo=SHANGHAI),
+                minute_table_max=datetime(2026, 8, 5, 23, 59, tzinfo=SHANGHAI),
+            )
+
+        def load_table_bounds(self):
+            return self.audit.minute_table_min, self.audit.minute_table_max
+
+    class DisconnectingMinuteBacktester:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self):
+            raise psycopg2.OperationalError("stream disconnected")
+
+    monkeypatch.setattr(carry_cli, "PublicMinuteSource", FakeMinuteSource)
+    monkeypatch.setattr(
+        carry_cli,
+        "CarryMinuteBacktester",
+        DisconnectingMinuteBacktester,
+    )
+    monkeypatch.setattr(
+        carry_cli,
+        "load_public_carry_data",
+        lambda **kwargs: data,
+    )
+    monkeypatch.setattr(carry_cli, "load_session_rules", lambda path: ("rule",))
+    prefix = tmp_path / "minute_db_failed"
+    args = _small_cli_args(
+        None,
+        prefix,
+        data.dates[12],
+        data.dates[-1],
+        source="public-pg",
+    )
+    args.extend(["--execution", "minute"])
+
+    assert carry_cli.main(args) == 2
+    assert "stream disconnected" in capsys.readouterr().err
+    assert not prefix.with_suffix(".xlsx").exists()
+
+
+def test_minute_cli_returns_two_for_structured_minute_data_failure(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    data = make_carry_panel()
+
+    class FailingMinuteSource:
+        def __init__(self, **kwargs):
+            pass
+
+        def load_table_bounds(self):
+            raise MinuteDataError(
+                check="minute_table_bounds",
+                reason="no exact table bounds",
+            )
+
+    monkeypatch.setattr(carry_cli, "PublicMinuteSource", FailingMinuteSource)
+    monkeypatch.setattr(
+        carry_cli,
+        "load_public_carry_data",
+        lambda **kwargs: data,
+    )
+    args = _small_cli_args(
+        None,
+        tmp_path / "minute_failed",
+        data.dates[12],
+        data.dates[-1],
+        source="public-pg",
+    )
+    args.extend(["--execution", "minute"])
+
+    assert main(args) == 2
+    assert "minute_table_bounds" in capsys.readouterr().err
+
+
+def test_minute_cli_returns_two_when_session_asset_cannot_be_loaded(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    data = make_carry_panel()
+
+    class FakeMinuteSource:
+        def __init__(self, **kwargs):
+            pass
+
+        def load_table_bounds(self):
+            return None
+
+    monkeypatch.setattr(carry_cli, "PublicMinuteSource", FakeMinuteSource)
+    monkeypatch.setattr(
+        carry_cli,
+        "load_public_carry_data",
+        lambda **kwargs: data,
+    )
+    monkeypatch.setattr(
+        carry_cli,
+        "load_session_rules",
+        lambda path: (_ for _ in ()).throw(
+            FileNotFoundError("carry_minute_sessions.csv is missing")
+        ),
+    )
+    args = _small_cli_args(
+        None,
+        tmp_path / "missing_sessions",
+        data.dates[12],
+        data.dates[-1],
+        source="public-pg",
+    )
+    args.extend(["--execution", "minute"])
+
+    assert main(args) == 2
+    assert "carry_minute_sessions.csv is missing" in capsys.readouterr().err
 
 
 def test_cli_returns_nonzero_and_writes_no_success_report_on_warmup_error(

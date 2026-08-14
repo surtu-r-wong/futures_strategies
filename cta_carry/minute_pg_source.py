@@ -115,6 +115,9 @@ WHERE "合约代码" = %s
   AND "交易日期" <= %s
 ORDER BY "交易日期" DESC, "合约乘数" ASC NULLS LAST
 """
+_TABLE_BOUNDS_QUERY = """
+SELECT min(bar_time), max(bar_time) FROM public.futures_minute
+"""
 
 
 def _require_trade_date(value: object, *, contract: str | None = None) -> date:
@@ -227,6 +230,17 @@ def minute_contract_identity(contract: str, trade_date: date) -> tuple[str, str,
 
 
 @dataclass(frozen=True)
+class MinuteSourceAudit:
+    """Immutable runtime provenance for one minute-source instance."""
+
+    minute_table_min: datetime | None = None
+    minute_table_max: datetime | None = None
+    minute_query_months: int = 0
+    minute_rows: int = 0
+    minute_candidate_contract_days: int = 0
+
+
+@dataclass(frozen=True)
 class MinuteCandidate:
     """Validated daily-contract candidate and its physical minute window."""
 
@@ -282,9 +296,10 @@ class MinuteCandidate:
                     check="minute_candidate",
                     reason=f"{name} must be a nonempty concrete built-in string",
                 )
-        if self.causal_in_pool_date is not None and type(
-            self.causal_in_pool_date
-        ) is not date:
+        if (
+            self.causal_in_pool_date is not None
+            and type(self.causal_in_pool_date) is not date
+        ):
             raise MinuteDataError(
                 trade_date=trade_date,
                 contract=contract,
@@ -678,7 +693,10 @@ def _canonical_candidates(
             frozenset(_LEGACY_CANDIDATE_COLUMNS),
             frozenset(_CANDIDATE_COLUMNS),
         }
-        if len(actual) != len(actual_set) or frozenset(actual_set) not in supported_sets:
+        if (
+            len(actual) != len(actual_set)
+            or frozenset(actual_set) not in supported_sets
+        ):
             raise MinuteDataError(
                 check="minute_candidates",
                 reason="candidate frame must contain exactly a supported MinuteCandidate schema",
@@ -797,8 +815,7 @@ def _validate_session_candidate_provenance(
             raise _session_candidate_metadata_error(
                 candidate,
                 reason=(
-                    "session representative causal_in_pool_date must be a "
-                    "concrete date"
+                    "session representative causal_in_pool_date must be a concrete date"
                 ),
             )
         source = candidate.selection_source
@@ -1270,6 +1287,74 @@ class PublicMinuteSource:
         self._pg = dict(pg)
         self._pg["schema"] = "public"
         self._connection_factory = connection_factory or get_connection
+        self._minute_table_min: datetime | None = None
+        self._minute_table_max: datetime | None = None
+        self._minute_query_months = 0
+        self._minute_rows = 0
+        self._candidate_contract_days: set[tuple[date, str]] = set()
+
+    @property
+    def audit(self) -> MinuteSourceAudit:
+        """Return a stable snapshot of source coverage and query counters."""
+        return MinuteSourceAudit(
+            minute_table_min=self._minute_table_min,
+            minute_table_max=self._minute_table_max,
+            minute_query_months=self._minute_query_months,
+            minute_rows=self._minute_rows,
+            minute_candidate_contract_days=len(self._candidate_contract_days),
+        )
+
+    def load_table_bounds(self) -> tuple[datetime, datetime]:
+        """Load and cache the exact first and last physical minute timestamps."""
+        if self._minute_table_min is not None and self._minute_table_max is not None:
+            return self._minute_table_min, self._minute_table_max
+
+        with _managed_connection(
+            self._connection_factory,
+            self._pg.copy(),
+        ) as connection:
+            cursor = connection.cursor()
+            try:
+                for setting in _TRANSACTION_SETTINGS:
+                    cursor.execute(setting)
+                cursor.execute(_TABLE_BOUNDS_QUERY)
+                row = cursor.fetchone()
+            finally:
+                _close_cursor_preserving(cursor)
+
+        if not isinstance(row, Sequence) or len(row) != 2:
+            raise MinuteDataError(
+                check="minute_table_bounds",
+                reason="minute table bounds query must return exactly two columns",
+            )
+        table_min, table_max = row
+        if (
+            type(table_min) is not datetime
+            or type(table_max) is not datetime
+            or not _is_aware(table_min)
+            or not _is_aware(table_max)
+        ):
+            raise MinuteDataError(
+                check="minute_table_bounds",
+                reason="minute table bounds must be two aware datetimes",
+                context={"minute_table_min": table_min, "minute_table_max": table_max},
+            )
+        try:
+            regressed = table_min > table_max
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise MinuteDataError(
+                check="minute_table_bounds",
+                reason="minute table bounds must be mutually comparable",
+            ) from exc
+        if regressed:
+            raise MinuteDataError(
+                check="minute_table_bounds",
+                reason="minute table minimum cannot follow its maximum",
+                context={"minute_table_min": table_min, "minute_table_max": table_max},
+            )
+        self._minute_table_min = table_min
+        self._minute_table_max = table_max
+        return table_min, table_max
 
     def iter_month(
         self,
@@ -1282,6 +1367,10 @@ class PublicMinuteSource:
             candidate_frame,
             lower=lower,
             upper=upper,
+        )
+        self._minute_query_months += 1
+        self._candidate_contract_days.update(
+            (candidate.trade_date, candidate.daily_contract) for candidate in candidates
         )
         select_text = build_minute_batch_query(
             lower=lower,
@@ -1313,6 +1402,7 @@ class PublicMinuteSource:
                         rows,
                         previous_key,
                     )
+                    self._minute_rows += len(frame)
                     yield frame
             finally:
                 if stream_cursor is not None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import fields, replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 import sys
 
@@ -20,6 +20,18 @@ from .backtest import (
 )
 from .config import CarryConfig
 from .data import CarryDataSet
+from .minute_backtest import (
+    MINUTE_QUERY_RULES_VERSION,
+    MULTIPLIER_RESOLUTION_VERSION,
+    CarryMinuteBacktester,
+)
+from .minute_bars import MinuteDataError
+from .minute_pg_source import MinuteSourceAudit, PublicMinuteSource
+from .minute_sessions import (
+    SESSION_RULES_VERSION,
+    SessionClockError,
+    load_session_rules,
+)
 from .pg_source import load_public_carry_data
 from .provenance import capture_git_state
 from .report import (
@@ -30,6 +42,7 @@ from .report import (
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_SESSION_RULES_PATH = _REPO_ROOT / "config" / "carry_minute_sessions.csv"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,6 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--source",
         choices=["public-pg", "files"],
         default="public-pg",
+    )
+    parser.add_argument(
+        "--execution",
+        choices=["daily", "minute"],
+        default="daily",
     )
     parser.add_argument("--data-dir")
     parser.add_argument("--settings")
@@ -118,6 +136,7 @@ def _validate_data_coverage(
 def _runtime_config(
     *,
     source: str,
+    execution_mode: str,
     products: list[str] | None,
     data: CarryDataSet,
 ) -> pd.DataFrame:
@@ -126,6 +145,7 @@ def _runtime_config(
     return pd.DataFrame(
         [
             {"key": "source", "value": source},
+            {"key": "execution_mode", "value": execution_mode},
             {
                 "key": "products",
                 "value": ",".join(products) if products else "ALL",
@@ -150,12 +170,90 @@ def _runtime_config(
     )
 
 
+def _validate_minute_runtime_provenance(
+    run_config: pd.DataFrame,
+    audit: object,
+) -> None:
+    if type(audit) is not MinuteSourceAudit:
+        raise MinuteDataError(
+            check="minute_source_provenance",
+            reason="minute source audit must be an immutable MinuteSourceAudit",
+            context={"audit_type": type(audit).__name__},
+        )
+    if (
+        type(audit.minute_table_min) is not datetime
+        or type(audit.minute_table_max) is not datetime
+        or audit.minute_table_min.tzinfo is None
+        or audit.minute_table_min.utcoffset() is None
+        or audit.minute_table_max.tzinfo is None
+        or audit.minute_table_max.utcoffset() is None
+    ):
+        raise MinuteDataError(
+            check="minute_source_provenance",
+            reason="minute source audit table bounds must be aware datetimes",
+        )
+    counters = {
+        "minute_query_months": audit.minute_query_months,
+        "minute_rows": audit.minute_rows,
+        "minute_candidate_contract_days": audit.minute_candidate_contract_days,
+    }
+    invalid_counter = next(
+        (key for key, value in counters.items() if type(value) is not int or value < 0),
+        None,
+    )
+    if invalid_counter is not None:
+        raise MinuteDataError(
+            check="minute_source_provenance",
+            reason="minute source audit counters must be nonnegative actual integers",
+            context={invalid_counter: counters[invalid_counter]},
+        )
+    if not {"key", "value"}.issubset(run_config.columns):
+        raise MinuteDataError(
+            check="minute_source_provenance",
+            reason="minute engine run_config must contain key and value columns",
+        )
+
+    expected = {
+        "accounting_clock": "piecewise_close_marked",
+        "minute_query_rules_version": MINUTE_QUERY_RULES_VERSION,
+        "session_rules_version": SESSION_RULES_VERSION,
+        "multiplier_resolution_version": MULTIPLIER_RESOLUTION_VERSION,
+        "minute_table_min": audit.minute_table_min.isoformat(),
+        "minute_table_max": audit.minute_table_max.isoformat(),
+        **counters,
+    }
+    for key, expected_value in expected.items():
+        matches = run_config.loc[run_config["key"].eq(key), "value"]
+        if len(matches) != 1:
+            raise MinuteDataError(
+                check="minute_source_provenance",
+                reason="minute engine run_config must contain each provenance key once",
+                context={"key": key, "matches": len(matches)},
+            )
+        actual = matches.iloc[0]
+        same_type = type(actual) is type(expected_value)
+        if not same_type or actual != expected_value:
+            raise MinuteDataError(
+                check="minute_source_provenance",
+                reason="minute engine run_config provenance disagrees with source audit",
+                context={
+                    "key": key,
+                    "actual": actual,
+                    "actual_type": type(actual).__name__,
+                    "expected": expected_value,
+                    "expected_type": type(expected_value).__name__,
+                },
+            )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         config = _config_from_args(args)
         if args.start > args.end:
             raise ValueError("start must be on or before end")
+        if args.execution == "minute" and args.source != "public-pg":
+            raise ValueError("--execution minute requires --source public-pg")
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -185,16 +283,48 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
+    minute_source = None
+    session_rules = ()
+    if args.execution == "minute":
+        try:
+            minute_source = PublicMinuteSource(
+                config_path=args.settings,
+                use_test=args.use_test,
+            )
+            minute_source.load_table_bounds()
+            session_rules = load_session_rules(_SESSION_RULES_PATH)
+        except (OSError, KeyError, ValueError, psycopg2.Error) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+
     try:
-        result = CarryBacktester(
-            data,
-            config=config,
-            start=args.start,
-            end=args.end,
-        ).run()
+        if args.execution == "minute":
+            assert minute_source is not None
+            result = CarryMinuteBacktester(
+                data=data,
+                minute_source=minute_source,
+                session_rules=session_rules,
+                config=config,
+                start=args.start,
+                end=args.end,
+            ).run()
+            _validate_minute_runtime_provenance(
+                result.run_config,
+                minute_source.audit,
+            )
+        else:
+            result = CarryBacktester(
+                data,
+                config=config,
+                start=args.start,
+                end=args.end,
+            ).run()
     except (
         EquityDepletedError,
         ExecutionPriceError,
+        MinuteDataError,
+        psycopg2.Error,
+        SessionClockError,
         SignalInputError,
         WarmupInsufficientError,
     ) as exc:
@@ -203,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
 
     runtime_config = _runtime_config(
         source=args.source,
+        execution_mode=args.execution,
         products=products,
         data=data,
     )
@@ -214,7 +345,9 @@ def main(argv: list[str] | None = None) -> int:
         result,
         run_config=pd.concat(
             [
-                result.run_config,
+                result.run_config.loc[
+                    ~result.run_config["key"].isin(runtime_config["key"])
+                ],
                 runtime_config,
             ],
             ignore_index=True,
