@@ -54,6 +54,65 @@ def test_report_writes_all_required_sheets_and_chart(tmp_path):
     assert first["boundary_type"] == "report_start_initialization"
 
 
+def test_minute_report_adds_three_audit_sheets_before_run_config(tmp_path):
+    result = replace(
+        _result(),
+        execution_mode="minute",
+        executions=pd.DataFrame([{"execution_id": "e1"}]),
+        intraday_stops=pd.DataFrame([{"execution_id": "e1"}]),
+        minute_data_quality=pd.DataFrame([{"check": "coverage"}]),
+    )
+
+    xlsx, _ = write_carry_outputs(result, tmp_path / "minute")
+
+    with pd.ExcelFile(xlsx, engine="openpyxl") as workbook:
+        assert workbook.sheet_names == [
+            "metrics",
+            "daily_returns",
+            "positions",
+            "trades",
+            "signals",
+            "curve_selection",
+            "data_quality",
+            "executions",
+            "intraday_stops",
+            "minute_data_quality",
+            "run_config",
+        ]
+    assert pd.read_excel(xlsx, sheet_name="executions").to_dict("records") == [
+        {"execution_id": "e1"}
+    ]
+    assert pd.read_excel(xlsx, sheet_name="intraday_stops").to_dict("records") == [
+        {"execution_id": "e1"}
+    ]
+    assert pd.read_excel(xlsx, sheet_name="minute_data_quality").to_dict("records") == [
+        {"check": "coverage"}
+    ]
+
+
+def test_minute_report_writes_empty_audit_frames(tmp_path):
+    result = replace(
+        _result(),
+        execution_mode="minute",
+        executions=pd.DataFrame(columns=["execution_id"]),
+        intraday_stops=pd.DataFrame(columns=["execution_id"]),
+        minute_data_quality=pd.DataFrame(columns=["check"]),
+    )
+
+    xlsx, _ = write_carry_outputs(result, tmp_path / "minute_empty")
+
+    with pd.ExcelFile(xlsx, engine="openpyxl") as workbook:
+        assert workbook.sheet_names[-4:] == [
+            "executions",
+            "intraday_stops",
+            "minute_data_quality",
+            "run_config",
+        ]
+    assert pd.read_excel(xlsx, sheet_name="executions").empty
+    assert pd.read_excel(xlsx, sheet_name="intraday_stops").empty
+    assert pd.read_excel(xlsx, sheet_name="minute_data_quality").empty
+
+
 def test_curve_selection_excel_view_is_one_row_per_product_day():
     result = _result()
 
@@ -129,6 +188,37 @@ def test_report_preflights_excel_row_limit_before_opening_writer(
     error = exc_info.value
     assert error.stage == "preflight"
     assert error.sheet == "positions"
+    assert error.rows == 1_048_576
+    assert not writer_called
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_minute_report_preflights_audit_row_limit_before_opening_writer(
+    tmp_path,
+    monkeypatch,
+):
+    result = replace(
+        _result(),
+        execution_mode="minute",
+        executions=pd.DataFrame(index=pd.RangeIndex(1_048_576)),
+        intraday_stops=pd.DataFrame(),
+        minute_data_quality=pd.DataFrame(),
+    )
+    writer_called = False
+
+    def unexpected_writer(*args, **kwargs):
+        nonlocal writer_called
+        writer_called = True
+        raise OSError("writer must not be opened")
+
+    monkeypatch.setattr(carry_report.pd, "ExcelWriter", unexpected_writer)
+
+    with pytest.raises(ReportWriteError) as exc_info:
+        write_carry_outputs(result, tmp_path / "oversized_minute")
+
+    error = exc_info.value
+    assert error.stage == "preflight"
+    assert error.sheet == "executions"
     assert error.rows == 1_048_576
     assert not writer_called
     assert list(tmp_path.iterdir()) == []
