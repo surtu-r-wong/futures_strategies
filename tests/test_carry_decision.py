@@ -78,3 +78,24 @@ def test_direction_reversal_takes_precedence_over_stop_reason():
     assert plan.states["A"].direction == -1
     assert plan.states["A"].tranches_remaining == config.stop_tranches
     assert plan.reasons == {"A": "direction_reversal"}
+
+
+def test_first_missing_signal_creates_a_signal_exit_target():
+    config = small_config()
+    states = {
+        "A": PositionState(
+            direction=1,
+            contract="A2405.SHF",
+        )
+    }
+
+    plan = plan_signal_targets(
+        states,
+        pd.DataFrame(columns=_signal().columns),
+        config,
+    )
+
+    assert plan.states["A"].direction == 0
+    assert plan.states["A"].contract is None
+    assert plan.raw_weights == {}
+    assert plan.reasons == {"A": "signal_exit"}

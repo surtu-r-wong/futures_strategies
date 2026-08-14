@@ -7,6 +7,7 @@ import pytest
 
 from cta_carry.minute_sessions import (
     DAY_SEGMENTS,
+    SESSION_RULES_CAPTURE_START,
     SESSION_RULES_VERSION,
     SessionClockError,
     SessionRule,
@@ -17,6 +18,7 @@ from cta_carry.minute_sessions import (
     load_session_rules,
     next_slots,
     resolve_session_rule,
+    validate_capture_coverage,
 )
 from scripts.carry.capture_minute_sessions import (
     SessionCaptureError,
@@ -41,6 +43,69 @@ def _with_slot_values(slots, values):
         previous_trade_date=slots.previous_trade_date,
         values=values,
     )
+
+
+def test_capture_coverage_includes_the_entire_backtest_prewarm():
+    backtest_start = date(2013, 1, 4)
+
+    assert SESSION_RULES_CAPTURE_START == date(2011, 1, 1)
+    assert validate_capture_coverage(
+        capture_start=date(2011, 1, 1),
+        backtest_start=backtest_start,
+        prewarm_calendar_days=730,
+    ) == date(2011, 1, 5)
+
+    with pytest.raises(
+        SessionClockError,
+        match="session_asset_prewarm_coverage",
+    ) as exc_info:
+        validate_capture_coverage(
+            capture_start=date(2011, 1, 6),
+            backtest_start=backtest_start,
+            prewarm_calendar_days=730,
+        )
+
+    assert exc_info.value.exchange == "*"
+    assert exc_info.value.product == "*"
+    assert exc_info.value.trade_date == backtest_start
+    assert exc_info.value.check == "session_asset_prewarm_coverage"
+    assert exc_info.value.reason == (
+        "session asset begins after the minute-state prewarm; "
+        "capture_start=2011-01-06; required_start=2011-01-05"
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("capture_start", "2011-01-01"),
+        ("capture_start", datetime(2011, 1, 1)),
+        ("backtest_start", "2013-01-04"),
+        ("backtest_start", datetime(2013, 1, 4)),
+    ],
+)
+def test_capture_coverage_requires_concrete_dates(field, value):
+    values = {
+        "capture_start": date(2011, 1, 1),
+        "backtest_start": date(2013, 1, 4),
+        "prewarm_calendar_days": 730,
+    }
+    values[field] = value
+
+    with pytest.raises(ValueError, match="session_capture_coverage_dates"):
+        validate_capture_coverage(**values)
+
+
+@pytest.mark.parametrize("prewarm_calendar_days", [0, -1, True, 730.0, "730"])
+def test_capture_coverage_requires_a_positive_actual_integer(
+    prewarm_calendar_days,
+):
+    with pytest.raises(ValueError, match="session_capture_coverage_prewarm"):
+        validate_capture_coverage(
+            capture_start=date(2011, 1, 1),
+            backtest_start=date(2013, 1, 4),
+            prewarm_calendar_days=prewarm_calendar_days,
+        )
 
 
 def test_monday_night_and_after_midnight_slots_follow_friday_session():

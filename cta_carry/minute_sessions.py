@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 SESSION_RULES_VERSION = "commodity-v1"
+SESSION_RULES_CAPTURE_START = date(2011, 1, 1)
 DAY_SEGMENTS = ((540, 615), (630, 690), (810, 900))
 
 _SESSION_RULE_COLUMNS = (
@@ -39,6 +40,39 @@ class SessionClockError(ValueError):
         self.check = check
         self.reason = reason
         super().__init__(f"{trade_date} {exchange} {product} {check}: {reason}")
+
+
+def validate_capture_coverage(
+    *,
+    capture_start: date,
+    backtest_start: date,
+    prewarm_calendar_days: int,
+) -> date:
+    if type(capture_start) is not date or type(backtest_start) is not date:
+        raise ValueError(
+            "session_capture_coverage_dates: capture_start and backtest_start "
+            "must be concrete date values"
+        )
+    if type(prewarm_calendar_days) is not int or prewarm_calendar_days <= 0:
+        raise ValueError(
+            "session_capture_coverage_prewarm: prewarm_calendar_days must be a "
+            "positive actual integer"
+        )
+
+    required = backtest_start - timedelta(days=prewarm_calendar_days)
+    if capture_start > required:
+        raise SessionClockError(
+            exchange="*",
+            product="*",
+            trade_date=backtest_start,
+            check="session_asset_prewarm_coverage",
+            reason=(
+                "session asset begins after the minute-state prewarm; "
+                f"capture_start={capture_start.isoformat()}; "
+                f"required_start={required.isoformat()}"
+            ),
+        )
+    return required
 
 
 @dataclass(frozen=True, order=True)
