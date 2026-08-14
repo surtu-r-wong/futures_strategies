@@ -73,9 +73,25 @@
 | INE | holiday_no_night_corroborative | `notice_evening=2024-04-03` | https://www.ine.cn/eng/circularnews/circular/202403/t20240329_823079.html | 0 | `reviewed_direct_corroborative`：已由 2024 年度公告 canonical 覆盖，不重复派生 candidate |
 | DCE | session_launch_and_clock_change | P/J 2014-07-04 首批；A/B/M/Y/JM/I 2014-12-26 加入，初始 02:30；2019-03-29 统一至 23:00 并新增 L/V/PP/EG/C/CS | https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf | 22 | `reviewed_direct`：官方回顾材料直接列明产品、日期与时段 |
 | DCE | session_clock_change | 自 2015-05-08 21:00（目标交易日 2015-05-11）起，既有 8 品种由 02:30 调整至 23:30 | https://www.dce.com.cn/dalianshangpin/resource/cms/2016/07/%E5%A4%A7%E8%BF%9E%E6%9C%9F%E8%B4%A7%E5%B8%82%E5%9C%BA%E6%9C%88%E6%8A%A5%EF%BC%882015%E5%B9%B45%E6%9C%88%EF%BC%89.pdf | 8 | `reviewed_direct`：与 2019 回顾材料按事件去重，不是重复键 |
-| DCE | night_suspension | 自 2020-02-03 晚起暂停全部夜盘 | http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6204446/index.html | 0 | `official_url_manual_fetch`：与恢复边界及全局日历已展开 63 个目标日 |
-| DCE | night_resumption | 2020-05-06 晚恢复夜盘，并新增 PG 夜盘 | http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6215428/index.html | 1 | `official_url_manual_fetch`：1 行只指 PG 启动；闭合暂停区间不重复计行 |
+| DCE | holiday_reopening_boundary | 2020 年春节休市延长至 02-02，02-03 起照常开市；该通知所称 02-03 当晚恢复夜盘随后被专项暂停通知覆盖 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6204380/index.html | 0 | `reviewed_boundary_superseded_part`：只修订 2020 年度公告中的春节恢复边界；不另生成 `notice_evening` |
+| DCE | night_suspension | 自 2020-02-03 晚起暂停全部夜盘 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6204446/index.html | 0 | `reviewed_direct`：与恢复边界及全局日历已展开 2020-02-04 至 05-06 的 63 个目标日 |
+| DCE | night_resumption | 2020-05-06 晚恢复夜盘，并新增 PG 夜盘 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6215428/index.html | 1 | `reviewed_direct`：1 行只指 PG 启动；闭合暂停区间，不重复计暂停行 |
 | DCE | product_day_only | LG 于 2024-11-18 上市，通知明确“暂不开展夜盘交易” | http://www.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/8620259/index.html | 1 | `reviewed_direct` |
+| DCE | holiday_no_night | `E→R`：2014-09-05→09-09 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/1988119/index.html | 1 | `reviewed_direct`：只登记首批夜盘上线后的候选前夕 |
+| DCE | holiday_no_night | `E→R`：2014-09-30→10-08 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/1987919/index.html | 1 | `reviewed_direct` |
+| DCE | holiday_no_night | 2015 年年度安排；`E→R`：2014-12-31→2015-01-05、2015-02-17→02-25、04-03→04-07、04-30→05-04、06-19→06-23、09-25→09-28、09-30→10-08 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/2285977/index.html | 7 | `reviewed_direct` |
+| DCE | holiday_no_night | 抗战胜利 70 周年专项安排；`E→R`：2015-09-02→09-07 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/5011746/index.html | 1 | `reviewed_direct` |
+| DCE | holiday_no_night | 2016 年年度安排；`E→R`：2015-12-31→2016-01-04、2016-02-05→02-15、04-01→04-05、04-29→05-03、06-08→06-13、09-14→09-19、09-30→10-10 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/5029417/index.html | 7 | `reviewed_direct` |
+| DCE | holiday_no_night | 2017 年年度安排；`E→R`：2016-12-30→2017-01-03、2017-01-26→02-03、03-31→04-05、04-28→05-02、05-26→05-31、09-29→10-09 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6024178/index.html | 6 | `reviewed_direct`：中秋节、国庆节合并为一个前夕 |
+| DCE | holiday_no_night | 2018 年年度安排；`E→R`：2017-12-29→2018-01-02、2018-02-14→02-22、04-04→04-09、04-27→05-02、06-15→06-19、09-21→09-25、09-28→10-08 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6082201/index.html | 7 | `reviewed_direct` |
+| DCE | holiday_no_night | 2019 年年度安排；canonical `E→R`：2018-12-28→2019-01-02、2019-02-01→02-11、04-04→04-08、06-06→06-10、09-12→09-16、09-30→10-08；原劳动节条款被调整通知覆盖 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6144646/index.html | 6 | `reviewed_direct_superseded_part`：不从原劳动节条款重复派生 2019-04-30 |
+| DCE | holiday_no_night | 2019 年劳动节调整；`E→R`：2019-04-30→05-06 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6159945/index.html | 1 | `reviewed_direct_override`：劳动节 canonical 来源 |
+| DCE | holiday_no_night | 2020 年年度安排；canonical `E→R`：2019-12-31→2020-01-02、2020-01-23→修订后 02-03、04-03→04-07、04-30→05-06、06-24→06-29、09-30→10-09 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6201818/index.html | 6 | `reviewed_direct_superseded_part`：春节恢复边界由 6204380 修订；04-03、04-30 映射后的 final key 与疫情暂停区间去重 |
+| DCE | holiday_no_night | 2021 年年度安排；`E→R`：2020-12-31→2021-01-04、2021-02-10→02-18、04-02→04-06、04-30→05-06、06-11→06-15、09-17→09-22、09-30→10-08 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6260870/index.html | 7 | `reviewed_direct` |
+| DCE | holiday_no_night | 2022 年年度安排；`E→R`：2021-12-31→2022-01-04、2022-01-28→02-07、04-01→04-06、04-29→05-05、06-02→06-06、09-09→09-13、09-30→10-10 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6300288/index.html | 7 | `reviewed_direct` |
+| DCE | holiday_no_night | 2023 年年度安排；`E→R`：2022-12-30→2023-01-03、2023-01-20→01-30、04-04→04-06、04-28→05-04、06-21→06-26、09-28→10-09 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/8526813/index.html | 6 | `reviewed_direct`：中秋节、国庆节合并为一个前夕 |
+| DCE | holiday_no_night | 2024 年年度安排；`E→R`：2023-12-29→2024-01-02、2024-02-08→02-19、04-03→04-08、04-30→05-06、06-07→06-11、09-13→09-18、09-30→10-08 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/8589323/index.html | 7 | `reviewed_direct` |
+| DCE | holiday_no_night | 2025 年年度安排；`E→R`：2024-12-31→2025-01-02、2025-01-27→02-05、04-03→04-07、04-30→05-06、05-30→06-03、09-30→10-09 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/8626934/index.html | 6 | `reviewed_direct` |
 | DCE | holiday_no_night | `notice_evening=2026-02-13` | http://www.dce.com.cn/dce/content/2026/ywggytz/18627505.html | 1 | `reviewed_direct` |
 | DCE | holiday_no_night | `notice_evening=2026-04-03` | http://www.dce.com.cn/dce/content/2026/ywggytz/18628241.html | 1 | `reviewed_direct` |
 | CZCE | session_launch | SR、CF、RM、ME/MA、TA 自 2014-12-12 开展夜盘；需与下一条 23:30 时段材料配对 | https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf | 5 | `reviewed_pair_required` |
@@ -147,8 +163,9 @@ ORDER BY exchange_suffix, product;
 
 | counter | current_value | publication_gate |
 |---|---:|---|
-| official source-register entries | 79 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源 |
-| accepted exact no-night evening candidates | 143 | 原 22 减去改为佐证的 INE 单样本 1，再加 SHFE 77、INE 45 共 122 个 canonical 候选；必须逐行映射到下一全局 `trade_date` 后才能写 CSV |
+| official source-register entries | 95 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源 |
+| accepted exact no-night evening candidates | 219 | 上轮 143 加 DCE 2014–2025 的 76 个 canonical 候选；必须逐行映射到下一全局 `trade_date` 后才能写 CSV |
+| DCE no-night working candidates | 78 | DCE 2014–2025 的 76 个唯一 `notice_evening`，加现有 2026-02-13、04-03 两项；不含尚待 inventory 与官方来源闭合的 2025-12-31 |
 | holiday no-night rows working estimate | 300–450 | 只估四所节前日期，不含 2020 暂停期；以 inventory 为准 |
 | 2020 suspension expanded rows | 252 | SHFE、INE、DCE、CZCE 各 63 个目标日（2020-02-04 至 2020-05-06）；不含另按节后规则归因的 2020-02-03 |
 | expected total no-night rows | not measured | 节前日期与 2020 展开去重后的并集 |
@@ -179,14 +196,20 @@ ORDER BY 1;
 结果为 `CZC 63`、`DCE 63`、`INE 63`、`SHF 63`，每所首尾目标日均为
 `2020-02-04` 与 `2020-05-06`。
 
-`official source-register entries` 按唯一 URL 去重计数；当前恰为 79，与来源表
+`official source-register entries` 按唯一 URL 去重计数；当前恰为 95，与来源表
 行数相同。
 
 本轮历史节前来源 canonical 集合共 122 个 `(exchange, notice_evening)`：SHFE 77、
 INE 45。现有 INE `notice_evening=2024-04-03` 英文 circular 已改为只作佐证，故
-相对原登记净新增 121 个候选，accepted 总数为 `22 - 1 + 122 = 143`。2020 年
-`notice_evening=04-03`、`04-30` 在 SHFE、INE 各有一项，映射后共 4 个 final key
-会与疫情暂停区间去重；来源层仍保留公告事实，但不得写成第二个 CSV 键。
+相对原登记净新增 121 个候选，上轮 accepted 总数为 `22 - 1 + 122 = 143`。
+DCE 2014–2025 的 15 个节前来源 URL 共给出 76 个唯一 `notice_evening`，其中
+2019 年劳动节只以调整通知为 canonical 来源；加上已登记的 2026-02-13、04-03，
+DCE 工作清单为 78 项，accepted 总数为 `143 + 76 = 219`。2025-12-31 晚间对应
+2026 年元旦安排，虽可能映射到本次截止日内的目标交易日，但当前不计入 78，也不在
+inventory 与官方来源完成闭合前写 CSV。2020 年 `notice_evening=04-03`、`04-30`
+在 SHFE、INE、DCE 各有一项，映射后共 6 个 final key 会与疫情暂停区间去重；
+来源层仍保留公告事实，但不得写成第二个 CSV 键。DCE 的 2020-01-23 候选按延长
+通知复核恢复边界为 02-03；暂停区间从 02-04 目标交易日起算，因此两者不重叠。
 
 在首次全量 capture 前，上述“未测”允许存在；一旦 round 1 产生 inventory，必须替换为
 确定数字，并记录每轮剩余量。预计总共运行 2–3 轮：第一轮完整盘点，第二轮批量补表，
@@ -199,8 +222,11 @@ INE 45。现有 INE `notice_evening=2024-04-03` 英文 circular 已改为只作�
 - SHFE 自 2013-07 夜盘上线后至 2024 年休市安排、INE 自 SC 2018-03-26 上市后至
   2024 年休市安排的节前来源均已完整覆盖。INE 2024 年官方年度公告明确覆盖 7 个
   前夕：2023-12-29、2024-02-08、04-03、04-30、06-07、09-13、09-30。
-- DCE 已整理 2014–2026 的 78 个候选公告前夕，但除 2026-02-13、2026-04-03
-  外尚未恢复稳定官方 URL；这些日期全部保持 `reject_pending_official_url`。
+- DCE 2014–2025 的 76 个唯一候选公告前夕已由 15 个可直读的交易所官方 URL
+  覆盖，2019 年劳动节 override 与 2020 年三条边界均已闭合；连同现有
+  2026-02-13、2026-04-03 两项，当前工作清单为 78。2025-12-31 晚间尚待
+  inventory、下一全局目标交易日映射与对应官方来源共同复核，不计入 78，也不得
+  临时写入 CSV。
 - CZCE 的 OI/FG/TC(ZC) 2015 夜盘启动已由郑商发〔2015〕93号闭合；2019-12 的
   23:30→23:00 变更已定位为郑商函〔2019〕473号，签发日 2019-12-10、自然日晚间
   2019-12-11 生效、目标交易日 2019-12-12，但仍缺可登记的 CZCE 原页或附件 URL；
@@ -220,6 +246,8 @@ INE 45。现有 INE `notice_evening=2024-04-03` 英文 circular 已改为只作�
   `(exchange, notice_evening)` 去重，再由全局日历映射目标日。
 - 制度区间唯一键：`(version, exchange, product, effective_start)`；同产品区间不得重叠。
 - DCE 2019 回顾材料会复述 2014/2015 事件；按事件选择一个 canonical 来源，不生成重复行。
+- DCE 2019 年度劳动节条款由单独调整通知覆盖；2020 年 04-03、04-30 的节前候选
+  映射后与疫情暂停目标日相交，只保留一个最终 authority 键。
 - CZCE 单项通知与月度公告汇编重复时优先单项通知；ME/MA、TC/ZC 先做别名归一。
 - SHFE 与 INE 分交易所记录；INE 通知即使由 SHFE 官方站镜像，也只产生 INE 行。
 - 2020 暂停范围内的普通节前停夜盘公告可保留来源记录，但不能产生第二个 CSV 键。
