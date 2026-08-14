@@ -79,7 +79,54 @@ FU 日线从 2004-08-25 开始，并在采集截止日 2026-04-29 前连续按�
 
 ## 5. 权威表收敛记录
 
-首轮 inventory、后续批量补表、年度 coverage、权威资产 SHA-256、歧义分类和
-最终 `ambiguous=0` 结果将在真实采集运行后追加。本节留空不代表发布通过；在
-正式 loader 复读和反向键集合校验完成前，`config/carry_minute_sessions.csv`
-不得发布。
+### 5.1 Round 1a：标准化预检阻断
+
+第一次全范围命令按实施计划运行，但在分钟源构造前由 normalization 门禁阻断：
+
+```bash
+PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python \
+  scripts/carry/capture_minute_sessions.py \
+  --start 2011-01-01 --end 2026-04-29 \
+  --backtest-start 2013-01-04 \
+  --settings /home/elfbob/claude-code/futures_strategies/config/settings.yaml \
+  --inventory-output /tmp/carry-minute-session-inventory-round1.csv \
+  --audit-report /tmp/carry-minute-session-audit-round1.md \
+  --output config/carry_minute_sessions.csv
+```
+
+有效配置为 `liquidity_window=120`、`liquidity_threshold=5000000000.0`、
+`prewarm_calendar_days=730`，日线加载起点为 2009-01-01。三个表头权威资产的
+SHA-256 为：
+
+| asset | sha256 |
+|---|---|
+| no-night | `16ef85a65901288c1a2816e3e0ea85d4ae4258a4ed316067c05e29611d2ea239` |
+| day-only | `d2bf062f8d98cdb175c766e9f276910fed721833943af4845fece7b1bea74b80` |
+| history exception | `d2bf062f8d98cdb175c766e9f276910fed721833943af4845fece7b1bea74b80` |
+
+门禁最初报告 5,709 条 `normalization_unkeyable_rows`，年度分布为 2020:337、
+2021:390、2022:388、2023:724、2024:872、2025:1,488、2026:1,510；未知日期为
+0。inventory 只有表头，`checked_days=0`，正式
+`config/carry_minute_sessions.csv` 保持不存在。
+
+随后用生产库只读分组查询确认 5,709 条的精确构成：
+
+| suffix | product/trailing code | rows | first | last | distinct symbols |
+|---|---|---:|---|---|---:|
+| DCE | `L*F` | 624 | 2025-10-29 | 2026-04-29 | 9 |
+| DCE | `PP*F` | 624 | 2025-10-29 | 2026-04-29 | 9 |
+| DCE | `V*F` | 624 | 2025-10-29 | 2026-04-29 | 9 |
+| INE | `SC*TAS` | 3,837 | 2020-01-13 | 2026-04-29 | 78 |
+
+这些是归一化层有意排除的 F/TAS 非标准具体合约，不是无法识别的交易所、品种或
+日期。根因是 coverage 统计误用了“必须能映射具体分钟合约”的严格解析器，而该
+统计只需要 `(exchange, product, trade_date)`。修复必须使用专门的排除行
+product-day 身份解析；未知后缀或空品种仍维持 unkeyable 和发布阻断。
+
+本轮旧实现把 5,709 错写为 `ambiguous=5709`，但没有任何经验时段或权威冲突，
+因此这不是有效的 ambiguity 轮次，不能计入预计的 2–3 轮收敛。修复并通过复核后
+重新运行的全量 inventory 才记为正式 round 1。
+
+后续批量补表、年度 coverage、权威资产 SHA-256、歧义分类和最终
+`ambiguous=0` 结果将在真实分钟边界采集后追加。在正式 loader 复读和反向键集合
+校验完成前，`config/carry_minute_sessions.csv` 不得发布。
