@@ -123,6 +123,13 @@ SHA-256 为：
 统计只需要 `(exchange, product, trade_date)`。修复必须使用专门的排除行
 product-day 身份解析；未知后缀或空品种仍维持 unkeyable 和发布阻断。
 
+第二条生产库只读查询按上述四类排除行去重到 1,852 个 product-day，并与同日
+规范化存活行做反连接：1,852 个全部存在同交易所、同品种、同交易日的规范合约，
+`without_canonical_survivor=0`。因此修复后的预期不是把这些日期计为
+`normalization_excluded_product_days`，而是先可靠归键，再因为同 product-day
+仍有规范行而不增加排除日计数；只有真正无法解析身份的原始排除行才进入
+`normalization_unkeyable_rows`。
+
 本轮旧实现把 5,709 错写为 `ambiguous=5709`，但没有任何经验时段或权威冲突，
 因此这不是有效的 ambiguity 轮次，不能计入预计的 2–3 轮收敛。修复并通过复核后
 重新运行的全量 inventory 才记为正式 round 1。
