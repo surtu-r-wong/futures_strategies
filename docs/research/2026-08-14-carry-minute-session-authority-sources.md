@@ -9,6 +9,13 @@
 `notice_evening`；只有用完整全局交易日历映射后，才会生成
 `carry_minute_no_night_dates.csv.trade_date`。当前登记不以经验缺行反推制度。
 
+年度休市公告中的 `E→R` 表示公告明确的节前停夜盘自然日 `E` 与公告所称
+“`R` 日起照常开市”的恢复日期；专项连续交易通知则明确写作“`R` 日当晚恢复
+连续交易”。采集时只把 `E` 保存为 `notice_evening`，并以完整全局目标交易日历
+计算 `trade_date = min(global_target_trade_date > E)`。`R` 只用于边界复核，不能
+直接当作 `trade_date`，也不能把 `E` 本身写入 CSV。2020 年春节延长公告只修订
+恢复开市边界，没有重述停夜盘前夕，因此 `rows_derived=0`。
+
 ## 来源登记
 
 | exchange | authority_kind | covered_dates_or_regime | source_url | rows_derived | review_status |
@@ -28,6 +35,21 @@
 | SHFE | session_launch | OP 于 2025-09-10 上市，夜盘 21:00–23:00 | https://www.shfe.com.cn/publicnotice/notice/202508/t20250818_828697.html | 1 | `reviewed_direct` |
 | SHFE | night_suspension | 自 2020-02-03 晚起暂停夜盘，恢复日期另行通知 | https://www.shfe.com.cn/publicnotice/notice/202002/t20200202_795584.html | 0 | `reviewed_boundary`：与恢复边界及全局日历已展开 63 个目标日 |
 | SHFE | night_resumption | 2020-05-06 晚恢复夜盘 | https://www.shfe.com.cn/publicnotice/notice/202004/t20200424_795871.html | 0 | `reviewed_boundary`：闭合暂停区间，不重复计行 |
+| SHFE | holiday_no_night | 《关于2013年中秋节和国庆节期间连续交易时间安排的通知》（上期发〔2013〕140号，2013-09-10）；`E→R`：2013-09-18→09-23、2013-09-30→10-08 | https://www.shfe.com.cn/publicnotice/notice/201309/t20130910_789836.html | 2 | `reviewed_direct`：两个恢复日均明确写“当晚恢复连续交易” |
+| SHFE | holiday_no_night | 《关于2014年休市安排的公告》（〔2013〕20号，2013-12-24）；`E→R`：2013-12-31→2014-01-02、2014-01-30→02-07、04-04→04-08、04-30→05-05、05-30→06-03、09-05→09-09、09-30→10-08 | https://www.shfe.com.cn/publicnotice/notice/201312/t20131224_790109.html | 7 | `reviewed_direct`：年度公告逐项列明停连续交易前夕及照常开市日 |
+| SHFE | holiday_no_night | 《关于2015年休市安排的公告》（〔2014〕9号，2014-12-24）；`E→R`：2014-12-31→2015-01-05、2015-02-17→02-25、04-03→04-07、04-30→05-04、06-19→06-23、09-25→09-28、09-30→10-08 | https://www.shfe.com.cn/publicnotice/notice/201412/t20141224_790742.html | 7 | `reviewed_direct` |
+| SHFE | holiday_no_night | 《关于中国人民抗日战争暨世界反法西斯战争胜利70周年纪念日期间连续交易时间安排的通知》（上期发〔2015〕121号，2015-08-25）；`E→R`：2015-09-02→09-07 | https://www.shfe.com.cn/publicnotice/notice/201508/t20150825_791123.html | 1 | `reviewed_direct`：明确写“当晚恢复连续交易” |
+| SHFE | holiday_no_night | 《关于2016年休市安排的公告》（〔2015〕14号，2015-12-24）；`E→R`：2015-12-31→2016-01-04、2016-02-05→02-15、04-01→04-05、04-29→05-03、06-08→06-13、09-14→09-19、09-30→10-10 | https://www.shfe.com.cn/publicnotice/notice/201512/t20151224_791285.html | 7 | `reviewed_direct` |
+| SHFE | holiday_no_night | 《关于2017年休市安排的公告》（〔2016〕141号，2016-12-23）；`E→R`：2016-12-30→2017-01-03、2017-01-26→02-03、03-31→04-05、04-28→05-02、05-26→05-31、09-29→10-09 | https://www.shfe.com.cn/publicnotice/notice/201612/t20161223_792067.html | 6 | `reviewed_direct`：中秋节、国庆节合并为一个前夕 |
+| SHFE | holiday_no_night | 《关于2018年休市安排的公告》（〔2017〕88号，2017-12-22）；`E→R`：2017-12-29→2018-01-02、2018-02-14→02-22、04-04→04-09、04-27→05-02、06-15→06-19、09-21→09-25、09-28→10-08 | https://www.shfe.com.cn/publicnotice/notice/201712/t20171222_792839.html | 7 | `reviewed_direct` |
+| SHFE | holiday_no_night | 《上海期货交易所关于2019年休市安排的公告》（〔2018〕58号，2018-12-21）；canonical `E→R`：2018-12-28→2019-01-02、2019-02-01→02-11、04-04→04-08、06-06→06-10、09-12→09-16、09-30→10-08；原劳动节恢复条款被调整公告覆盖 | https://www.shfe.com.cn/publicnotice/notice/201812/t20181221_794040.html | 6 | `reviewed_direct_superseded_part`：不从原劳动节条款重复派生 2019-04-30 |
+| SHFE | holiday_no_night | 《关于2019年劳动节休市安排的公告》（〔2019〕17号，2019-04-15）；`E→R`：2019-04-30→05-06 | https://www.shfe.com.cn/publicnotice/notice/201904/t20190415_794430.html | 1 | `reviewed_direct_override`：劳动节 canonical 来源 |
+| SHFE | holiday_no_night | 《上海期货交易所关于2020年休市安排的公告》（〔2019〕139号，2019-12-24）；`E→R`：2019-12-31→2020-01-02、2020-01-23→01-31、04-03→04-07、04-30→05-06、06-24→06-29、09-30→10-09 | https://www.shfe.com.cn/publicnotice/notice/201912/t20191224_795447.html | 6 | `reviewed_direct`：春节恢复边界后被延长公告修订；04-03、04-30 映射后的 final key 与疫情暂停区间去重 |
+| SHFE | holiday_reopening_boundary | 《关于调整2020年春节休市安排的公告》（〔2020〕16号，2020-01-27）；春节休市延长至 02-02，02-03 起照常开市 | https://www.shfe.com.cn/publicnotice/notice/202001/t20200127_795578.html | 0 | `reviewed_boundary`：只闭合修订后的恢复边界，不重述 `notice_evening`；02-03 晚仍受疫情暂停通知约束 |
+| SHFE | holiday_no_night | 《上海期货交易所关于2021年休市安排的公告》（〔2020〕213号，2020-12-23）；`E→R`：2020-12-31→2021-01-04、2021-02-10→02-18、04-02→04-06、04-30→05-06、06-11→06-15、09-17→09-22、09-30→10-08 | https://www.shfe.com.cn/publicnotice/notice/202012/t20201223_796877.html | 7 | `reviewed_direct` |
+| SHFE | holiday_no_night | 《上海期货交易所关于2022年休市安排的公告》（〔2021〕193号，2021-12-17）；`E→R`：2021-12-31→2022-01-04、2022-01-28→02-07、04-01→04-06、04-29→05-05、06-02→06-06、09-09→09-13、09-30→10-10 | https://www.shfe.com.cn/publicnotice/notice/202112/t20211217_798298.html | 7 | `reviewed_direct` |
+| SHFE | holiday_no_night | 《上海期货交易所关于2023年休市安排的公告》（〔2022〕144号，2022-12-27）；`E→R`：2022-12-30→2023-01-03、2023-01-20→01-30、04-04→04-06、04-28→05-04、06-21→06-26、09-28→10-09 | https://www.shfe.com.cn/publicnotice/notice/202212/t20221227_799690.html | 6 | `reviewed_direct`：中秋节、国庆节合并为一个前夕 |
+| SHFE | holiday_no_night | 《上海期货交易所关于2024年休市安排的公告》（〔2023〕127号，2023-12-26）；`E→R`：2023-12-29→2024-01-02、2024-02-08→02-19、04-03→04-08、04-30→05-06、06-07→06-11、09-13→09-18、09-30→10-08 | https://www.shfe.com.cn/publicnotice/notice/202312/t20231226_801163.html | 7 | `reviewed_direct` |
 | SHFE | holiday_no_night | 2025 年 6 个公告前夕：2024-12-31、2025-01-27、04-03、04-30、05-30、09-30 | https://www.shfe.com.cn/publicnotice/notice/202412/t20241223_824109.html | 6 | `reviewed_direct`：公告同时列明恢复日期 |
 | SHFE | holiday_no_night | 截止日内 2026 年 3 个公告前夕：2025-12-31、2026-02-13、04-03 | https://www.shfe.com.cn/services/calenderandholidays/holiday/ | 3 | `reviewed_direct` |
 | INE | session_launch | SC 于 2018-03-26 上市，夜盘 21:00–02:30 | https://www.ine.cn/publicnotice/notice/201803/t20180312_811177.html | 1 | `reviewed_direct` |
@@ -37,9 +59,18 @@
 | INE | product_day_only | EC 于 2023-08-18 上市；通知完整枚举 09:00–10:15、10:30–11:30、13:30–15:00 | https://www.ine.cn/publicnotice/notice/202308/t20230811_814262.html | 1 | `reviewed_direct_with_note`：通知未使用“日盘”字样，但完整时段枚举无夜盘 |
 | INE | night_suspension | 自 2020-02-03 晚起暂停夜盘，恢复日期另行通知 | https://www.ine.cn/publicnotice/notice/202002/t20200202_812084.html | 0 | `reviewed_boundary`：与恢复边界及全局日历已展开 63 个目标日 |
 | INE | night_resumption | 2020-05-06 晚恢复夜盘 | https://www.ine.cn/publicnotice/notice/202004/t20200424_812209.html | 0 | `reviewed_boundary`：闭合暂停区间，不重复计行 |
+| INE | holiday_no_night | 《关于2018年休市安排的公告》（〔2018〕6号，2018-03-14）；SC 上市后的 `E→R`：2018-04-04→04-09、04-27→05-02、06-15→06-19、09-21→09-25、09-28→10-08 | https://www.ine.cn/publicnotice/notice/201803/t20180314_811180.html | 5 | `reviewed_direct`：只派生 2018-03-26 夜盘品种上市后的五个前夕 |
+| INE | holiday_no_night | 《上海国际能源交易中心关于2019年休市安排的公告》（〔2018〕35号，2018-12-21）；canonical `E→R`：2018-12-28→2019-01-02、2019-02-01→02-11、04-04→04-08、06-06→06-10、09-12→09-16、09-30→10-08；原劳动节恢复条款被调整公告覆盖 | https://www.ine.cn/publicnotice/notice/201812/t20181221_811566.html | 6 | `reviewed_direct_superseded_part`：不从原劳动节条款重复派生 2019-04-30 |
+| INE | holiday_no_night | 《关于2019年劳动节休市安排的公告》（〔2019〕6号，2019-04-15）；`E→R`：2019-04-30→05-06 | https://www.ine.cn/publicnotice/notice/201904/t20190415_811704.html | 1 | `reviewed_direct_override`：劳动节 canonical 来源 |
+| INE | holiday_no_night | 《上海国际能源交易中心关于2020年休市安排的公告》（〔2019〕30号，2019-12-24）；`E→R`：2019-12-31→2020-01-02、2020-01-23→01-31、04-03→04-07、04-30→05-06、06-24→06-29、09-30→10-09 | https://www.ine.cn/publicnotice/notice/201912/t20191224_812027.html | 6 | `reviewed_direct`：春节恢复边界后被延长公告修订；04-03、04-30 映射后的 final key 与疫情暂停区间去重 |
+| INE | holiday_reopening_boundary | 《关于调整2020年春节休市安排的公告》（〔2020〕6号，2020-01-27）；春节休市延长至 02-02，02-03 起照常开市 | https://www.ine.cn/publicnotice/notice/202001/t20200127_812080.html | 0 | `reviewed_boundary`：只闭合修订后的恢复边界，不重述 `notice_evening`；02-03 晚仍受疫情暂停通知约束 |
+| INE | holiday_no_night | 《上海国际能源交易中心关于2021年休市安排的公告》（〔2020〕73号，2020-12-23）；`E→R`：2020-12-31→2021-01-04、2021-02-10→02-18、04-02→04-06、04-30→05-06、06-11→06-15、09-17→09-22、09-30→10-08 | https://www.ine.cn/publicnotice/notice/202012/t20201223_812576.html | 7 | `reviewed_direct` |
+| INE | holiday_no_night | 《上海国际能源交易中心关于2022年休市安排的公告》（〔2021〕62号，2021-12-17）；`E→R`：2021-12-31→2022-01-04、2022-01-28→02-07、04-01→04-06、04-29→05-05、06-02→06-06、09-09→09-13、09-30→10-10 | https://www.ine.cn/publicnotice/notice/202112/t20211217_813157.html | 7 | `reviewed_direct` |
+| INE | holiday_no_night | 《上海国际能源交易中心关于2023年休市安排的公告》（〔2022〕47号，2022-12-27）；`E→R`：2022-12-30→2023-01-03、2023-01-20→01-30、04-04→04-06、04-28→05-04、06-21→06-26、09-28→10-09 | https://www.ine.cn/publicnotice/notice/202212/t20221227_813855.html | 6 | `reviewed_direct`：中秋节、国庆节合并为一个前夕 |
+| INE | holiday_no_night | 《上海国际能源交易中心关于2024年休市安排的公告》（〔2023〕74号，2023-12-26）；`E→R`：2023-12-29→2024-01-02、2024-02-08→02-19、04-03→04-08、04-30→05-06、06-07→06-11、09-13→09-18、09-30→10-08 | https://www.ine.cn/publicnotice/notice/202312/t20231226_814527.html | 7 | `reviewed_direct`：官方年度公告覆盖全部七个前夕 |
 | INE | holiday_no_night | 2025 年 6 个公告前夕，与 SHFE 2025 年安排一致 | https://www.ine.cn/publicnotice/notice/202412/t20241223_824108.html | 6 | `reviewed_direct` |
 | INE | holiday_no_night | 截止日内 2026 年 3 个公告前夕：2025-12-31、2026-02-13、04-03 | https://www.ine.cn/publicnotice/notice/202512/t20251217_829804.html | 3 | `reviewed_direct` |
-| INE | holiday_no_night | `notice_evening=2024-04-03` | https://www.ine.cn/eng/circularnews/circular/202403/t20240329_823079.html | 1 | `reviewed_direct`：其余四个 2024 候选日必须分别恢复对应 INE 官方通知 URL |
+| INE | holiday_no_night_corroborative | `notice_evening=2024-04-03` | https://www.ine.cn/eng/circularnews/circular/202403/t20240329_823079.html | 0 | `reviewed_direct_corroborative`：已由 2024 年度公告 canonical 覆盖，不重复派生 candidate |
 | DCE | session_launch_and_clock_change | P/J 2014-07-04 首批；A/B/M/Y/JM/I 2014-12-26 加入，初始 02:30；2019-03-29 统一至 23:00 并新增 L/V/PP/EG/C/CS | https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf | 22 | `reviewed_direct`：官方回顾材料直接列明产品、日期与时段 |
 | DCE | session_clock_change | 自 2015-05-08 21:00（目标交易日 2015-05-11）起，既有 8 品种由 02:30 调整至 23:30 | https://www.dce.com.cn/dalianshangpin/resource/cms/2016/07/%E5%A4%A7%E8%BF%9E%E6%9C%9F%E8%B4%A7%E5%B8%82%E5%9C%BA%E6%9C%88%E6%8A%A5%EF%BC%882015%E5%B9%B45%E6%9C%88%EF%BC%89.pdf | 8 | `reviewed_direct`：与 2019 回顾材料按事件去重，不是重复键 |
 | DCE | night_suspension | 自 2020-02-03 晚起暂停全部夜盘 | http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6204446/index.html | 0 | `official_url_manual_fetch`：与恢复边界及全局日历已展开 63 个目标日 |
@@ -115,8 +146,8 @@ ORDER BY exchange_suffix, product;
 
 | counter | current_value | publication_gate |
 |---|---:|---|
-| official source-register entries | 54 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源 |
-| accepted exact no-night evening candidates | 22 | 必须逐行映射到下一全局 `trade_date` 后才能写 CSV |
+| official source-register entries | 78 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源 |
+| accepted exact no-night evening candidates | 143 | 原 22 减去改为佐证的 INE 单样本 1，再加 SHFE 77、INE 45 共 122 个 canonical 候选；必须逐行映射到下一全局 `trade_date` 后才能写 CSV |
 | holiday no-night rows working estimate | 300–450 | 只估四所节前日期，不含 2020 暂停期；以 inventory 为准 |
 | 2020 suspension expanded rows | 252 | SHFE、INE、DCE、CZCE 各 63 个目标日（2020-02-04 至 2020-05-06）；不含另按节后规则归因的 2020-02-03 |
 | expected total no-night rows | not measured | 节前日期与 2020 展开去重后的并集 |
@@ -147,8 +178,15 @@ ORDER BY 1;
 结果为 `CZC 63`、`DCE 63`、`INE 63`、`SHF 63`，每所首尾目标日均为
 `2020-02-04` 与 `2020-05-06`。
 
-`official source-register entries` 按唯一 URL 去重计数；当前恰为 54，与来源表
+`official source-register entries` 按唯一 URL 去重计数；当前恰为 78，与来源表
 行数相同。
+
+本轮历史节前来源 canonical 集合共 122 个 `(exchange, notice_evening)`：SHFE 77、
+INE 45。现有 INE `notice_evening=2024-04-03` 英文 circular 已改为只作佐证，故
+相对原登记净新增 121 个候选，accepted 总数为 `22 - 1 + 122 = 143`。2020 年
+`notice_evening=04-03`、`04-30` 在 SHFE、INE 各有一项，映射后共 4 个 final key
+会与疫情暂停区间去重；来源层仍保留公告事实，但不得写成第二个 CSV 键。
+
 在首次全量 capture 前，上述“未测”允许存在；一旦 round 1 产生 inventory，必须替换为
 确定数字，并记录每轮剩余量。预计总共运行 2–3 轮：第一轮完整盘点，第二轮批量补表，
 第三轮只用于验证批量修订是否收敛；第三轮仍非零则停止发布。
@@ -156,7 +194,10 @@ ORDER BY 1;
 ## 未解决项
 
 - SHFE 2013 年 CU/AL/ZN/PB 与 2014 年 RB/HC/RU/BU 的原始操作通知尚未恢复；
-  现有交易所材料只能标为佐证。SHFE/INE 的完整 2013–2024 节前日期也未覆盖。
+  现有交易所材料只能标为佐证；此项只涉及品种夜盘启动制度，不再是节前来源缺口。
+- SHFE 自 2013-07 夜盘上线后至 2024 年休市安排、INE 自 SC 2018-03-26 上市后至
+  2024 年休市安排的节前来源均已完整覆盖。INE 2024 年官方年度公告明确覆盖 7 个
+  前夕：2023-12-29、2024-02-08、04-03、04-30、06-07、09-13、09-30。
 - DCE 已整理 2014–2026 的 78 个候选公告前夕，但除 2026-02-13、2026-04-03
   外尚未恢复稳定官方 URL；这些日期全部保持 `reject_pending_official_url`。
 - CZCE 的 OI/FG/ZC 2015 夜盘启动、2019-12 的 23:30→23:00 变更以及绝大多数
