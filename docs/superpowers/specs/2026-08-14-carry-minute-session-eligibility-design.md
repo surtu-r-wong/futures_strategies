@@ -1,5 +1,8 @@
 # Carry 分钟时段采集 eligibility 修正设计
 
+> **已被替代：** 本文由
+> `2026-08-14-carry-minute-session-eligibility-design-v2.md` 完整替代。
+
 **日期：** 2026-08-14
 **状态：** 已确认
 **作用范围：** `2026-08-13-carry-minute-execution-design.md` 的时段规则采集补充
