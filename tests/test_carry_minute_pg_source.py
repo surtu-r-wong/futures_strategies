@@ -1301,6 +1301,20 @@ def _session_candidate(
     )
 
 
+def test_session_representative_role_is_canonicalized_without_touching_future_roles():
+    representative = _session_candidate(
+        date(2024, 1, 8),
+        candidate_role="SESSION_REPRESENTATIVE",
+    )
+    future_role = _session_candidate(
+        date(2024, 1, 8),
+        candidate_role="Signal_Main",
+    )
+
+    assert representative.candidate_role == "session_representative"
+    assert future_role.candidate_role == "Signal_Main"
+
+
 def _boundary_row(candidate, *, observed_rows=345):
     previous = candidate.trade_date - timedelta(days=1)
     identity = (
@@ -1440,6 +1454,37 @@ def test_candidate_metadata_survives_sequence_and_dataframe_canonicalization(
     assert captured[0].candidate_role == "session_representative"
     assert captured[0].causal_in_pool_date == date(2024, 1, 5)
     assert captured[0].selection_source == "causal_in_pool_main"
+
+
+def test_zero_row_case_variant_representative_keeps_role_specific_failure(
+    monkeypatch,
+):
+    from cta_carry import minute_pg_source
+
+    candidate = _session_candidate(
+        date(2024, 1, 8),
+        candidate_role="SESSION_REPRESENTATIVE",
+        causal_in_pool_date=date(2024, 1, 5),
+        selection_source="causal_in_pool_main",
+    )
+    connection = FakeConnection(
+        boundary_rows=[_boundary_row(candidate, observed_rows=0)]
+    )
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).iter_session_boundaries(
+            [candidate],
+            lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+        )
+
+    assert exc_info.value.check == "session_representative_missing_minutes"
+    assert exc_info.value.context == {
+        "candidate_role": "session_representative",
+        "causal_in_pool_date": date(2024, 1, 5),
+        "selection_source": "causal_in_pool_main",
+    }
 
 
 def test_zero_row_session_representative_has_exact_role_specific_failure(monkeypatch):

@@ -113,7 +113,7 @@ class CapturedCandidate:
 
     def __post_init__(self) -> None:
         role = self.candidate.candidate_role
-        if type(role) is not str or role.casefold() != "session_representative":
+        if type(role) is not str or role != "session_representative":
             return
         if type(self.causal_in_pool_date) is not date:
             raise SessionCaptureError(

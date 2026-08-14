@@ -352,7 +352,10 @@ class MinuteCandidate:
         object.__setattr__(self, "daily_contract", self.daily_contract.strip().upper())
         object.__setattr__(self, "minute_symbol", normalized["minute_symbol"])
         object.__setattr__(self, "exchange", normalized["exchange"])
-        object.__setattr__(self, "candidate_role", self.candidate_role.strip())
+        candidate_role = self.candidate_role.strip()
+        if candidate_role.casefold() == "session_representative":
+            candidate_role = "session_representative"
+        object.__setattr__(self, "candidate_role", candidate_role)
         object.__setattr__(self, "selection_source", self.selection_source.strip())
 
 
@@ -788,7 +791,7 @@ def _validate_session_candidate_provenance(
                 candidate,
                 reason="boundary candidate_role must be explicit",
             )
-        if role.casefold() != "session_representative":
+        if role != "session_representative":
             continue
         if type(candidate.causal_in_pool_date) is not date:
             raise _session_candidate_metadata_error(
