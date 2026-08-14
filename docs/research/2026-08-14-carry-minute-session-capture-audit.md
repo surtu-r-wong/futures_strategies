@@ -169,5 +169,8 @@ old_weight=0.0 new_weight=-0.135499 direction=-1 tranches_remaining=3
 
 该动态腿需要当日开盘五分钟 VWAP、盘中止损观察和收盘计价。日线合成、其他
 合约替代、`none` authority 或删除包络键都不能恢复这些价格，且会违反已确认
-设计。继续完整分钟复现前必须从可审计来源修复 2018-01-02 AL 日盘分钟数据；
+设计。进一步枚举库内行情表确认，`public.market_data_minute` 的覆盖仅从
+2026-01-22 开始，目标窗口内 `AL1803` 为 0 行；其余带 OHLC、symbol 和时间列的
+对象只是现有 Timescale hypertable 的内部分块，不是独立备份源。因此库内没有
+可替代的历史分钟表。继续完整分钟复现前必须从可审计来源修复 2018-01-02 AL 日盘分钟数据；
 在此之前采集和分钟引擎保持 fail-closed。
