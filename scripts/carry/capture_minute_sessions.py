@@ -7,6 +7,7 @@ import csv
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -21,15 +22,18 @@ from cta_carry.config import CarryConfig
 from cta_carry.curve import aggregate_product_liquidity
 from cta_carry.minute_pg_source import (
     MinuteCandidate,
+    MinuteDataError,
     PublicMinuteSource,
     minute_contract_identity,
 )
 from cta_carry.minute_sessions import (
+    SESSION_RULES_CAPTURE_START,
     SESSION_RULES_VERSION,
     SessionRule,
     build_trading_slots,
     load_session_rules,
     resolve_session_rule,
+    validate_capture_coverage,
 )
 from cta_carry.pg_source import (
     load_public_carry_data,
@@ -37,8 +41,12 @@ from cta_carry.pg_source import (
 )
 from cta_carry.session_authority import (
     EffectiveAuthorityRange,
-    load_authority_ranges,
+    SessionAuthority,
+    SessionAuthorityError,
+    authorize_night_observation,
+    load_session_authority,
     matching_ranges,
+    validate_no_night_calendar,
 )
 
 
@@ -68,6 +76,10 @@ HISTORY_EXCEPTIONS_PATH = (
     / "config"
     / "carry_liquidity_history_exceptions.csv"
 )
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+NO_NIGHT_PATH = REPOSITORY_ROOT / "config" / "carry_minute_no_night_dates.csv"
+DAY_ONLY_PATH = REPOSITORY_ROOT / "config" / "carry_minute_day_only_regimes.csv"
+SESSION_RULES_PATH = REPOSITORY_ROOT / "config" / "carry_minute_sessions.csv"
 
 
 @dataclass(frozen=True)
@@ -102,6 +114,34 @@ class DefaultLiquidityAudit:
 
 class SessionCaptureError(ValueError):
     """Raised when empirical boundaries cannot define one exact session rule."""
+
+
+@dataclass(frozen=True, order=True)
+class AmbiguityRecord:
+    trade_date: date
+    exchange: str
+    product: str
+    check: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class CoverageReport:
+    rows: tuple[Mapping[str, Any], ...]
+    unknown_date_unkeyable_rows: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "rows",
+            tuple(MappingProxyType(dict(row)) for row in self.rows),
+        )
+
+    @property
+    def has_unkeyable(self) -> bool:
+        return self.unknown_date_unkeyable_rows != 0 or any(
+            row["normalization_unkeyable_rows"] != 0 for row in self.rows
+        )
 
 
 @dataclass(frozen=True)
@@ -728,7 +768,165 @@ def classify_session_boundary(row: Any) -> str:
     raise AssertionError("unreachable")
 
 
-def collapse_session_rules(classified: pd.DataFrame) -> list[dict[str, Any]]:
+def classify_authorized_boundaries(
+    boundaries: pd.DataFrame,
+    authority: SessionAuthority,
+) -> tuple[pd.DataFrame, tuple[AmbiguityRecord, ...]]:
+    """Classify every boundary and reconcile each result with authority."""
+    identity_columns = {"exchange", "product", "trade_date"}
+    missing = sorted(identity_columns.difference(boundaries.columns))
+    if missing:
+        raise SessionCaptureError(f"captured boundaries missing columns: {missing}")
+
+    classified: list[dict[str, Any]] = []
+    ambiguous: list[AmbiguityRecord] = []
+    ordered = boundaries.sort_values(
+        ["trade_date", "exchange", "product", "daily_contract"],
+        kind="mergesort",
+    )
+    for row in ordered.to_dict("records"):
+        try:
+            night_end = classify_session_boundary(row)
+            authorize_night_observation(
+                authority,
+                exchange=row["exchange"],
+                product=row["product"],
+                trade_date=row["trade_date"],
+                observed_night_end=night_end,
+            )
+        except (SessionCaptureError, SessionAuthorityError) as exc:
+            ambiguous.append(
+                AmbiguityRecord(
+                    trade_date=row["trade_date"],
+                    exchange=row["exchange"],
+                    product=row["product"],
+                    check=getattr(exc, "check", "empirical_boundary"),
+                    reason=str(exc),
+                )
+            )
+            continue
+        classified.append(
+            {
+                "exchange": row["exchange"],
+                "product": row["product"],
+                "trade_date": row["trade_date"],
+                "night_end": night_end,
+            }
+        )
+    return (
+        pd.DataFrame(
+            classified,
+            columns=["exchange", "product", "trade_date", "night_end"],
+        ),
+        tuple(sorted(ambiguous)),
+    )
+
+
+def coverage_report(
+    *,
+    data_quality: pd.DataFrame,
+    key_sets: AuditKeySets,
+    start: date,
+    end: date,
+) -> CoverageReport:
+    """Derive yearly coverage and normalization exclusions independently."""
+    _require_capture_dates(start, end)
+    _assert_audit_key_subsets(key_sets)
+    required = {"object_type", "object_id", "trade_date", "status", "action"}
+    missing = sorted(required.difference(data_quality.columns))
+    if missing:
+        raise SessionCaptureError(
+            f"data quality audit missing required columns: {missing}"
+        )
+
+    excluded_keys: set[AuditKey] = set()
+    unkeyable_by_year: dict[int, int] = {}
+    unknown_date_rows = 0
+    for row in data_quality.to_dict("records"):
+        if row["status"] != "excluded" or row["action"] != "exclude_candidate":
+            continue
+        trade_date = row["trade_date"]
+        if type(trade_date) is not date:
+            unknown_date_rows += 1
+            continue
+        if not start <= trade_date <= end:
+            continue
+        try:
+            product, _, exchange = minute_contract_identity(
+                row["object_id"], trade_date
+            )
+        except (MinuteDataError, TypeError, ValueError):
+            unkeyable_by_year[trade_date.year] = (
+                unkeyable_by_year.get(trade_date.year, 0) + 1
+            )
+            continue
+        key = (exchange, product, trade_date)
+        if key not in key_sets.normalized_keys:
+            excluded_keys.add(key)
+
+    rows: list[dict[str, Any]] = []
+    total_audited_days = 0
+    for year in range(start.year, end.year + 1):
+        normalized = frozenset(
+            key for key in key_sets.normalized_keys if key[2].year == year
+        )
+        in_pool = frozenset(
+            key for key in key_sets.in_pool_keys if key[2].year == year
+        )
+        universe = frozenset(
+            key for key in key_sets.audit_universe_keys if key[2].year == year
+        )
+        audited = frozenset(
+            key for key in key_sets.audit_keys if key[2].year == year
+        )
+        if not in_pool <= normalized <= universe:
+            raise SessionCaptureError(
+                f"coverage_key_subset: invalid normalized chain for year={year}"
+            )
+        if not in_pool <= audited <= universe:
+            raise SessionCaptureError(
+                f"coverage_key_subset: invalid audit chain for year={year}"
+            )
+        total_audited_days += len(audited)
+        rows.append(
+            {
+                "coverage_year": year,
+                "all_product_days": len(normalized),
+                "in_pool_days": len(in_pool),
+                "in_pool_ratio": (
+                    f"{len(in_pool) / len(normalized):.6f}"
+                    if normalized
+                    else "0.000000"
+                ),
+                "audit_universe_days": len(universe),
+                "audited_days": len(audited),
+                "audited_ratio": (
+                    f"{len(audited) / len(universe):.6f}"
+                    if universe
+                    else "0.000000"
+                ),
+                "normalization_excluded_product_days": sum(
+                    key[2].year == year for key in excluded_keys
+                ),
+                "normalization_unkeyable_rows": unkeyable_by_year.get(year, 0),
+            }
+        )
+    if total_audited_days != len(key_sets.audit_keys):
+        raise SessionCaptureError(
+            "coverage_audited_total: yearly audited days differ from audit keys"
+        )
+    return CoverageReport(
+        rows=tuple(rows),
+        unknown_date_unkeyable_rows=unknown_date_rows,
+    )
+
+
+def collapse_session_rules(
+    classified: pd.DataFrame,
+    *,
+    global_calendar: Sequence[date],
+    audit_keys: Iterable[AuditKey],
+) -> list[dict[str, Any]]:
     """Collapse adjacent audited product dates with identical observed clocks."""
     required = {"exchange", "product", "trade_date", "night_end"}
     missing = sorted(required.difference(classified.columns))
@@ -744,6 +942,24 @@ def collapse_session_rules(classified: pd.DataFrame) -> list[dict[str, Any]]:
     if ordered.empty:
         raise SessionCaptureError("no classified boundaries are available")
 
+    calendar = _ordered_calendar(global_calendar)
+    position_by_date = {day: position for position, day in enumerate(calendar)}
+    audited = frozenset(_validate_audit_key(key) for key in audit_keys)
+    classified_keys = frozenset(
+        (row.exchange, row.product, row.trade_date)
+        for row in ordered.itertuples(index=False)
+    )
+    if classified_keys != audited:
+        raise SessionCaptureError(
+            "boundary_keys_mismatch: classified boundary keys must equal audit keys"
+        )
+    missing_calendar = sorted({key[2] for key in audited}.difference(calendar))
+    if missing_calendar:
+        raise SessionCaptureError(
+            "audit keys fall outside global calendar: "
+            + ", ".join(day.isoformat() for day in missing_calendar)
+        )
+
     rules: list[dict[str, Any]] = []
     for (exchange, product), group in ordered.groupby(
         ["exchange", "product"], sort=True
@@ -757,7 +973,11 @@ def collapse_session_rules(classified: pd.DataFrame) -> list[dict[str, Any]]:
         for record in records[1:]:
             if record.night_end not in ALLOWED_NIGHT_ENDS:
                 raise SessionCaptureError(f"unsupported night_end {record.night_end!r}")
-            if record.night_end != night_end:
+            adjacent = (
+                position_by_date[record.trade_date]
+                == position_by_date[previous_date] + 1
+            )
+            if record.night_end != night_end or not adjacent:
                 rules.append(
                     {
                         "exchange": exchange,
@@ -785,6 +1005,139 @@ def collapse_session_rules(classified: pd.DataFrame) -> list[dict[str, Any]]:
         rules,
         key=lambda row: (row["exchange"], row["product"], row["effective_start"]),
     )
+
+
+def validate_boundary_keys(
+    boundaries: pd.DataFrame,
+    audit_keys: Iterable[AuditKey],
+) -> frozenset[AuditKey]:
+    """Require exactly one empirical boundary row for every audit key."""
+    required = {"exchange", "product", "trade_date"}
+    missing_columns = sorted(required.difference(boundaries.columns))
+    if missing_columns:
+        raise SessionCaptureError(
+            f"boundary_schema: missing columns {missing_columns}"
+        )
+    if boundaries.empty:
+        raise SessionCaptureError("boundary_zero_rows: no boundaries returned")
+    identity = boundaries.loc[:, ["exchange", "product", "trade_date"]]
+    if identity.duplicated().any():
+        raise SessionCaptureError(
+            "boundary_duplicate_rows: duplicate product-day boundaries"
+        )
+    boundary_keys = frozenset(
+        _validate_audit_key(tuple(row))
+        for row in identity.itertuples(index=False, name=None)
+    )
+    audited = frozenset(_validate_audit_key(key) for key in audit_keys)
+    missing = audited.difference(boundary_keys)
+    unexpected = boundary_keys.difference(audited)
+    if missing:
+        raise SessionCaptureError(
+            "boundary_missing_keys: " + repr(sorted(missing))
+        )
+    if unexpected:
+        raise SessionCaptureError(
+            "boundary_unexpected_keys: " + repr(sorted(unexpected))
+        )
+    return boundary_keys
+
+
+def require_publishable_coverage(report: CoverageReport) -> None:
+    if report.has_unkeyable:
+        raise SessionCaptureError(
+            "normalization_unkeyable: publication requires all raw exclusions "
+            "to have an auditable product-day identity"
+        )
+
+
+def validate_capture_request(
+    *,
+    start: date,
+    backtest_start: date,
+    output: Path,
+    prewarm_calendar_days: int,
+) -> date:
+    """Enforce prewarm coverage and the repository asset's fixed start."""
+    _require_capture_dates(start, start)
+    required_start = validate_capture_coverage(
+        capture_start=start,
+        backtest_start=backtest_start,
+        prewarm_calendar_days=prewarm_calendar_days,
+    )
+    if (
+        Path(output).resolve(strict=False)
+        == SESSION_RULES_PATH.resolve(strict=False)
+        and start != SESSION_RULES_CAPTURE_START
+    ):
+        raise SessionCaptureError(
+            "repository_capture_start: repository session rules must begin "
+            f"{SESSION_RULES_CAPTURE_START.isoformat()}"
+        )
+    return required_start
+
+
+def validate_capture_output_paths(
+    *,
+    output: Path,
+    inventory_output: Path,
+    audit_report: Path,
+) -> None:
+    resolved = {
+        Path(output).resolve(strict=False),
+        Path(inventory_output).resolve(strict=False),
+        Path(audit_report).resolve(strict=False),
+    }
+    if len(resolved) != 3:
+        raise SessionCaptureError(
+            "capture_output_path_collision: output, inventory, and audit "
+            "report paths must be pairwise distinct"
+        )
+
+
+def _validate_authority_hashes(
+    authority: SessionAuthority,
+    authority_paths: Mapping[str, Path],
+) -> None:
+    expected_names = {"no_night", "day_only", "history_exception"}
+    if set(authority_paths) != expected_names:
+        raise SessionCaptureError(
+            "authority_hash_paths: expected all three fixed authority assets"
+        )
+    if set(authority.sha256_by_asset) != expected_names:
+        raise SessionCaptureError(
+            "authority_hash_manifest: expected all three authority hashes"
+        )
+    for name in sorted(expected_names):
+        try:
+            actual = hashlib.sha256(Path(authority_paths[name]).read_bytes()).hexdigest()
+        except OSError as exc:
+            raise SessionCaptureError(
+                f"authority_hash_read: {name} could not be read"
+            ) from exc
+        if actual != authority.sha256_by_asset[name]:
+            raise SessionCaptureError(
+                f"authority_hash_mismatch: asset={name} "
+                f"expected={authority.sha256_by_asset[name]} actual={actual}"
+            )
+
+
+def expand_rule_keys(
+    rules: Sequence[SessionRule],
+    *,
+    global_calendar: Sequence[date],
+) -> frozenset[AuditKey]:
+    """Expand loaded inclusive rules only over concrete global trading days."""
+    calendar = _ordered_calendar(global_calendar)
+    expanded: set[AuditKey] = set()
+    for rule in rules:
+        for trade_date in calendar:
+            if trade_date < rule.effective_start:
+                continue
+            if rule.effective_end is not None and trade_date > rule.effective_end:
+                continue
+            expanded.add((rule.exchange, rule.product, trade_date))
+    return frozenset(expanded)
 
 
 def _stage_session_rules(output: Path, rules: Sequence[dict[str, Any]]) -> Path:
@@ -873,17 +1226,168 @@ def validate_audited_boundaries(
                 )
 
 
+def publish_session_rules(
+    *,
+    output: Path,
+    rule_rows: Sequence[dict[str, Any]],
+    boundaries: pd.DataFrame,
+    global_calendar: Sequence[date],
+    audit_keys: Iterable[AuditKey],
+    authority: SessionAuthority,
+    authority_paths: Mapping[str, Path],
+) -> tuple[SessionRule, ...]:
+    """Replay, reverse-expand, then atomically replace the formal asset."""
+    audited = frozenset(_validate_audit_key(key) for key in audit_keys)
+    validate_boundary_keys(boundaries, audited)
+    _validate_authority_hashes(authority, authority_paths)
+    temporary = _stage_session_rules(Path(output), rule_rows)
+    try:
+        loaded_rules = tuple(load_session_rules(temporary))
+        validate_audited_boundaries(boundaries, loaded_rules)
+        reverse_keys = expand_rule_keys(
+            loaded_rules,
+            global_calendar=global_calendar,
+        )
+        if reverse_keys != audited:
+            raise SessionCaptureError(
+                "reverse_key_mismatch: loaded rules expand beyond or omit audit keys"
+            )
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return loaded_rules
+
+
+def _coverage_line(row: Mapping[str, Any]) -> str:
+    fields = (
+        "coverage_year",
+        "all_product_days",
+        "in_pool_days",
+        "in_pool_ratio",
+        "audit_universe_days",
+        "audited_days",
+        "audited_ratio",
+        "normalization_excluded_product_days",
+        "normalization_unkeyable_rows",
+    )
+    return " ".join(f"{field}={row[field]}" for field in fields)
+
+
+def _authority_line(authority: SessionAuthority) -> str:
+    hashes = authority.sha256_by_asset
+    return (
+        f"session_authority version={SESSION_RULES_VERSION} "
+        f"no_night_sha256={hashes['no_night']} "
+        f"day_only_sha256={hashes['day_only']} "
+        f"history_exception_sha256={hashes['history_exception']}"
+    )
+
+
+def write_capture_diagnostics(
+    *,
+    inventory_output: Path,
+    audit_report: Path,
+    ambiguities: Sequence[AmbiguityRecord],
+    report: CoverageReport,
+    status: str,
+    log_lines: Sequence[str],
+    summary: str,
+) -> None:
+    """Write deterministic non-authoritative inventory and audit outputs."""
+    if status not in {"blocked", "published"}:
+        raise SessionCaptureError(f"diagnostic_status: unsupported {status!r}")
+    inventory_output.parent.mkdir(parents=True, exist_ok=True)
+    with inventory_output.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=("exchange", "product", "trade_date", "check", "reason"),
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        for item in sorted(ambiguities):
+            writer.writerow(
+                {
+                    "exchange": item.exchange,
+                    "product": item.product,
+                    "trade_date": item.trade_date.isoformat(),
+                    "check": item.check,
+                    "reason": item.reason,
+                }
+            )
+
+    report_lines = [
+        f"publication_status={status}",
+        *log_lines,
+        *(_coverage_line(row) for row in report.rows),
+        (
+            "normalization_unkeyable_unknown_date_rows="
+            f"{report.unknown_date_unkeyable_rows}"
+        ),
+        *(
+            "ambiguous_session="
+            f"{item.trade_date.isoformat()} {item.exchange} {item.product} "
+            f"check={item.check} reason={item.reason}"
+            for item in sorted(ambiguities)
+        ),
+        summary,
+    ]
+    audit_report.parent.mkdir(parents=True, exist_ok=True)
+    audit_report.write_text("\n".join(report_lines) + "\n", encoding="utf-8")
+
+
 def capture_and_publish(
     *,
     start: date,
     end: date,
+    backtest_start: date,
     output: Path,
+    inventory_output: Path,
+    audit_report: Path,
     settings: Path | None,
     use_test: bool,
 ) -> tuple[int, int, int, int]:
-    """Capture, validate, and atomically publish the repository rule asset."""
+    """Capture, authority-check, and atomically publish session rules."""
+    validate_capture_output_paths(
+        output=output,
+        inventory_output=inventory_output,
+        audit_report=audit_report,
+    )
     _require_capture_dates(start, end)
     config = CarryConfig()
+    validate_capture_request(
+        start=start,
+        backtest_start=backtest_start,
+        output=output,
+        prewarm_calendar_days=config.prewarm_calendar_days,
+    )
+    authority_paths = {
+        "no_night": NO_NIGHT_PATH,
+        "day_only": DAY_ONLY_PATH,
+        "history_exception": HISTORY_EXCEPTIONS_PATH,
+    }
+    authority = load_session_authority(
+        no_night_path=NO_NIGHT_PATH,
+        day_only_path=DAY_ONLY_PATH,
+        history_exception_path=HISTORY_EXCEPTIONS_PATH,
+    )
+    eligibility_line = (
+        "eligibility_config "
+        f"liquidity_window={config.liquidity_window} "
+        f"liquidity_threshold={config.liquidity_threshold} "
+        f"prewarm_calendar_days={config.prewarm_calendar_days}"
+    )
+    range_line = (
+        f"requested_range start={start.isoformat()} "
+        f"end={end.isoformat()} "
+        f"daily_load_start="
+        f"{(start - timedelta(days=config.prewarm_calendar_days)).isoformat()} "
+        f"backtest_start={backtest_start.isoformat()}"
+    )
+    authority_line = _authority_line(authority)
+    log_lines = (eligibility_line, range_line, authority_line)
+    for line in log_lines:
+        print(line)
+
     data = load_public_carry_data(
         start=start,
         end=end,
@@ -895,63 +1399,116 @@ def capture_and_publish(
         config_path=settings,
         use_test=use_test,
     )
-    history_exceptions = load_authority_ranges(HISTORY_EXCEPTIONS_PATH)
     audit = _build_default_liquidity_audit(
         data.prices,
         history_starts=history_starts,
-        history_exceptions=history_exceptions,
+        history_exceptions=authority.liquidity_history_exceptions,
         start=start,
         end=end,
         config=config,
     )
     _assert_audit_key_subsets(audit.key_sets)
-    print(
-        "eligibility_config="
-        f"liquidity_window:{config.liquidity_window},"
-        f"liquidity_threshold:{config.liquidity_threshold},"
-        f"prewarm_calendar_days:{config.prewarm_calendar_days}"
+    validate_no_night_calendar(authority.no_night_dates, audit.global_calendar)
+    report = coverage_report(
+        data_quality=data.data_quality,
+        key_sets=audit.key_sets,
+        start=start,
+        end=end,
     )
-    selected = audit.candidates
-    source = PublicMinuteSource(config_path=settings, use_test=use_test)
-    boundaries = capture_session_boundaries(source, selected)
-    products = sorted(set(boundaries["product"]))
-    checked_days = len(boundaries)
-    classified_rows: list[dict[str, Any]] = []
-    ambiguous: list[str] = []
-    for row in boundaries.to_dict("records"):
-        try:
-            night_end = classify_session_boundary(row)
-        except SessionCaptureError as exc:
-            ambiguous.append(str(exc))
-            continue
-        classified_rows.append(
-            {
-                "exchange": row["exchange"],
-                "product": row["product"],
-                "trade_date": row["trade_date"],
-                "night_end": night_end,
-            }
-        )
-    if ambiguous:
-        for message in ambiguous:
-            print(f"ambiguous_session={message}", file=os.sys.stderr)
-        print(
-            f"products={len(products)} rules=0 checked_days={checked_days} "
-            f"ambiguous={len(ambiguous)}"
-        )
-        return len(products), 0, checked_days, len(ambiguous)
-
-    rule_rows = collapse_session_rules(pd.DataFrame(classified_rows))
-    temporary = _stage_session_rules(output, rule_rows)
-    try:
-        loaded_rules = load_session_rules(temporary)
-        validate_audited_boundaries(boundaries, loaded_rules)
-        os.replace(temporary, output)
-    finally:
-        temporary.unlink(missing_ok=True)
+    for row in report.rows:
+        print(_coverage_line(row))
     print(
+        "normalization_unkeyable_unknown_date_rows="
+        f"{report.unknown_date_unkeyable_rows}"
+    )
+
+    products = sorted({key[1] for key in audit.key_sets.audit_keys})
+    try:
+        require_publishable_coverage(report)
+    except SessionCaptureError:
+        blocked = report.unknown_date_unkeyable_rows + sum(
+            row["normalization_unkeyable_rows"] for row in report.rows
+        )
+        summary = (
+            f"products={len(products)} rules=0 checked_days=0 "
+            f"ambiguous={blocked}"
+        )
+        print(
+            f"ambiguous_session=normalization_unkeyable count={blocked}",
+            file=os.sys.stderr,
+        )
+        print(summary)
+        write_capture_diagnostics(
+            inventory_output=inventory_output,
+            audit_report=audit_report,
+            ambiguities=(),
+            report=report,
+            status="blocked",
+            log_lines=log_lines,
+            summary=summary,
+        )
+        return len(products), 0, 0, blocked
+
+    source = PublicMinuteSource(config_path=settings, use_test=use_test)
+    boundaries = capture_session_boundaries(source, audit.candidates)
+    boundary_keys = validate_boundary_keys(boundaries, audit.key_sets.audit_keys)
+    checked_days = len(boundary_keys)
+    if checked_days != sum(row["audited_days"] for row in report.rows):
+        raise SessionCaptureError(
+            "checked_days_mismatch: boundary and yearly audited totals differ"
+        )
+    classified, ambiguities = classify_authorized_boundaries(boundaries, authority)
+    if ambiguities:
+        for item in ambiguities:
+            print(
+                "ambiguous_session="
+                f"{item.trade_date.isoformat()} {item.exchange} {item.product} "
+                f"check={item.check} reason={item.reason}",
+                file=os.sys.stderr,
+            )
+        summary = (
+            f"products={len(products)} rules=0 checked_days={checked_days} "
+            f"ambiguous={len(ambiguities)}"
+        )
+        print(summary)
+        write_capture_diagnostics(
+            inventory_output=inventory_output,
+            audit_report=audit_report,
+            ambiguities=ambiguities,
+            report=report,
+            status="blocked",
+            log_lines=log_lines,
+            summary=summary,
+        )
+        return len(products), 0, checked_days, len(ambiguities)
+
+    rule_rows = collapse_session_rules(
+        classified,
+        global_calendar=audit.global_calendar,
+        audit_keys=audit.key_sets.audit_keys,
+    )
+    loaded_rules = publish_session_rules(
+        output=output,
+        rule_rows=rule_rows,
+        boundaries=boundaries,
+        global_calendar=audit.global_calendar,
+        audit_keys=audit.key_sets.audit_keys,
+        authority=authority,
+        authority_paths=authority_paths,
+    )
+    summary = (
         f"products={len(products)} rules={len(loaded_rules)} "
         f"checked_days={checked_days} ambiguous=0"
+    )
+    print(summary)
+    write_capture_diagnostics(
+        inventory_output=inventory_output,
+        audit_report=audit_report,
+        ambiguities=(),
+        report=report,
+        status="published",
+        log_lines=log_lines,
+        summary=summary,
     )
     return len(products), len(loaded_rules), checked_days, 0
 
@@ -962,7 +1519,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--start", type=date.fromisoformat, required=True)
     parser.add_argument("--end", type=date.fromisoformat, required=True)
+    parser.add_argument("--backtest-start", type=date.fromisoformat, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--inventory-output", type=Path, required=True)
+    parser.add_argument("--audit-report", type=Path, required=True)
     parser.add_argument("--settings", type=Path)
     parser.add_argument("--use-test", action="store_true")
     return parser
@@ -973,7 +1533,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     *_, ambiguous = capture_and_publish(
         start=args.start,
         end=args.end,
+        backtest_start=args.backtest_start,
         output=args.output,
+        inventory_output=args.inventory_output,
+        audit_report=args.audit_report,
         settings=args.settings,
         use_test=args.use_test,
     )

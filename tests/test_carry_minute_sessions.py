@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -21,7 +22,12 @@ from cta_carry.minute_sessions import (
     resolve_session_rule,
     validate_capture_coverage,
 )
-from cta_carry.session_authority import EffectiveAuthorityRange
+from cta_carry.data import CarryDataSet
+from cta_carry.session_authority import (
+    EffectiveAuthorityRange,
+    NoNightDate,
+    SessionAuthority,
+)
 from scripts.carry import capture_minute_sessions as capture_module
 from scripts.carry.capture_minute_sessions import (
     SessionCaptureError,
@@ -961,7 +967,9 @@ def test_capture_collapse_accepts_2330_as_an_allowed_boundary():
                     "night_end": "23:30",
                 }
             ]
-        )
+        ),
+        global_calendar=[trade_date],
+        audit_keys={("DCE", "I", trade_date)},
     ) == [
         {
             "exchange": "DCE",
@@ -1004,7 +1012,16 @@ def test_capture_collapses_every_observed_rule_change_even_inside_a_month():
         ]
     )
 
-    assert collapse_session_rules(classified) == [
+    audit_keys = frozenset(
+        (row.exchange, row.product, row.trade_date)
+        for row in classified.itertuples(index=False)
+    )
+
+    assert collapse_session_rules(
+        classified,
+        global_calendar=classified["trade_date"].tolist(),
+        audit_keys=audit_keys,
+    ) == [
         {
             "exchange": "SHFE",
             "product": "AU",
@@ -1533,9 +1550,10 @@ def test_capture_entry_wires_default_config_history_and_audit_candidates(
         pass
 
     captured = {}
+    start = date(2024, 1, 2)
+    end = date(2024, 1, 4)
     prices = object()
     history_starts = object()
-    history_exceptions = (object(),)
     candidates = (object(),)
     empty_keys = capture_module.AuditKeySets(
         normalized_keys=frozenset(),
@@ -1543,23 +1561,30 @@ def test_capture_entry_wires_default_config_history_and_audit_candidates(
         audit_universe_keys=frozenset(),
         audit_keys=frozenset(),
     )
+    empty_quality = pd.DataFrame(
+        columns=["object_type", "object_id", "trade_date", "status", "action"]
+    )
 
     def fake_daily_loader(**kwargs):
         captured["daily_loader"] = kwargs
-        return SimpleNamespace(prices=prices)
+        return SimpleNamespace(prices=prices, data_quality=empty_quality)
 
     def fake_history_loader(**kwargs):
         captured["history_loader"] = kwargs
         return history_starts
 
-    def fake_authority_loader(path):
-        captured["history_exception_path"] = path
-        return history_exceptions
+    def fake_authority_loader(**kwargs):
+        captured["authority_paths"] = kwargs
+        return _authority()
 
     def fake_audit_builder(frame, **kwargs):
         captured["audit_builder_frame"] = frame
         captured["audit_builder"] = kwargs
-        return SimpleNamespace(key_sets=empty_keys, candidates=candidates)
+        return SimpleNamespace(
+            key_sets=empty_keys,
+            candidates=candidates,
+            global_calendar=(start,),
+        )
 
     def reject_legacy_selector(*args, **kwargs):
         raise AssertionError("legacy unfiltered selector must not be called")
@@ -1578,7 +1603,7 @@ def test_capture_entry_wires_default_config_history_and_audit_candidates(
     )
     monkeypatch.setattr(
         capture_module,
-        "load_authority_ranges",
+        "load_session_authority",
         fake_authority_loader,
     )
     monkeypatch.setattr(
@@ -1602,13 +1627,14 @@ def test_capture_entry_wires_default_config_history_and_audit_candidates(
         stop_at_boundaries,
     )
 
-    start = date(2024, 1, 2)
-    end = date(2024, 1, 4)
     settings = tmp_path / "settings.yaml"
     with pytest.raises(BoundaryReached):
         capture_module.capture_and_publish(
             start=start,
             end=end,
+            backtest_start=date(2027, 1, 1),
+            inventory_output=tmp_path / "inventory.csv",
+            audit_report=tmp_path / "audit.txt",
             output=tmp_path / "sessions.csv",
             settings=settings,
             use_test=True,
@@ -1628,10 +1654,868 @@ def test_capture_entry_wires_default_config_history_and_audit_candidates(
         "config_path": settings,
         "use_test": True,
     }
-    assert captured["history_exception_path"] == capture_module.HISTORY_EXCEPTIONS_PATH
+    assert captured["authority_paths"] == {
+        "no_night_path": capture_module.NO_NIGHT_PATH,
+        "day_only_path": capture_module.DAY_ONLY_PATH,
+        "history_exception_path": capture_module.HISTORY_EXCEPTIONS_PATH,
+    }
     assert captured["audit_builder_frame"] is prices
     assert captured["audit_builder"]["history_starts"] is history_starts
-    assert captured["audit_builder"]["history_exceptions"] is history_exceptions
+    assert captured["audit_builder"]["history_exceptions"] == ()
     assert captured["audit_builder"]["config"] is loader_config
     assert captured["boundary_source"] is source
     assert captured["boundary_candidates"] is candidates
+
+
+def _authority(*, no_night=(), day_only=(), hashes=None):
+    return SessionAuthority(
+        no_night_dates=tuple(no_night),
+        day_only_regimes=tuple(day_only),
+        liquidity_history_exceptions=(),
+        sha256_by_asset=hashes
+        or {
+            "no_night": "a" * 64,
+            "day_only": "b" * 64,
+            "history_exception": "c" * 64,
+        },
+    )
+
+
+def _observation(day, previous, *, night_end, exchange="SHFE", product="AU"):
+    row = {
+        "trade_date": day,
+        "previous_trade_date": previous,
+        "exchange": exchange,
+        "product": product,
+        "daily_contract": f"{product}2406.SHF",
+        "day_1_first": _at_for_test(day, 9, 0),
+        "day_1_last": _at_for_test(day, 10, 14),
+        "day_2_first": _at_for_test(day, 10, 30),
+        "day_2_last": _at_for_test(day, 11, 29),
+        "day_3_first": _at_for_test(day, 13, 30),
+        "day_3_last": _at_for_test(day, 14, 59),
+    }
+    if night_end == "none":
+        row.update(night_first=None, night_last=None)
+        return row
+    after_midnight = previous + timedelta(days=1)
+    end_day, hour, minute = {
+        "23:00": (previous, 22, 59),
+        "23:30": (previous, 23, 29),
+        "01:00": (after_midnight, 0, 59),
+        "02:30": (after_midnight, 2, 29),
+    }[night_end]
+    row.update(
+        night_first=_at_for_test(previous, 21, 0),
+        night_last=_at_for_test(end_day, hour, minute),
+    )
+    return row
+
+
+def _at_for_test(day, hour, minute):
+    return datetime.combine(day, datetime.min.time(), tzinfo=SHANGHAI).replace(
+        hour=hour, minute=minute
+    )
+
+
+def test_authority_rejects_weekend_shaped_none_without_authority():
+    friday = date(2024, 1, 5)
+    monday = date(2024, 1, 8)
+    rows, ambiguities = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([_observation(monday, friday, night_end="none")]),
+        _authority(),
+    )
+
+    assert rows.empty
+    assert [item.check for item in ambiguities] == ["night_authority_conflict"]
+
+
+@pytest.mark.parametrize("authority_kind", ["holiday", "day_only"])
+def test_authority_accepts_declared_none(authority_kind):
+    friday = date(2024, 1, 5)
+    monday = date(2024, 1, 8)
+    no_night = ()
+    day_only = ()
+    if authority_kind == "holiday":
+        no_night = (
+            NoNightDate(
+                version=SESSION_RULES_VERSION,
+                exchange="SHFE",
+                trade_date=monday,
+                reason="notice_evening=2024-01-05 holiday halt",
+                source_url="https://www.shfe.com.cn/example",
+            ),
+        )
+    else:
+        day_only = (
+            EffectiveAuthorityRange(
+                version=SESSION_RULES_VERSION,
+                exchange="SHFE",
+                product="AU",
+                effective_start=monday,
+                effective_end=monday,
+                reason="documented day-only regime",
+                source_url="https://www.shfe.com.cn/example",
+            ),
+        )
+
+    rows, ambiguities = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([_observation(monday, friday, night_end="none")]),
+        _authority(no_night=no_night, day_only=day_only),
+    )
+
+    assert ambiguities == ()
+    assert rows.to_dict("records") == [
+        {
+            "exchange": "SHFE",
+            "product": "AU",
+            "trade_date": monday,
+            "night_end": "none",
+        }
+    ]
+
+
+def test_authority_collects_every_unauthorized_continuous_none():
+    days = [date(2024, 1, day) for day in (8, 9, 10)]
+    rows, ambiguities = capture_module.classify_authorized_boundaries(
+        pd.DataFrame(
+            [
+                _observation(day, day - timedelta(days=1), night_end="none")
+                for day in reversed(days)
+            ]
+        ),
+        _authority(),
+    )
+
+    assert rows.empty
+    assert [item.trade_date for item in ambiguities] == days
+    assert all(item.check == "night_authority_conflict" for item in ambiguities)
+
+
+def test_authority_rejects_observed_night_inside_declared_none():
+    friday = date(2024, 1, 5)
+    monday = date(2024, 1, 8)
+    declared = NoNightDate(
+        version=SESSION_RULES_VERSION,
+        exchange="SHFE",
+        trade_date=monday,
+        reason="notice_evening=2024-01-05 holiday halt",
+        source_url="https://www.shfe.com.cn/example",
+    )
+
+    rows, ambiguities = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([_observation(monday, friday, night_end="23:00")]),
+        _authority(no_night=(declared,)),
+    )
+
+    assert rows.empty
+    assert [item.check for item in ambiguities] == ["night_authority_conflict"]
+
+
+def test_collapse_keeps_night_none_night_as_three_rules():
+    days = [date(2024, 1, day) for day in (8, 9, 10)]
+    audit_keys = frozenset(("SHFE", "AU", day) for day in days)
+    classified = pd.DataFrame(
+        [
+            {
+                "exchange": "SHFE",
+                "product": "AU",
+                "trade_date": day,
+                "night_end": value,
+            }
+            for day, value in zip(days, ("23:00", "none", "23:00"), strict=True)
+        ]
+    )
+
+    rules = collapse_session_rules(
+        classified,
+        global_calendar=days,
+        audit_keys=audit_keys,
+    )
+
+    assert [(row["effective_start"], row["effective_end"]) for row in rules] == [
+        (days[0], days[0]),
+        (days[1], days[1]),
+        (days[2], days[2]),
+    ]
+
+
+@pytest.mark.parametrize("right_night_end", ["23:00", "02:30"])
+def test_collapse_never_bridges_an_unaudited_global_trading_day(
+    right_night_end, tmp_path
+):
+    days = [date(2024, 1, day) for day in (8, 9, 10)]
+    audit_keys = frozenset(
+        {
+            ("SHFE", "AU", days[0]),
+            ("SHFE", "AU", days[2]),
+        }
+    )
+    classified = pd.DataFrame(
+        [
+            {
+                "exchange": "SHFE",
+                "product": "AU",
+                "trade_date": days[0],
+                "night_end": "23:00",
+            },
+            {
+                "exchange": "SHFE",
+                "product": "AU",
+                "trade_date": days[2],
+                "night_end": right_night_end,
+            },
+        ]
+    )
+
+    rows = collapse_session_rules(
+        classified,
+        global_calendar=days,
+        audit_keys=audit_keys,
+    )
+    staged = capture_module._stage_session_rules(tmp_path / "rules.csv", rows)
+    rules = load_session_rules(staged)
+
+    assert len(rules) == 2
+    with pytest.raises(SessionClockError, match="session_rule_cardinality"):
+        resolve_session_rule(rules, "SHFE", "AU", days[1])
+
+
+def _key(day, product="RB"):
+    return ("SHFE", product, day)
+
+
+def test_coverage_report_has_every_requested_year_and_independent_counts():
+    day = date(2024, 1, 2)
+    key_sets = capture_module.AuditKeySets(
+        normalized_keys=frozenset({_key(day), _key(day, "AU")}),
+        in_pool_keys=frozenset({_key(day)}),
+        audit_universe_keys=frozenset(
+            {_key(day), _key(day, "AU"), _key(day, "CU")}
+        ),
+        audit_keys=frozenset({_key(day), _key(day, "CU")}),
+    )
+    quality = pd.DataFrame(
+        [
+            {
+                "object_type": "contract_bar",
+                "object_id": "RB2405.SHF",
+                "trade_date": day,
+                "check": "ohlc_integrity",
+                "status": "excluded",
+                "action": "exclude_candidate",
+                "reason": "bad",
+            },
+            {
+                "object_type": "contract_bar",
+                "object_id": "CU2405.SHF",
+                "trade_date": day,
+                "check": "activity_fields",
+                "status": "excluded",
+                "action": "exclude_candidate",
+                "reason": "bad",
+            },
+            {
+                "object_type": "contract_bar",
+                "object_id": "BAD",
+                "trade_date": day,
+                "check": "contract_parse",
+                "status": "excluded",
+                "action": "exclude_candidate",
+                "reason": "bad",
+            },
+            {
+                "object_type": "contract_bar",
+                "object_id": "RB2405.SHF",
+                "trade_date": pd.NaT,
+                "check": "trade_date",
+                "status": "excluded",
+                "action": "exclude_candidate",
+                "reason": "unparseable_trade_date",
+            },
+        ]
+    )
+
+    report = capture_module.coverage_report(
+        data_quality=quality,
+        key_sets=key_sets,
+        start=date(2023, 12, 31),
+        end=date(2025, 1, 1),
+    )
+
+    assert [row["coverage_year"] for row in report.rows] == [2023, 2024, 2025]
+    assert report.rows[0]["in_pool_ratio"] == "0.000000"
+    assert report.rows[0]["audited_ratio"] == "0.000000"
+    assert report.rows[1] == {
+        "coverage_year": 2024,
+        "all_product_days": 2,
+        "in_pool_days": 1,
+        "in_pool_ratio": "0.500000",
+        "audit_universe_days": 3,
+        "audited_days": 2,
+        "audited_ratio": "0.666667",
+        "normalization_excluded_product_days": 1,
+        "normalization_unkeyable_rows": 1,
+    }
+    assert report.unknown_date_unkeyable_rows == 1
+    assert report.has_unkeyable
+
+
+def _authority_files(tmp_path):
+    payloads = {
+        "no_night": b"no-night-authority",
+        "day_only": b"day-only-authority",
+        "history_exception": b"history-exception-authority",
+    }
+    paths = {}
+    for name, payload in payloads.items():
+        path = tmp_path / f"{name}.csv"
+        path.write_bytes(payload)
+        paths[name] = path
+    hashes = {
+        name: hashlib.sha256(payload).hexdigest()
+        for name, payload in payloads.items()
+    }
+    return paths, hashes
+
+
+def _single_rule_capture(tmp_path):
+    previous = date(2024, 1, 5)
+    day = date(2024, 1, 8)
+    audit_keys = frozenset({("SHFE", "AU", day)})
+    boundaries = pd.DataFrame(
+        [_observation(day, previous, night_end="23:00")]
+    )
+    classified = pd.DataFrame(
+        [
+            {
+                "exchange": "SHFE",
+                "product": "AU",
+                "trade_date": day,
+                "night_end": "23:00",
+            }
+        ]
+    )
+    rows = collapse_session_rules(
+        classified,
+        global_calendar=[previous, day],
+        audit_keys=audit_keys,
+    )
+    paths, hashes = _authority_files(tmp_path)
+    return boundaries, rows, [previous, day], audit_keys, paths, hashes
+
+
+@pytest.mark.parametrize("problem", ["zero", "missing", "duplicate"])
+def test_boundary_key_validation_fails_closed(problem, tmp_path):
+    previous = date(2024, 1, 5)
+    day = date(2024, 1, 8)
+    other = date(2024, 1, 9)
+    row = _observation(day, previous, night_end="23:00")
+    if problem == "zero":
+        boundaries = pd.DataFrame(columns=row)
+    elif problem == "missing":
+        boundaries = pd.DataFrame([row])
+    else:
+        boundaries = pd.DataFrame([row, row])
+    expected = (
+        frozenset({("SHFE", "AU", other)})
+        if problem == "missing"
+        else frozenset({("SHFE", "AU", day)})
+    )
+
+    with pytest.raises(SessionCaptureError, match=f"boundary_{problem}"):
+        capture_module.validate_boundary_keys(boundaries, expected)
+
+    output = tmp_path / "sessions.csv"
+    output.write_bytes(b"old\n")
+    paths, hashes = _authority_files(tmp_path)
+    with pytest.raises(SessionCaptureError, match=f"boundary_{problem}"):
+        capture_module.publish_session_rules(
+            output=output,
+            rule_rows=(),
+            boundaries=boundaries,
+            global_calendar=[previous, day, other],
+            audit_keys=expected,
+            authority=_authority(hashes=hashes),
+            authority_paths=paths,
+        )
+
+    assert output.read_bytes() == b"old\n"
+    assert list(tmp_path.glob(".sessions.csv.*.tmp")) == []
+
+
+def test_boundary_keys_equal_audit_keys_on_success():
+    day = date(2024, 1, 8)
+    boundaries = pd.DataFrame(
+        [_observation(day, date(2024, 1, 5), night_end="23:00")]
+    )
+    audit_keys = frozenset({("SHFE", "AU", day)})
+
+    assert capture_module.validate_boundary_keys(boundaries, audit_keys) == audit_keys
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["hash_mismatch", "loader_replay", "reverse_key_mismatch", "replace"],
+)
+def test_atomic_publisher_preserves_old_asset_and_removes_temporary_files(
+    failure, monkeypatch, tmp_path
+):
+    (
+        boundaries,
+        rows,
+        calendar,
+        audit_keys,
+        paths,
+        hashes,
+    ) = _single_rule_capture(tmp_path)
+    output = tmp_path / "sessions.csv"
+    original = b"old-authoritative-bytes\n"
+    output.write_bytes(original)
+    authority = _authority(hashes=hashes)
+
+    if failure == "hash_mismatch":
+        authority = _authority(hashes={**hashes, "day_only": "0" * 64})
+    elif failure == "loader_replay":
+        monkeypatch.setattr(capture_module, "load_session_rules", lambda path: ())
+    elif failure == "reverse_key_mismatch":
+        monkeypatch.setattr(
+            capture_module,
+            "expand_rule_keys",
+            lambda *args, **kwargs: frozenset(),
+        )
+    else:
+        monkeypatch.setattr(
+            capture_module.os,
+            "replace",
+            lambda source, destination: (_ for _ in ()).throw(
+                OSError("replace failed")
+            ),
+        )
+
+    with pytest.raises((OSError, SessionCaptureError, SessionClockError)):
+        capture_module.publish_session_rules(
+            output=output,
+            rule_rows=rows,
+            boundaries=boundaries,
+            global_calendar=calendar,
+            audit_keys=audit_keys,
+            authority=authority,
+            authority_paths=paths,
+        )
+
+    assert output.read_bytes() == original
+    assert list(tmp_path.glob(".sessions.csv.*.tmp")) == []
+
+
+def test_atomic_publisher_replays_and_reverse_expands_before_replace(tmp_path):
+    (
+        boundaries,
+        rows,
+        calendar,
+        audit_keys,
+        paths,
+        hashes,
+    ) = _single_rule_capture(tmp_path)
+    output = tmp_path / "sessions.csv"
+
+    loaded = capture_module.publish_session_rules(
+        output=output,
+        rule_rows=rows,
+        boundaries=boundaries,
+        global_calendar=calendar,
+        audit_keys=audit_keys,
+        authority=_authority(hashes=hashes),
+        authority_paths=paths,
+    )
+
+    assert output.exists()
+    assert len(loaded) == 1
+    assert capture_module.expand_rule_keys(
+        loaded,
+        global_calendar=calendar,
+    ) == audit_keys
+
+
+def test_unkeyable_normalization_refuses_publication():
+    report = capture_module.CoverageReport(
+        rows=(
+            {
+                "coverage_year": 2024,
+                "normalization_unkeyable_rows": 1,
+            },
+        ),
+        unknown_date_unkeyable_rows=0,
+    )
+
+    with pytest.raises(SessionCaptureError, match="normalization_unkeyable"):
+        capture_module.require_publishable_coverage(report)
+
+
+def test_capture_parser_requires_backtest_and_diagnostic_destinations():
+    parser = capture_module.build_parser()
+    base = [
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-02",
+        "--output",
+        "sessions.csv",
+    ]
+    valid = [
+        *base,
+        "--backtest-start",
+        "2026-01-02",
+        "--inventory-output",
+        "inventory.csv",
+        "--audit-report",
+        "audit.md",
+    ]
+
+    parsed = parser.parse_args(valid)
+    assert parsed.backtest_start == date(2026, 1, 2)
+
+    for missing in ("--backtest-start", "--inventory-output", "--audit-report"):
+        complete = [
+            *base,
+            "--backtest-start",
+            "2025-01-01",
+            "--inventory-output",
+            "inventory.csv",
+            "--audit-report",
+            "audit.md",
+        ]
+        index = complete.index(missing)
+        del complete[index : index + 2]
+        with pytest.raises(SystemExit):
+            parser.parse_args(complete)
+
+
+def test_capture_request_enforces_repository_start_and_backtest_prewarm():
+    with pytest.raises(SessionCaptureError, match="repository_capture_start"):
+        capture_module.validate_capture_request(
+            start=SESSION_RULES_CAPTURE_START + timedelta(days=1),
+            backtest_start=date(2013, 1, 4),
+            output=capture_module.SESSION_RULES_PATH,
+            prewarm_calendar_days=730,
+        )
+
+    with pytest.raises(SessionClockError, match="session_asset_prewarm_coverage"):
+        capture_module.validate_capture_request(
+            start=date(2024, 1, 2),
+            backtest_start=date(2025, 1, 1),
+            output=Path("/tmp/temporary-session-rules.csv"),
+            prewarm_calendar_days=730,
+        )
+
+
+def _install_capture_flow(monkeypatch, *, night_ends, data_quality=None):
+    previous = date(2024, 1, 5)
+    days = [
+        date(2024, 1, 8) + timedelta(days=index)
+        for index in range(len(night_ends))
+    ]
+    calendar = [previous, *days]
+    keys = frozenset(("SHFE", "AU", day) for day in days)
+    key_sets = capture_module.AuditKeySets(
+        normalized_keys=keys,
+        in_pool_keys=keys,
+        audit_universe_keys=keys,
+        audit_keys=keys,
+    )
+    audit = SimpleNamespace(
+        key_sets=key_sets,
+        candidates=(object(),),
+        global_calendar=tuple(calendar),
+    )
+    boundaries = pd.DataFrame(
+        [
+            _observation(
+                day,
+                calendar[index],
+                night_end=night_end,
+            )
+            for index, (day, night_end) in enumerate(
+                zip(days, night_ends, strict=True)
+            )
+        ]
+    )
+    quality = (
+        pd.DataFrame(
+            columns=[
+                "object_type",
+                "object_id",
+                "trade_date",
+                "check",
+                "status",
+                "action",
+                "reason",
+            ]
+        )
+        if data_quality is None
+        else data_quality
+    )
+    authority = _authority()
+    calls = {"calendar_validation": 0}
+
+    monkeypatch.setattr(
+        capture_module,
+        "load_public_carry_data",
+        lambda **kwargs: CarryDataSet(prices=object(), data_quality=quality),
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "load_public_product_history_starts",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "_build_default_liquidity_audit",
+        lambda *args, **kwargs: audit,
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "load_session_authority",
+        lambda **kwargs: authority,
+        raising=False,
+    )
+
+    def validate_calendar(rows, actual_calendar):
+        calls["calendar_validation"] += 1
+        assert tuple(actual_calendar) == tuple(calendar)
+
+    monkeypatch.setattr(
+        capture_module,
+        "validate_no_night_calendar",
+        validate_calendar,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "PublicMinuteSource",
+        lambda **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "capture_session_boundaries",
+        lambda source, candidates: boundaries,
+    )
+    return authority, calls, keys
+
+
+def test_capture_aggregates_all_authority_ambiguities_and_writes_diagnostics(
+    monkeypatch, tmp_path, capsys
+):
+    _, calls, _ = _install_capture_flow(
+        monkeypatch,
+        night_ends=("none", "none"),
+    )
+    output = tmp_path / "sessions.csv"
+    output.write_bytes(b"old\n")
+    inventory = tmp_path / "inventory.csv"
+    report = tmp_path / "audit.txt"
+
+    result = capture_module.capture_and_publish(
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 9),
+        backtest_start=date(2026, 1, 9),
+        output=output,
+        inventory_output=inventory,
+        audit_report=report,
+        settings=None,
+        use_test=True,
+    )
+
+    captured = capsys.readouterr()
+    assert result == (1, 0, 2, 2)
+    assert calls["calendar_validation"] == 1
+    assert output.read_bytes() == b"old\n"
+    inventory_rows = pd.read_csv(inventory)
+    assert inventory_rows["check"].tolist() == [
+        "night_authority_conflict",
+        "night_authority_conflict",
+    ]
+    assert "publication_status=blocked" in report.read_text()
+    assert "session_authority version=commodity-v1" in captured.out
+    assert (
+        "eligibility_config liquidity_window=120 "
+        "liquidity_threshold=5000000000.0 prewarm_calendar_days=730"
+    ) in captured.out
+    assert (
+        "requested_range start=2024-01-08 end=2024-01-09 "
+        "daily_load_start=2022-01-08 backtest_start=2026-01-09"
+    ) in captured.out
+    assert "coverage_year=2024" in captured.out
+    assert "normalization_unkeyable_unknown_date_rows=0" in captured.out
+    assert captured.err.count("ambiguous_session=") == 2
+
+
+def test_capture_success_uses_checked_publisher_and_marks_report_published(
+    monkeypatch, tmp_path, capsys
+):
+    authority, calls, audit_keys = _install_capture_flow(
+        monkeypatch,
+        night_ends=("23:00",),
+    )
+    published = {}
+
+    def fake_publish(**kwargs):
+        published.update(kwargs)
+        kwargs["output"].write_bytes(b"published\n")
+        return (object(),)
+
+    monkeypatch.setattr(capture_module, "publish_session_rules", fake_publish)
+    output = tmp_path / "sessions.csv"
+    inventory = tmp_path / "inventory.csv"
+    report = tmp_path / "audit.txt"
+
+    result = capture_module.capture_and_publish(
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 8),
+        backtest_start=date(2026, 1, 8),
+        output=output,
+        inventory_output=inventory,
+        audit_report=report,
+        settings=None,
+        use_test=True,
+    )
+
+    captured = capsys.readouterr()
+    assert result == (1, 1, 1, 0)
+    assert calls["calendar_validation"] == 1
+    assert published["audit_keys"] == audit_keys
+    assert published["authority"] is authority
+    assert inventory.read_text().splitlines() == [
+        "exchange,product,trade_date,check,reason"
+    ]
+    assert "publication_status=published" in report.read_text()
+    assert "products=1 rules=1 checked_days=1 ambiguous=0" in captured.out
+
+
+def test_capture_unkeyable_uses_the_single_gate_without_querying_minutes(
+    monkeypatch, tmp_path
+):
+    day = date(2024, 1, 8)
+    quality = pd.DataFrame(
+        [
+            {
+                "object_type": "contract_bar",
+                "object_id": "BAD",
+                "trade_date": day,
+                "check": "contract_parse",
+                "status": "excluded",
+                "action": "exclude_candidate",
+                "reason": "bad identity",
+            },
+            {
+                "object_type": "contract_bar",
+                "object_id": "AU2406.SHF",
+                "trade_date": pd.NaT,
+                "check": "trade_date",
+                "status": "excluded",
+                "action": "exclude_candidate",
+                "reason": "bad date",
+            },
+        ]
+    )
+    _install_capture_flow(
+        monkeypatch,
+        night_ends=("23:00",),
+        data_quality=quality,
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "PublicMinuteSource",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("unkeyable capture must not construct a minute source")
+        ),
+    )
+    original_gate = capture_module.require_publishable_coverage
+    gate_calls = 0
+
+    def counted_gate(report):
+        nonlocal gate_calls
+        gate_calls += 1
+        return original_gate(report)
+
+    monkeypatch.setattr(
+        capture_module,
+        "require_publishable_coverage",
+        counted_gate,
+    )
+    output = tmp_path / "sessions.csv"
+    output.write_bytes(b"old\n")
+    inventory = tmp_path / "inventory.csv"
+    report = tmp_path / "audit.txt"
+    kwargs = {
+        "start": date(2024, 1, 8),
+        "end": date(2024, 1, 8),
+        "backtest_start": date(2026, 1, 8),
+        "output": output,
+        "inventory_output": inventory,
+        "audit_report": report,
+        "settings": None,
+        "use_test": True,
+    }
+
+    assert capture_module.capture_and_publish(**kwargs) == (1, 0, 0, 2)
+    assert output.read_bytes() == b"old\n"
+    assert "publication_status=blocked" in report.read_text()
+    assert capture_module.main(
+        [
+            "--start",
+            "2024-01-08",
+            "--end",
+            "2024-01-08",
+            "--backtest-start",
+            "2026-01-08",
+            "--output",
+            str(output),
+            "--inventory-output",
+            str(inventory),
+            "--audit-report",
+            str(report),
+        ]
+    ) == 1
+    assert output.read_bytes() == b"old\n"
+    assert gate_calls == 2
+
+
+@pytest.mark.parametrize(
+    "collision",
+    ["output_inventory", "output_report", "inventory_report"],
+)
+def test_capture_rejects_colliding_output_paths_before_any_write_or_load(
+    collision, monkeypatch, tmp_path
+):
+    output = tmp_path / "sessions.csv"
+    output.write_bytes(b"old\n")
+    inventory = tmp_path / "inventory.csv"
+    report = tmp_path / "audit.txt"
+    if collision == "output_inventory":
+        inventory = output
+    elif collision == "output_report":
+        report = output
+    else:
+        report = inventory
+    monkeypatch.setattr(
+        capture_module,
+        "load_session_authority",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("path validation must precede authority loading")
+        ),
+    )
+
+    with pytest.raises(SessionCaptureError, match="capture_output_path_collision"):
+        capture_module.capture_and_publish(
+            start=date(2024, 1, 8),
+            end=date(2024, 1, 8),
+            backtest_start=date(2026, 1, 8),
+            output=output,
+            inventory_output=inventory,
+            audit_report=report,
+            settings=None,
+            use_test=False,
+        )
+
+    assert output.read_bytes() == b"old\n"
