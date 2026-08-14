@@ -3,6 +3,7 @@ from datetime import date
 import warnings
 
 import pandas as pd
+import pytest
 
 from cta_carry.config import CarryConfig
 from cta_carry.pg_source import (
@@ -211,3 +212,66 @@ def test_load_product_history_starts_returns_one_normalized_row_per_product(
         {"product": "RB", "first_trade_date": date(2009, 3, 27)},
         {"product": "TA", "first_trade_date": date(2012, 1, 4)},
     ]
+
+
+def _patch_product_history_query(monkeypatch, frame):
+    from cta_carry import pg_source
+
+    @contextmanager
+    def fake_get_connection(pg):
+        yield object()
+
+    monkeypatch.setattr(pg_source, "resolve_settings_path", lambda: "settings.yaml")
+    monkeypatch.setattr(pg_source, "load_config", lambda path: {"source": path})
+    monkeypatch.setattr(
+        pg_source,
+        "pg_config_from",
+        lambda cfg, use_test=False: {},
+    )
+    monkeypatch.setattr(pg_source, "get_connection", fake_get_connection)
+    monkeypatch.setattr(
+        pg_source,
+        "_read_sql",
+        lambda sql, conn, *, params: frame.copy(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("frame", "message"),
+    [
+        (
+            pd.DataFrame([{"product": "RB"}]),
+            "product history starts missing columns",
+        ),
+        (
+            pd.DataFrame([{"product": None, "first_trade_date": "2024-01-02"}]),
+            "product history starts contain an empty product",
+        ),
+        (
+            pd.DataFrame([{"product": "   ", "first_trade_date": "2024-01-02"}]),
+            "product history starts contain an empty product",
+        ),
+        (
+            pd.DataFrame(
+                [
+                    {"product": "rb", "first_trade_date": "2024-01-02"},
+                    {"product": " RB ", "first_trade_date": "2024-01-02"},
+                ]
+            ),
+            "product history starts contain duplicate products",
+        ),
+        (
+            pd.DataFrame([{"product": "RB", "first_trade_date": "not-a-date"}]),
+            "product history starts contain an invalid first_trade_date",
+        ),
+    ],
+)
+def test_product_history_loader_rejects_incomplete_or_ambiguous_rows(
+    monkeypatch,
+    frame,
+    message,
+):
+    _patch_product_history_query(monkeypatch, frame)
+
+    with pytest.raises(ValueError, match=message):
+        load_public_product_history_starts()

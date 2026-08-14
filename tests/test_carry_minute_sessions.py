@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -21,6 +22,7 @@ from cta_carry.minute_sessions import (
     validate_capture_coverage,
 )
 from cta_carry.session_authority import EffectiveAuthorityRange
+from scripts.carry import capture_minute_sessions as capture_module
 from scripts.carry.capture_minute_sessions import (
     SessionCaptureError,
     build_audit_key_sets,
@@ -1244,3 +1246,278 @@ def test_exact_history_exception_authorizes_gap_but_does_not_enter_pool():
     key = _audit_key(target)
     assert audit.history_status_by_key[key] == "authorized_history_gap"
     assert key not in audit.key_sets.in_pool_keys
+
+
+def _history_exception(target):
+    return EffectiveAuthorityRange(
+        version=SESSION_RULES_VERSION,
+        exchange="SHFE",
+        product="RB",
+        effective_start=target,
+        effective_end=target,
+        reason="documented suspension",
+        source_url="https://www.shfe.com.cn/official-notice",
+    )
+
+
+def _empty_history_starts():
+    return pd.DataFrame(columns=["product", "first_trade_date"])
+
+
+def test_default_liquidity_build_constructs_one_reduced_representative_index(
+    monkeypatch,
+):
+    days = [date(2023, 9, 1) + timedelta(days=offset) for offset in range(121)]
+    prices = pd.DataFrame(
+        [
+            *_liquidity_prices(days),
+            *_liquidity_prices(
+                days,
+                contract="RB2410.SHF",
+                turnover=[1_000_000_000.0] * len(days),
+            ),
+        ]
+    )
+    original_builder = getattr(capture_module, "_build_representative_index")
+    calls = 0
+    representative_size = None
+
+    def spy_builder(frame):
+        nonlocal calls, representative_size
+        calls += 1
+        assert frame is prices
+        result = original_builder(frame)
+        representative_size = len(result)
+        return result
+
+    original_to_dict = pd.DataFrame.to_dict
+
+    def reject_full_contract_expansion(frame, *args, **kwargs):
+        if frame is prices:
+            raise AssertionError("full contract frame must not expand to records")
+        return original_to_dict(frame, *args, **kwargs)
+
+    monkeypatch.setattr(
+        capture_module,
+        "_build_representative_index",
+        spy_builder,
+    )
+    monkeypatch.setattr(pd.DataFrame, "to_dict", reject_full_contract_expansion)
+
+    audit = build_default_liquidity_audit(
+        prices,
+        history_starts=pd.DataFrame([{"product": "RB", "first_trade_date": days[0]}]),
+        history_exceptions=(),
+        start=days[-1],
+        end=days[-1],
+    )
+
+    assert calls == 1
+    assert representative_size == len(days)
+    assert audit.key_sets.in_pool_keys == frozenset({_audit_key(days[-1])})
+
+
+def test_missing_history_start_cannot_be_authorized_by_an_exact_exception():
+    days = [date(2024, 1, day) for day in (2, 3, 4)]
+    target = days[-1]
+
+    with pytest.raises(
+        SessionCaptureError,
+        match=r"liquidity_history_incomplete: .*product=RB.*missing_history_start",
+    ):
+        build_default_liquidity_audit(
+            pd.DataFrame(_liquidity_prices(days)),
+            history_starts=_empty_history_starts(),
+            history_exceptions=(_history_exception(target),),
+            start=target,
+            end=target,
+        )
+
+
+def test_finite_liquidity_still_requires_a_history_start_row():
+    days = [date(2023, 9, 1) + timedelta(days=offset) for offset in range(121)]
+
+    with pytest.raises(
+        SessionCaptureError,
+        match=r"liquidity_history_incomplete: .*product=RB.*missing_history_start",
+    ):
+        build_default_liquidity_audit(
+            pd.DataFrame(_liquidity_prices(days)),
+            history_starts=_empty_history_starts(),
+            history_exceptions=(),
+            start=days[-1],
+            end=days[-1],
+        )
+
+
+def test_history_start_after_loaded_product_data_is_rejected_with_dates():
+    days = [date(2024, 1, day) for day in (2, 3, 4)]
+
+    with pytest.raises(
+        SessionCaptureError,
+        match=(
+            r"liquidity_history_incomplete: .*product=RB.*"
+            r"first_trade_date=2024-01-05.*loaded_first_trade_date=2024-01-02"
+        ),
+    ):
+        build_default_liquidity_audit(
+            pd.DataFrame(_liquidity_prices(days)),
+            history_starts=pd.DataFrame(
+                [{"product": "RB", "first_trade_date": date(2024, 1, 5)}]
+            ),
+            history_exceptions=(),
+            start=days[-1],
+            end=days[-1],
+        )
+
+
+def test_synthetic_exit_uses_the_latest_of_two_causal_pool_producers():
+    first_source = date(2024, 1, 2)
+    latest_source = date(2024, 1, 3)
+    target = date(2024, 1, 4)
+    prices = pd.DataFrame(
+        [
+            _audit_price(
+                first_source,
+                contract="RB2405.SHF",
+                oi=500,
+            ),
+            _audit_price(
+                latest_source,
+                contract="RB2405.SHF",
+                oi=100,
+            ),
+            _audit_price(
+                latest_source,
+                contract="RB2410.SHF",
+                oi=200,
+            ),
+        ]
+    )
+
+    selected = select_audit_candidates(
+        prices,
+        audit_keys={_audit_key(target)},
+        in_pool_source_keys={
+            _audit_key(first_source),
+            _audit_key(latest_source),
+        },
+        global_calendar=[first_source, latest_source, target],
+    )
+
+    assert selected[0].candidate.trade_date == target
+    assert selected[0].candidate.daily_contract == "RB2410.SHF"
+    assert selected[0].causal_in_pool_date == latest_source
+    assert selected[0].selection_source == "causal_in_pool_main"
+
+
+def test_capture_entry_wires_default_config_history_and_audit_candidates(
+    monkeypatch,
+    tmp_path,
+):
+    class BoundaryReached(RuntimeError):
+        pass
+
+    captured = {}
+    prices = object()
+    history_starts = object()
+    history_exceptions = (object(),)
+    candidates = (object(),)
+    empty_keys = capture_module.AuditKeySets(
+        normalized_keys=frozenset(),
+        in_pool_keys=frozenset(),
+        audit_universe_keys=frozenset(),
+        audit_keys=frozenset(),
+    )
+
+    def fake_daily_loader(**kwargs):
+        captured["daily_loader"] = kwargs
+        return SimpleNamespace(prices=prices)
+
+    def fake_history_loader(**kwargs):
+        captured["history_loader"] = kwargs
+        return history_starts
+
+    def fake_authority_loader(path):
+        captured["history_exception_path"] = path
+        return history_exceptions
+
+    def fake_audit_builder(frame, **kwargs):
+        captured["audit_builder_frame"] = frame
+        captured["audit_builder"] = kwargs
+        return SimpleNamespace(key_sets=empty_keys, candidates=candidates)
+
+    def reject_legacy_selector(*args, **kwargs):
+        raise AssertionError("legacy unfiltered selector must not be called")
+
+    def stop_at_boundaries(source, selected):
+        captured["boundary_source"] = source
+        captured["boundary_candidates"] = selected
+        raise BoundaryReached
+
+    source = object()
+    monkeypatch.setattr(capture_module, "load_public_carry_data", fake_daily_loader)
+    monkeypatch.setattr(
+        capture_module,
+        "load_public_product_history_starts",
+        fake_history_loader,
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "load_authority_ranges",
+        fake_authority_loader,
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "_build_default_liquidity_audit",
+        fake_audit_builder,
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "select_session_candidates",
+        reject_legacy_selector,
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "PublicMinuteSource",
+        lambda **kwargs: source,
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "capture_session_boundaries",
+        stop_at_boundaries,
+    )
+
+    start = date(2024, 1, 2)
+    end = date(2024, 1, 4)
+    settings = tmp_path / "settings.yaml"
+    with pytest.raises(BoundaryReached):
+        capture_module.capture_and_publish(
+            start=start,
+            end=end,
+            output=tmp_path / "sessions.csv",
+            settings=settings,
+            use_test=True,
+        )
+
+    loader_config = captured["daily_loader"]["config"]
+    assert loader_config == capture_module.CarryConfig()
+    assert loader_config.prewarm_calendar_days == 730
+    assert captured["daily_loader"] == {
+        "start": start,
+        "end": end,
+        "config": loader_config,
+        "config_path": settings,
+        "use_test": True,
+    }
+    assert captured["history_loader"] == {
+        "config_path": settings,
+        "use_test": True,
+    }
+    assert captured["history_exception_path"] == capture_module.HISTORY_EXCEPTIONS_PATH
+    assert captured["audit_builder_frame"] is prices
+    assert captured["audit_builder"]["history_starts"] is history_starts
+    assert captured["audit_builder"]["history_exceptions"] is history_exceptions
+    assert captured["audit_builder"]["config"] is loader_config
+    assert captured["boundary_source"] is source
+    assert captured["boundary_candidates"] is candidates

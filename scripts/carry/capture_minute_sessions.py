@@ -112,6 +112,12 @@ class CapturedCandidate:
     selection_source: str = "target_day_main"
 
 
+@dataclass(frozen=True)
+class RepresentativeContract:
+    daily_contract: str
+    minute_symbol: str
+
+
 def _at(day: date, hour: int, minute: int) -> datetime:
     return datetime.combine(day, time(hour, minute), tzinfo=SHANGHAI)
 
@@ -200,45 +206,66 @@ def build_audit_key_sets(
     return key_sets
 
 
-def _daily_rows_by_key(
+def _build_representative_index(
     prices: pd.DataFrame,
-) -> dict[AuditKey, list[dict[str, Any]]]:
+) -> dict[AuditKey, RepresentativeContract]:
+    """Validate all identities, then retain one ranked row per product-day."""
     required = {"trade_date", "product", "contract", "oi", "volume"}
     missing = sorted(required.difference(prices.columns))
     if missing:
         raise SessionCaptureError(f"daily prices missing required columns: {missing}")
-    rows_by_key: dict[AuditKey, list[dict[str, Any]]] = {}
-    for row in prices.to_dict("records"):
-        trade_date = row["trade_date"]
+
+    ranking = prices.loc[
+        :, ["trade_date", "product", "contract", "oi", "volume"]
+    ].copy()
+    exchanges: list[str] = []
+    normalized_products: list[str] = []
+    for trade_date, declared_product, contract in ranking.loc[
+        :, ["trade_date", "product", "contract"]
+    ].itertuples(index=False, name=None):
         if type(trade_date) is not date:
             raise SessionCaptureError("daily trade_date values must be concrete dates")
-        product, _, exchange = minute_contract_identity(row["contract"], trade_date)
+        product, _, exchange = minute_contract_identity(contract, trade_date)
         if (
-            not isinstance(row["product"], str)
-            or row["product"].strip().upper() != product
+            not isinstance(declared_product, str)
+            or declared_product.strip().upper() != product
         ):
             raise SessionCaptureError(
-                f"{trade_date} {row['contract']}: normalized product identity conflicts"
+                f"{trade_date} {contract}: normalized product identity conflicts"
             )
-        rows_by_key.setdefault((exchange, product, trade_date), []).append(row)
-    return rows_by_key
+        exchanges.append(exchange)
+        normalized_products.append(product)
+    ranking["exchange"] = exchanges
+    ranking["product"] = normalized_products
+    representatives = (
+        ranking.sort_values(
+            ["exchange", "product", "trade_date", "oi", "volume", "contract"],
+            ascending=[True, True, True, False, False, True],
+            kind="mergesort",
+        )
+        .drop_duplicates(["exchange", "product", "trade_date"], keep="first")
+        .reset_index(drop=True)
+    )
+
+    result: dict[AuditKey, RepresentativeContract] = {}
+    for row in representatives.itertuples(index=False):
+        product, minute_symbol, exchange = minute_contract_identity(
+            row.contract, row.trade_date
+        )
+        result[(exchange, product, row.trade_date)] = RepresentativeContract(
+            daily_contract=row.contract,
+            minute_symbol=minute_symbol,
+        )
+    return result
 
 
-def _rank_representative(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    return sorted(
-        rows,
-        key=lambda row: (-float(row["oi"]), -float(row["volume"]), row["contract"]),
-    )[0]
-
-
-def select_audit_candidates(
-    prices: pd.DataFrame,
+def _select_audit_candidates_from_index(
+    representative_index: Mapping[AuditKey, RepresentativeContract],
     *,
     audit_keys: Iterable[AuditKey],
     in_pool_source_keys: Iterable[AuditKey],
     global_calendar: Sequence[date],
 ) -> tuple[CapturedCandidate, ...]:
-    """Select target-day representatives without dropping synthetic exit keys."""
     calendar = _ordered_calendar(global_calendar)
     position_by_date = {
         trade_date: position for position, trade_date in enumerate(calendar)
@@ -247,7 +274,6 @@ def select_audit_candidates(
         current: previous
         for previous, current in zip(calendar, calendar[1:], strict=False)
     }
-    rows_by_key = _daily_rows_by_key(prices)
     pool_sources = frozenset(_validate_audit_key(raw) for raw in in_pool_source_keys)
     pool_sources_by_identity: dict[tuple[str, str], set[date]] = {}
     for exchange, product, source_date in pool_sources:
@@ -275,33 +301,21 @@ def select_audit_candidates(
                 f"audit key has no causal in-pool source: {key!r}"
             )
         causal_date = producer_dates[-1]
-        target_rows = rows_by_key.get(key)
-        if target_rows:
-            representative = _rank_representative(target_rows)
-            identity_date = trade_date
+        representative = representative_index.get(key)
+        if representative is not None:
             selection_source = "target_day_main"
         else:
-            representative = _rank_representative(
-                rows_by_key[(exchange, product, causal_date)]
-            )
-            identity_date = causal_date
+            representative = representative_index[(exchange, product, causal_date)]
             selection_source = "causal_in_pool_main"
 
-        resolved_product, minute_symbol, resolved_exchange = minute_contract_identity(
-            representative["contract"], identity_date
-        )
-        if resolved_product != product or resolved_exchange != exchange:
-            raise SessionCaptureError(
-                f"{trade_date} {representative['contract']}: representative identity conflicts"
-            )
         previous_trade_date = previous_by_date[trade_date]
         selected.append(
             CapturedCandidate(
                 candidate=MinuteCandidate(
                     trade_date=trade_date,
                     product=product,
-                    daily_contract=representative["contract"],
-                    minute_symbol=minute_symbol,
+                    daily_contract=representative.daily_contract,
+                    minute_symbol=representative.minute_symbol,
                     exchange=exchange,
                     window_start=_at(previous_trade_date, 21, 0),
                     window_end=_at(trade_date, 15, 1),
@@ -312,6 +326,22 @@ def select_audit_candidates(
             )
         )
     return tuple(selected)
+
+
+def select_audit_candidates(
+    prices: pd.DataFrame,
+    *,
+    audit_keys: Iterable[AuditKey],
+    in_pool_source_keys: Iterable[AuditKey],
+    global_calendar: Sequence[date],
+) -> tuple[CapturedCandidate, ...]:
+    """Select target-day representatives without dropping synthetic exit keys."""
+    return _select_audit_candidates_from_index(
+        _build_representative_index(prices),
+        audit_keys=audit_keys,
+        in_pool_source_keys=in_pool_source_keys,
+        global_calendar=global_calendar,
+    )
 
 
 def _finite_liquidity(value: object) -> bool:
@@ -345,6 +375,33 @@ def _history_start_by_product(history_starts: pd.DataFrame) -> dict[str, date]:
     return result
 
 
+def _validate_loaded_history_starts(
+    representative_index: Mapping[AuditKey, RepresentativeContract],
+    first_by_product: Mapping[str, date],
+) -> None:
+    loaded_first_by_product: dict[str, date] = {}
+    for _, product, trade_date in representative_index:
+        current = loaded_first_by_product.get(product)
+        if current is None or trade_date < current:
+            loaded_first_by_product[product] = trade_date
+
+    for product, loaded_first in sorted(loaded_first_by_product.items()):
+        first_history = first_by_product.get(product)
+        if first_history is None:
+            raise SessionCaptureError(
+                "liquidity_history_incomplete: "
+                f"product={product} reason=missing_history_start "
+                f"loaded_first_trade_date={loaded_first}"
+            )
+        if first_history > loaded_first:
+            raise SessionCaptureError(
+                "liquidity_history_incomplete: "
+                f"product={product} reason=history_start_after_loaded_data "
+                f"first_trade_date={first_history} "
+                f"loaded_first_trade_date={loaded_first}"
+            )
+
+
 def _build_default_liquidity_audit(
     prices: pd.DataFrame,
     *,
@@ -355,11 +412,11 @@ def _build_default_liquidity_audit(
     config: CarryConfig,
 ) -> DefaultLiquidityAudit:
     _require_capture_dates(start, end)
-    rows_by_key = _daily_rows_by_key(prices)
-    global_calendar = _ordered_calendar(
-        tuple(row["trade_date"] for row in prices.to_dict("records"))
+    representative_index = _build_representative_index(prices)
+    global_calendar = _ordered_calendar(prices["trade_date"].drop_duplicates().tolist())
+    normalized_keys = frozenset(
+        key for key in representative_index if start <= key[2] <= end
     )
-    normalized_keys = frozenset(key for key in rows_by_key if start <= key[2] <= end)
     if not normalized_keys:
         raise SessionCaptureError("requested range contains no normalized product-days")
 
@@ -369,12 +426,16 @@ def _build_default_liquidity_audit(
     }
     in_pool_source_keys = frozenset(
         key
-        for key in rows_by_key
+        for key in representative_index
         if bool(liquidity_by_product_date[(key[1], key[2])].in_pool)
     )
 
     daily_load_start = start - timedelta(days=config.prewarm_calendar_days)
     first_by_product = _history_start_by_product(history_starts)
+    _validate_loaded_history_starts(
+        representative_index,
+        first_by_product,
+    )
     exception_rows = tuple(history_exceptions)
     first_target_by_identity: dict[tuple[str, str], date] = {}
     for exchange, product, trade_date in sorted(
@@ -385,22 +446,23 @@ def _build_default_liquidity_audit(
     history_status_by_key: dict[AuditKey, str] = {}
     for (exchange, product), first_target in first_target_by_identity.items():
         key = (exchange, product, first_target)
+        first_history = first_by_product[product]
         liquidity_row = liquidity_by_product_date[(product, first_target)]
         if _finite_liquidity(liquidity_row.liquidity_mean):
             status = "finite"
-        elif (
-            first_history := first_by_product.get(product)
-        ) is not None and first_history >= daily_load_start:
+        elif first_history >= daily_load_start:
             status = "insufficient_since_inception"
-        elif matching_ranges(exception_rows, exchange, product, first_target):
-            status = "authorized_history_gap"
         else:
-            raise SessionCaptureError(
-                "liquidity_history_incomplete: "
-                f"exchange={exchange} product={product} "
-                f"trade_date={first_target} daily_load_start={daily_load_start} "
-                f"first_trade_date={first_history}"
-            )
+            if matching_ranges(exception_rows, exchange, product, first_target):
+                status = "authorized_history_gap"
+            else:
+                raise SessionCaptureError(
+                    "liquidity_history_incomplete: "
+                    f"exchange={exchange} product={product} "
+                    f"trade_date={first_target} "
+                    f"daily_load_start={daily_load_start} "
+                    f"first_trade_date={first_history}"
+                )
         history_status_by_key[key] = status
         if status != "finite" and key in in_pool_source_keys:
             raise SessionCaptureError(
@@ -414,8 +476,8 @@ def _build_default_liquidity_audit(
         start=start,
         end=end,
     )
-    candidates = select_audit_candidates(
-        prices,
+    candidates = _select_audit_candidates_from_index(
+        representative_index,
         audit_keys=key_sets.audit_keys,
         in_pool_source_keys=in_pool_source_keys,
         global_calendar=global_calendar,
