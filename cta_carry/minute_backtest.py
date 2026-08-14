@@ -687,14 +687,13 @@ def _load_month_rows(
     frames: dict[tuple[date, str], pd.DataFrame] = {}
     for candidate in candidates:
         if combined.empty:
-            raise _dynamic_missing(candidate, role=candidate.candidate_role)
+            continue
         mask = combined["trade_date"].eq(candidate.trade_date) & combined[
             "daily_contract"
         ].eq(candidate.daily_contract)
         frame = combined.loc[mask].copy().reset_index(drop=True)
-        if frame.empty:
-            raise _dynamic_missing(candidate, role=candidate.candidate_role)
-        frames[(candidate.trade_date, candidate.daily_contract)] = frame
+        if not frame.empty:
+            frames[(candidate.trade_date, candidate.daily_contract)] = frame
     return frames, len(combined), lower, upper
 
 
@@ -1178,12 +1177,27 @@ class CarryMinuteBacktester:
                     )
                     query_months.append(f"{month[0]:04d}-{month[1]:02d}")
                     for candidate in candidates:
-                        frame = current_frames[
-                            (candidate.trade_date, candidate.daily_contract)
-                        ]
                         context = contexts[
                             (candidate.trade_date, candidate.daily_contract)
                         ]
+                        frame = current_frames.get(
+                            (candidate.trade_date, candidate.daily_contract)
+                        )
+                        if frame is None or frame.empty:
+                            quality_records.append(
+                                {
+                                    "check": "candidate_envelope_no_rows",
+                                    "trade_date": candidate.trade_date,
+                                    "product": candidate.product,
+                                    "contract": candidate.daily_contract,
+                                    "candidate_role": candidate.candidate_role,
+                                    "observed_rows": 0,
+                                    "missing_slots": len(context.slots),
+                                    "query_month": query_months[-1],
+                                    "detail": "static candidate removed unless runtime state accesses it",
+                                }
+                            )
+                            continue
                         observed_slots = set(frame["bar_time"])
                         missing_slots = len(set(context.slots) - observed_slots)
                         zero_volume_rows = frame.loc[

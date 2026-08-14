@@ -841,6 +841,45 @@ def test_full_stop_locks_direction_without_same_window_intermediate_rows() -> No
     ].empty
 
 
+def test_full_stop_drops_a_missing_next_day_signal_envelope_candidate() -> None:
+    data, _, rules, start, end = minute_backtest_fixture()
+    config = small_config(vol_window=3, min_shadow_active_days=2, cost_bps=0.0)
+    stop_date = data.dates[9]
+    next_date = data.dates[10]
+    research = minute_backtest_module.build_daily_research(data.prices, config)
+    contexts = minute_backtest_module._prepare_candidates(
+        dates=data.dates,
+        research=research,
+        rules=rules,
+    )
+    omitted = next(
+        context.candidate
+        for (trade_date, _), context in contexts.items()
+        if trade_date == next_date
+        and context.candidate.product == "A"
+        and context.candidate.candidate_role in {"carried", "roll_new"}
+    )
+    source = FakeMinuteSource(
+        transform=_full_short_stop_on(stop_date),
+        omit_keys={(next_date, omitted.daily_contract)},
+    )
+
+    result = minute_backtest_module.CarryMinuteBacktester(
+        data=data,
+        minute_source=source,
+        session_rules=rules,
+        config=config,
+        start=start,
+        end=end,
+    ).run()
+
+    assert result.executions.loc[
+        result.executions["trade_date"].ge(next_date)
+        & result.executions["product"].eq("A")
+        & result.executions["new_weight"].ne(0.0)
+    ].empty
+
+
 def _inject_partial_and_zero_volume_slots(trade_date: date):
     def transform(frame: pd.DataFrame) -> pd.DataFrame:
         target = frame.loc[
