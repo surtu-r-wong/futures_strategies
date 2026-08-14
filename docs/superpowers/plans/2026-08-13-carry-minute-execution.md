@@ -1617,6 +1617,25 @@ Expected: all comparison tests pass before commit.
 - Modify: `docs/operations/carry-daily-research.md`
 - Modify: any code/test files required by failures, limited to root-cause fixes.
 
+- [ ] **Step 0: Close the explain-only and plan-summary audit gap with TDD**
+
+Before the real smoke, add failing source and backtester tests for an immutable,
+serializable `MinutePlanSummary`. `PublicMinuteSource.explain_month(...)` must reuse
+the exact candidate canonicalization, temp table, transaction-local settings and
+bounded SELECT text used by `iter_month`, but execute only `EXPLAIN (FORMAT JSON)`:
+it must not open the named streaming cursor or execute the data SELECT. Refactor
+the existing plan gate to return the summary while retaining every current hard
+failure. Both explain-only calls and the EXPLAIN already executed by `iter_month`
+must expose their summaries through an immutable source snapshot.
+
+The minute backtester must append one deterministic `minute_query_plan` row per
+actual monthly query to `minute_data_quality`, including physical lower/upper
+bounds, candidate contract-day count, referenced chunk names, maximum estimated
+rows and plan node types. Missing, malformed or count-mismatched source plan audit
+must fail closed. Tests must cover the single-contract/five-date explain-only
+smoke shape, unsafe-plan cleanup, absence of a data SELECT, and report-table
+serialization before proceeding to Step 1.
+
 - [ ] **Step 1: Explain the real bounded query before selecting rows**
 
 Use a single active contract and five trade dates in 2020. Run the source's explain-only entry point with a 300-second timeout.
