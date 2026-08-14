@@ -137,3 +137,37 @@ product-day 身份解析；未知后缀或空品种仍维持 unkeyable 和发布
 后续批量补表、年度 coverage、权威资产 SHA-256、歧义分类和最终
 `ambiguous=0` 结果将在真实分钟边界采集后追加。在正式 loader 复读和反向键集合
 校验完成前，`config/carry_minute_sessions.csv` 不得发布。
+
+### 5.2 Round 1：真实执行所需 AL 分钟缺口阻断
+
+修复 normalization 后用同一命令重新运行约一小时，年度
+`normalization_unkeyable_rows` 和未知日期计数全部为 0；1,187 个
+`normalization_excluded_product_days` 仍只是没有规范行存活的可归键排除日。
+采集随后在 2018-01-02 的 `AL1803.SHF` 抛出
+`session_representative_missing_minutes`，未进入时段歧义分类。正式 CSV
+保持不存在，本轮也不能计入 2–3 轮 authority 收敛。
+
+生产库只读、立即回滚的诊断得到：
+
+| check | result |
+|---|---|
+| 2018-01-02 AL 日线主力 | `AL1803.SHF`；OI 320,394、volume 162,174，按既定排序唯一胜出 |
+| 目标窗口 | 2017-12-29 21:00 至 2018-01-02 15:01（Asia/Shanghai） |
+| 目标窗口内全部 `AL*` 分钟行 | 0 |
+| 同窗口 SHFE 覆盖 | 31,050 行、138 个合约；其他夜盘产品正常 |
+| AL 恢复 | 2018-01-02 21:00 起恢复；2018-01-03 每个 AL 合约均有 465 行 |
+| 其他整品种缺口 | FU 同日无分钟，但仍不在流动性池；其余 SHFE 日线产品有分钟 |
+| AL prior-120-day mean | 2017-12-29 为 51,313,212,341.8667 元，2018-01-02 为 51,594,749,870.6083 元，均 `in_pool=True` |
+
+因此 AL 同时满足 `P(prev(T))` 和 `P(T)`，不是仅由保守 `P(T)` 项多审计的
+候选。真实默认日线引擎也在 2018-01-02 生成并执行：
+
+```text
+product=AL contract=AL1803.SHF reason=entry
+old_weight=0.0 new_weight=-0.135499 direction=-1 tranches_remaining=3
+```
+
+该动态腿需要当日开盘五分钟 VWAP、盘中止损观察和收盘计价。日线合成、其他
+合约替代、`none` authority 或删除包络键都不能恢复这些价格，且会违反已确认
+设计。继续完整分钟复现前必须从可审计来源修复 2018-01-02 AL 日盘分钟数据；
+在此之前采集和分钟引擎保持 fail-closed。
