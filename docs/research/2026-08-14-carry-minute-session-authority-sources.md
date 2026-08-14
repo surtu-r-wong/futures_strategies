@@ -68,15 +68,56 @@ DCE 23、GFEX 5、INE 5、SHFE 20，共 **80 个产品身份**。这是制度覆
 不是最终 `day_only` 行数；初始人工排期按最多 80 个产品区间检查，实际非重叠区间数
 必须由 round 1 inventory 与上市/变更公告共同确定。
 
+统计于 2026-08-14 使用生产只读连接、`use_test=False` 和截止日 2026-04-29 执行：
+
+```sql
+WITH product_history AS (
+    SELECT
+        split_part(symbol, '.', 2) AS exchange_suffix,
+        upper(substring(symbol from '^[A-Za-z]+')) AS product,
+        min(trade_date) AS first_trade_date,
+        max(trade_date) AS last_trade_date,
+        count(DISTINCT symbol) AS contracts
+    FROM public.futures_daily
+    WHERE trade_date <= DATE '2026-04-29'
+      AND COALESCE(
+          NOT (
+              upper(substring(symbol from '^[A-Za-z]+')) = ANY(
+                  ARRAY['IF', 'IC', 'IH', 'IM', 'T', 'TF', 'TL', 'TS']::text[]
+              )
+          ),
+          TRUE
+      )
+    GROUP BY 1, 2
+    HAVING max(trade_date) >= DATE '2011-01-01'
+)
+SELECT exchange_suffix, product, first_trade_date, last_trade_date, contracts
+FROM product_history
+ORDER BY exchange_suffix, product;
+```
+
+确定性产品身份摘要如下；历史材料中的 ME/TC 是 MA/ZC 的旧代码，不另增数据库身份：
+
+| daily_suffix | count | products |
+|---|---:|---|
+| CZC | 27 | AP, CF, CJ, CY, FG, JR, LR, MA, OI, PF, PK, PL, PM, PR, PX, RI, RM, RS, SA, SF, SH, SM, SR, TA, UR, WH, ZC |
+| DCE | 23 | A, B, BB, BZ, C, CS, EB, EG, FB, I, J, JD, JM, L, LG, LH, M, P, PG, PP, RR, V, Y |
+| GFE | 5 | LC, PD, PS, PT, SI |
+| INE | 5 | BC, EC, LU, NR, SC |
+| SHF | 20 | AD, AG, AL, AO, AU, BR, BU, CU, FU, HC, NI, OP, PB, RB, RU, SN, SP, SS, WR, ZN |
+
 | counter | current_value | publication_gate |
 |---|---:|---|
 | official source-register entries | 47 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源 |
 | accepted exact no-night evening candidates | 22 | 必须逐行映射到下一全局 `trade_date` 后才能写 CSV |
-| expected final no-night rows | 300–450 | 包含四所节前日期及 2020 暂停期按交易所/目标日展开；以 inventory 为准 |
+| holiday no-night rows working estimate | 300–450 | 只估四所节前日期，不含 2020 暂停期；以 inventory 为准 |
+| 2020 suspension expanded rows | not measured | 用六个已接受边界和全局交易日历展开；CZCE 边界恢复后另计 |
+| expected total no-night rows | not measured | 节前日期与 2020 展开去重后的并集 |
 | products requiring regime classification | 80 | 每个实际 audit 产品必须有经验时段或权威 day-only 解释 |
 | accepted 2020 suspension/resumption boundaries | 6 | SHFE、INE、DCE 各一停一复；CZCE 两个边界仍待官方 URL |
 | unresolved empirical dates | not measured | round 1 必须一次性输出全量，禁止逐条挤牙膏 |
-| duplicate derived keys | 0 | 非零禁止进入 capture；按下节键去重 |
+| exact source-candidate duplicate keys | 0 | 当前已登记精确候选按来源键去重；非零禁止进入 capture |
+| expanded final-key duplicates | not measured | 日历展开后必须为 0，否则禁止写 authority CSV |
 
 `official source-register entries` 是登记行的唯一 URL 计数，不等于表格行数。
 在首次全量 capture 前，上述“未测”允许存在；一旦 round 1 产生 inventory，必须替换为
