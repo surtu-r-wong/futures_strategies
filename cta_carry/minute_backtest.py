@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -24,6 +25,33 @@ class StopDecision:
     threshold: float | None
     bar: FifteenMinuteBar
     not_before: datetime | None
+
+
+def _is_timezone_aware(value: object) -> bool:
+    return (
+        isinstance(value, datetime)
+        and value.tzinfo is not None
+        and value.utcoffset() is not None
+    )
+
+
+def _validate_bar_and_fill_timing(
+    bar: FifteenMinuteBar,
+    next_fill_end: datetime,
+) -> None:
+    if not _is_timezone_aware(bar.start) or not _is_timezone_aware(bar.end):
+        raise ValueError("bar.start and bar.end must be timezone-aware")
+    if not _is_timezone_aware(next_fill_end):
+        raise ValueError("next_fill_end must be timezone-aware")
+    try:
+        if bar.start >= bar.end:
+            raise ValueError("bar.end must be after bar.start")
+        if next_fill_end <= bar.end:
+            raise ValueError("next_fill_end must be after bar.end")
+    except TypeError as exc:
+        raise ValueError(
+            "bar.start, bar.end, and next_fill_end must be comparable"
+        ) from exc
 
 
 class IntradayStopMachine:
@@ -63,6 +91,8 @@ class IntradayStopMachine:
         elif entered or reversed_direction or rolled:
             if fill_end is None:
                 raise ValueError("fill_end is required for entry, reversal, or roll")
+            if not _is_timezone_aware(fill_end):
+                raise ValueError("fill_end must be timezone-aware")
             self._not_before_by_product[product] = fill_end
 
     def on_bar(
@@ -74,6 +104,12 @@ class IntradayStopMachine:
         atr: float,
         next_fill_end: datetime,
     ) -> StopDecision:
+        _validate_bar_and_fill_timing(bar, next_fill_end)
+        if state.direction != 0 and bar.contract != state.contract:
+            raise ValueError(
+                "bar.contract must equal state.contract for an active state"
+            )
+
         gate = self._not_before_by_product.get(product)
         count_key = (product, trade_date)
         stopped_out = state.direction == 0
@@ -131,12 +167,70 @@ class IntradayStopMachine:
         )
 
 
+def _validated_final_stop_stages(
+    post_stop_states: Mapping[str, PositionState],
+    final_stop_decisions: Mapping[str, StopDecision],
+    config: CarryConfig,
+) -> dict[str, int]:
+    stages: dict[str, int] = {}
+    for product, decision in sorted(final_stop_decisions.items()):
+        if product not in post_stop_states:
+            raise ValueError(
+                f"final_stop_decisions contains unknown product: {product}"
+            )
+        if not isinstance(decision, StopDecision):
+            raise ValueError(f"final_stop_decisions[{product}] must be a StopDecision")
+        state = post_stop_states[product]
+        if decision.state != state:
+            raise ValueError(
+                f"final_stop_decisions[{product}].state does not match post_stop_states"
+            )
+        if not decision.triggered:
+            if decision.stage is not None:
+                raise ValueError(
+                    f"final_stop_decisions[{product}] has a stage without a trigger"
+                )
+            continue
+        expected_stage = config.stop_tranches - state.tranches_remaining
+        if (
+            not decision.eligible
+            or decision.stage != expected_stage
+            or not 1 <= expected_stage <= config.stop_tranches
+        ):
+            raise ValueError(
+                f"final_stop_decisions[{product}] has inconsistent trigger stage"
+            )
+        if state.direction != 0 and decision.bar.contract != state.contract:
+            raise ValueError(
+                f"final_stop_decisions[{product}].bar contract does not match state"
+            )
+        stages[product] = expected_stage
+    return stages
+
+
 def merge_close_plan(
     post_stop_states: dict[str, PositionState],
     signal_rows: pd.DataFrame,
     config: CarryConfig,
+    *,
+    final_stop_decisions: Mapping[str, StopDecision] | None = None,
 ) -> TargetPlan:
     """Merge a final-bar stop and the close signal into one net target plan."""
+    duplicate_mask = signal_rows["product"].duplicated(keep=False)
+    if duplicate_mask.any():
+        duplicate_products = sorted(
+            str(product)
+            for product in signal_rows.loc[duplicate_mask, "product"].unique()
+        )
+        raise ValueError(
+            f"signal_rows contains duplicate product rows: {duplicate_products}"
+        )
+
+    final_stop_stages = _validated_final_stop_stages(
+        post_stop_states,
+        final_stop_decisions or {},
+        config,
+    )
     signals = {
         row.product: row
         for row in signal_rows.sort_values("product", kind="mergesort").itertuples(
@@ -147,24 +241,28 @@ def merge_close_plan(
     for product, state in post_stop_states.items():
         signal = signals.get(product)
         if signal is None:
+            if state.locked_direction != 0:
+                reason_hints[product] = "signal_exit"
             continue
         signal_direction = int(signal.effective_direction)
         if signal_direction == 0 and state.locked_direction != 0:
             reason_hints[product] = "signal_exit"
+            continue
+
+        stage = final_stop_stages.get(product)
+        if stage is None:
             continue
         if state.direction != 0:
             same_cycle = (
                 signal_direction == state.direction
                 and signal.main_contract == state.contract
             )
-            stage = config.stop_tranches - state.tranches_remaining
         else:
             same_cycle = (
                 state.locked_direction != 0
                 and signal_direction == state.locked_direction
             )
-            stage = config.stop_tranches
-        if same_cycle and stage > 0:
+        if same_cycle:
             reason_hints[product] = f"stop_{stage}"
 
     return plan_signal_targets(
