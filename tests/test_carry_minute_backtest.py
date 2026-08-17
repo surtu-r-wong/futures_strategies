@@ -21,6 +21,7 @@ from cta_carry.minute_backtest import (
 )
 from cta_carry.minute_bars import FifteenMinuteBar, MultiplierResolution
 from cta_carry.minute_pg_source import MinuteCandidate, MinutePlanSummary
+from cta_carry.report import write_carry_outputs
 from cta_carry.minute_sessions import (
     DAY_SEGMENTS,
     SESSION_RULES_VERSION,
@@ -336,15 +337,15 @@ def test_minute_query_plan_rows_survive_report_serialization(tmp_path) -> None:
     expected = [
         json.loads(value) for value in _minute_query_plan_rows(result)["detail"]
     ]
-    output = tmp_path / "minute_data_quality.json"
-
-    result.minute_data_quality.to_json(
-        output,
-        orient="table",
-        date_format="iso",
+    report_result = replace(
+        result,
+        executions=result.executions.iloc[0:0].copy(),
+        intraday_stops=result.intraday_stops.iloc[0:0].copy(),
     )
 
-    written = pd.read_json(output, orient="table")
+    xlsx, _ = write_carry_outputs(report_result, tmp_path / "minute_plan_audit")
+
+    written = pd.read_excel(xlsx, sheet_name="minute_data_quality")
     written = written.loc[written["check"].eq("minute_query_plan")].reset_index(
         drop=True
     )
@@ -393,6 +394,10 @@ def test_minute_backtester_requires_an_immutable_plan_audit_snapshot(
         lambda summary: replace(summary, referenced_chunks=["_hyper_1_0_chunk"]),
         lambda summary: replace(summary, referenced_chunks=(17,)),
         lambda summary: replace(summary, referenced_chunks=("not_a_chunk",)),
+        lambda summary: replace(
+            summary,
+            referenced_chunks=tuple(f"_hyper_1_{index}_chunk" for index in range(4)),
+        ),
         lambda summary: replace(summary, maximum_plan_rows=True),
         lambda summary: replace(summary, maximum_plan_rows=-1),
         lambda summary: replace(summary, maximum_plan_rows=float("nan")),
@@ -412,6 +417,7 @@ def test_minute_backtester_requires_an_immutable_plan_audit_snapshot(
         "chunks_container",
         "chunk_member",
         "chunk_name",
+        "too_many_chunks",
         "maximum_rows_bool",
         "maximum_rows_negative",
         "maximum_rows_nan",

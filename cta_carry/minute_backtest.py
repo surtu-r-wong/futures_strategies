@@ -883,6 +883,13 @@ def _validated_plan_summary(
             "minute query plan chunk names must be an immutable tuple",
             value=chunks,
         )
+    if len(chunks) > 3:
+        raise _plan_audit_error(
+            "referenced_chunks",
+            "minute query plan must not reference more than three Timescale chunks",
+            value=chunks,
+            context={"chunk_count": len(chunks)},
+        )
     for chunk in chunks:
         if type(chunk) is not str or _PLAN_CHUNK_NAME.fullmatch(chunk) is None:
             raise _plan_audit_error(
