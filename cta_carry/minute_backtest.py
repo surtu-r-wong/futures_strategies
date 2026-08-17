@@ -768,6 +768,13 @@ def _plan_audit_snapshot(source: Any) -> tuple[object, ...]:
             "plan_audit",
             "minute source must expose an immutable plan audit snapshot",
         ) from exc
+    except MinuteDataError:
+        raise
+    except Exception as exc:
+        raise _plan_audit_error(
+            "plan_audit",
+            "minute source plan audit snapshot retrieval failed",
+        ) from exc
     if payload is None or callable(payload) or type(payload) is not tuple:
         raise _plan_audit_error(
             "plan_audit",
@@ -784,12 +791,33 @@ def _plan_summary_values(payload: object) -> dict[str, object]:
             "minute query plan summary must be a mapping or field object",
             value=payload,
         )
+    try:
+        mapping_style = isinstance(payload, Mapping)
+    except MinuteDataError:
+        raise
+    except Exception as exc:
+        raise _plan_audit_error(
+            "summary",
+            "minute query plan summary style detection failed",
+        ) from exc
+
     values: dict[str, object] = {}
     for field in _PLAN_SUMMARY_FIELDS:
-        if isinstance(payload, Mapping):
-            if field not in payload:
-                raise _plan_audit_error(field, "minute query plan field is missing")
-            values[field] = payload[field]
+        if mapping_style:
+            try:
+                if field not in payload:
+                    raise _plan_audit_error(
+                        field,
+                        "minute query plan field is missing",
+                    )
+                values[field] = payload[field]
+            except MinuteDataError:
+                raise
+            except Exception as exc:
+                raise _plan_audit_error(
+                    field,
+                    "minute query plan mapping field access failed",
+                ) from exc
         else:
             try:
                 values[field] = getattr(payload, field)
@@ -798,7 +826,29 @@ def _plan_summary_values(payload: object) -> dict[str, object]:
                     field,
                     "minute query plan field is missing",
                 ) from exc
+            except MinuteDataError:
+                raise
+            except Exception as exc:
+                raise _plan_audit_error(
+                    field,
+                    "minute query plan object field access failed",
+                ) from exc
     return values
+
+
+def _plan_snapshots_equal(
+    left: tuple[object, ...],
+    right: tuple[object, ...],
+) -> bool:
+    try:
+        return left == right
+    except MinuteDataError:
+        raise
+    except Exception as exc:
+        raise _plan_audit_error(
+            "plan_audit",
+            "minute source plan audit snapshot comparison failed",
+        ) from exc
 
 
 def _validated_plan_summary(
@@ -971,29 +1021,36 @@ def _query_plan_quality_record(
 def _plan_summary_for_query(
     source: Any,
     *,
-    initial_count: int,
+    accepted_snapshot: tuple[object, ...],
     actual_monthly_queries: int,
     lower: datetime,
     upper: datetime,
     candidate_contract_days: int,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], tuple[object, ...]]:
     snapshot = _plan_audit_snapshot(source)
-    plan_summary_count = len(snapshot) - initial_count
-    if plan_summary_count != actual_monthly_queries:
+    appended_entries = len(snapshot) - len(accepted_snapshot)
+    if appended_entries != 1:
         raise MinuteDataError(
             check="minute_query_plan",
-            reason="source plan audit count does not match actual monthly queries",
+            reason="each actual monthly query must append exactly one plan summary",
             context={
                 "actual_monthly_queries": actual_monthly_queries,
-                "plan_summary_count": plan_summary_count,
+                "appended_entries": appended_entries,
             },
         )
-    return _validated_plan_summary(
+    if not _plan_snapshots_equal(snapshot[:-1], accepted_snapshot):
+        raise MinuteDataError(
+            check="minute_query_plan",
+            reason="source plan audit must be an append-only immutable snapshot",
+            context={"actual_monthly_queries": actual_monthly_queries},
+        )
+    values = _validated_plan_summary(
         snapshot[-1],
         lower=lower,
         upper=upper,
         candidate_contract_days=candidate_contract_days,
     )
+    return values, snapshot
 
 
 def _source_audit_error(
@@ -1094,7 +1151,8 @@ class CarryMinuteBacktester:
             backtest_start=self.start,
             prewarm_calendar_days=self.config.prewarm_calendar_days,
         )
-        initial_plan_summary_count = len(_plan_audit_snapshot(self.minute_source))
+        initial_plan_snapshot = _plan_audit_snapshot(self.minute_source)
+        accepted_plan_snapshot = initial_plan_snapshot
         prices = self.data.prices.loc[self.data.prices["trade_date"] <= self.end].copy()
         dates = sorted(prices["trade_date"].dropna().unique().tolist())
         if not dates:
@@ -1444,9 +1502,9 @@ class CarryMinuteBacktester:
                         candidates,
                     )
                     query_months.append(f"{month[0]:04d}-{month[1]:02d}")
-                    plan_values = _plan_summary_for_query(
+                    plan_values, accepted_plan_snapshot = _plan_summary_for_query(
                         self.minute_source,
-                        initial_count=initial_plan_summary_count,
+                        accepted_snapshot=accepted_plan_snapshot,
                         actual_monthly_queries=len(query_months),
                         lower=lower,
                         upper=upper,
@@ -1970,29 +2028,37 @@ class CarryMinuteBacktester:
         if session_versions != [SESSION_RULES_VERSION]:
             raise ValueError("session rules must use the repository rules version")
         source_audit = _validated_source_audit(self.minute_source)
-        final_plan_summary_count = (
-            len(_plan_audit_snapshot(self.minute_source))
-            - initial_plan_summary_count
+        final_plan_snapshot = _plan_audit_snapshot(self.minute_source)
+        final_snapshot_matches = _plan_snapshots_equal(
+            final_plan_snapshot,
+            accepted_plan_snapshot,
+        )
+        final_plan_summary_count = len(accepted_plan_snapshot) - len(
+            initial_plan_snapshot
         )
         actual_monthly_queries = len(query_months)
         if not (
-            final_plan_summary_count
+            final_snapshot_matches
+            and final_plan_summary_count
             == actual_monthly_queries
             == source_audit["minute_query_months"]
         ):
+            context = {
+                "actual_monthly_queries": actual_monthly_queries,
+                "plan_summary_count": final_plan_summary_count,
+                "source_audit_minute_query_months": source_audit[
+                    "minute_query_months"
+                ],
+            }
+            if not final_snapshot_matches:
+                context["final_snapshot_matches"] = False
             raise MinuteDataError(
                 check="minute_query_plan",
                 reason=(
                     "actual monthly queries, plan summaries and source audit count "
                     "must match"
                 ),
-                context={
-                    "actual_monthly_queries": actual_monthly_queries,
-                    "plan_summary_count": final_plan_summary_count,
-                    "source_audit_minute_query_months": source_audit[
-                        "minute_query_months"
-                    ],
-                },
+                context=context,
             )
         config_rows: list[dict[str, object]] = [
             {"key": "requested_start", "value": self.start},

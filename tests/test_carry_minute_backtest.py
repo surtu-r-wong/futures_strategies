@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import FrozenInstanceError, asdict, replace
 from datetime import date, datetime, timedelta
 import json
@@ -52,6 +53,7 @@ class FakeMinuteSource:
         initial_plan_audit: tuple[object, ...] = (),
         plan_entry_factory=None,
         plan_audit_override=_DEFAULT_PLAN_AUDIT,
+        plan_audit_snapshot_factory=None,
         audit_query_months_delta: int = 0,
     ) -> None:
         self.calls: list[tuple[tuple[MinuteCandidate, ...], datetime, datetime]] = []
@@ -62,6 +64,8 @@ class FakeMinuteSource:
         self.omit_keys = omit_keys or set()
         self.plan_entry_factory = plan_entry_factory
         self.plan_audit_override = plan_audit_override
+        self.plan_audit_snapshot_factory = plan_audit_snapshot_factory
+        self._plan_audit_reads = 0
         self.audit_query_months_delta = audit_query_months_delta
         self._plan_summaries = list(initial_plan_audit)
         self._minute_rows = 0
@@ -83,7 +87,14 @@ class FakeMinuteSource:
     def plan_audit(self):
         if self.plan_audit_override is not _DEFAULT_PLAN_AUDIT:
             return self.plan_audit_override
-        return tuple(self._plan_summaries)
+        snapshot = tuple(self._plan_summaries)
+        self._plan_audit_reads += 1
+        if self.plan_audit_snapshot_factory is not None:
+            snapshot = self.plan_audit_snapshot_factory(
+                snapshot,
+                self._plan_audit_reads,
+            )
+        return snapshot
 
     def iter_month(self, candidates, lower, upper):
         materialized = tuple(candidates)
@@ -380,6 +391,166 @@ def test_minute_backtester_requires_an_immutable_plan_audit_snapshot(
 
     assert exc_info.value.check == "minute_query_plan"
     assert exc_info.value.context["field"] == field
+
+
+def test_minute_backtester_rejects_mutation_of_a_prior_query_plan() -> None:
+    def mutate_prior_entry(snapshot, read_count):
+        if read_count >= 3 and len(snapshot) >= 2:
+            return (None, *snapshot[1:])
+        return snapshot
+
+    source = FakeMinuteSource(plan_audit_snapshot_factory=mutate_prior_entry)
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert len(source.calls) == 2
+    assert exc_info.value.check == "minute_query_plan"
+
+
+def test_minute_backtester_rejects_reordered_preexisting_plan_prefix() -> None:
+    first = _explain_only_summary()
+    second = replace(first, maximum_plan_rows=501)
+
+    def reorder_prefix(snapshot, read_count):
+        if read_count >= 2:
+            return (snapshot[1], snapshot[0], *snapshot[2:])
+        return snapshot
+
+    source = FakeMinuteSource(
+        initial_plan_audit=(first, second),
+        plan_audit_snapshot_factory=reorder_prefix,
+    )
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert len(source.calls) == 1
+    assert exc_info.value.check == "minute_query_plan"
+
+
+def test_minute_backtester_rejects_final_plan_snapshot_mutation() -> None:
+    def mutate_final_entry(snapshot, read_count):
+        if read_count >= 4:
+            return (*snapshot[:-1], None)
+        return snapshot
+
+    source = FakeMinuteSource(plan_audit_snapshot_factory=mutate_final_entry)
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert len(source.calls) == 2
+    assert exc_info.value.check == "minute_query_plan"
+
+
+def test_minute_backtester_wraps_plan_audit_getter_failure() -> None:
+    class RaisingPlanAuditSource(FakeMinuteSource):
+        @property
+        def plan_audit(self):
+            raise RuntimeError("hostile plan_audit getter")
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(RaisingPlanAuditSource())
+
+    assert exc_info.value.check == "minute_query_plan"
+    assert exc_info.value.context["field"] == "plan_audit"
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
+def test_minute_backtester_preserves_structured_plan_audit_getter_failure() -> None:
+    expected = minute_backtest_module.MinuteDataError(
+        check="minute_query_plan",
+        reason="already structured getter failure",
+    )
+
+    class RaisingPlanAuditSource(FakeMinuteSource):
+        @property
+        def plan_audit(self):
+            raise expected
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(RaisingPlanAuditSource())
+
+    assert exc_info.value is expected
+
+
+def test_minute_backtester_preserves_structured_snapshot_comparison_failure() -> None:
+    expected = minute_backtest_module.MinuteDataError(
+        check="minute_query_plan",
+        reason="already structured comparison failure",
+    )
+
+    class RaisingEquality:
+        def __eq__(self, other):
+            raise expected
+
+    def replace_prefix_identity(snapshot, read_count):
+        if read_count >= 2:
+            return (RaisingEquality(), *snapshot[1:])
+        return snapshot
+
+    source = FakeMinuteSource(
+        initial_plan_audit=(RaisingEquality(),),
+        plan_audit_snapshot_factory=replace_prefix_identity,
+    )
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert exc_info.value is expected
+
+
+def test_minute_backtester_wraps_object_plan_field_failure() -> None:
+    class RaisingFieldSummary:
+        def __init__(self, summary):
+            self._summary = summary
+
+        @property
+        def query_kind(self):
+            raise RuntimeError("hostile object field")
+
+        def __getattr__(self, name):
+            return getattr(self._summary, name)
+
+    source = FakeMinuteSource(
+        plan_entry_factory=lambda summary: (RaisingFieldSummary(summary),),
+    )
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert exc_info.value.check == "minute_query_plan"
+    assert exc_info.value.context["field"] == "query_kind"
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
+def test_minute_backtester_wraps_mapping_plan_field_failure() -> None:
+    class RaisingFieldMapping(Mapping):
+        def __init__(self, summary):
+            self._values = asdict(summary)
+
+        def __getitem__(self, key):
+            if key == "query_kind":
+                raise RuntimeError("hostile mapping lookup")
+            return self._values[key]
+
+        def __iter__(self):
+            return iter(self._values)
+
+        def __len__(self):
+            return len(self._values)
+
+    source = FakeMinuteSource(
+        plan_entry_factory=lambda summary: (RaisingFieldMapping(summary),),
+    )
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert exc_info.value.check == "minute_query_plan"
+    assert exc_info.value.context["field"] == "query_kind"
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
 @pytest.mark.parametrize(
