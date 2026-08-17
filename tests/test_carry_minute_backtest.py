@@ -1,5 +1,6 @@
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, asdict, replace
 from datetime import date, datetime, timedelta
+import json
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -19,7 +20,7 @@ from cta_carry.minute_backtest import (
     merge_close_plan,
 )
 from cta_carry.minute_bars import FifteenMinuteBar, MultiplierResolution
-from cta_carry.minute_pg_source import MinuteCandidate
+from cta_carry.minute_pg_source import MinuteCandidate, MinutePlanSummary
 from cta_carry.minute_sessions import (
     DAY_SEGMENTS,
     SESSION_RULES_VERSION,
@@ -33,6 +34,7 @@ from tests.carry_fixtures import make_carry_panel, small_config
 
 TZ = ZoneInfo("Asia/Shanghai")
 TRADE_DATE = date(2024, 1, 8)
+_DEFAULT_PLAN_AUDIT = object()
 
 
 class FakeMinuteSource:
@@ -46,6 +48,10 @@ class FakeMinuteSource:
         duplicate_rows: bool = False,
         omit_role: str | None = None,
         omit_keys: set[tuple[date, str]] | None = None,
+        initial_plan_audit: tuple[object, ...] = (),
+        plan_entry_factory=None,
+        plan_audit_override=_DEFAULT_PLAN_AUDIT,
+        audit_query_months_delta: int = 0,
     ) -> None:
         self.calls: list[tuple[tuple[MinuteCandidate, ...], datetime, datetime]] = []
         self.transform = transform
@@ -53,6 +59,10 @@ class FakeMinuteSource:
         self.duplicate_rows = duplicate_rows
         self.omit_role = omit_role
         self.omit_keys = omit_keys or set()
+        self.plan_entry_factory = plan_entry_factory
+        self.plan_audit_override = plan_audit_override
+        self.audit_query_months_delta = audit_query_months_delta
+        self._plan_summaries = list(initial_plan_audit)
         self._minute_rows = 0
         self._candidate_days: set[tuple[date, str]] = set()
         self._minute_table_min: datetime | None = None
@@ -63,14 +73,35 @@ class FakeMinuteSource:
         return {
             "minute_table_min": self._minute_table_min,
             "minute_table_max": self._minute_table_max,
-            "minute_query_months": len(self.calls),
+            "minute_query_months": len(self.calls) + self.audit_query_months_delta,
             "minute_rows": self._minute_rows,
             "minute_candidate_contract_days": len(self._candidate_days),
         }
 
+    @property
+    def plan_audit(self):
+        if self.plan_audit_override is not _DEFAULT_PLAN_AUDIT:
+            return self.plan_audit_override
+        return tuple(self._plan_summaries)
+
     def iter_month(self, candidates, lower, upper):
         materialized = tuple(candidates)
         self.calls.append((materialized, lower, upper))
+        summary = MinutePlanSummary(
+            query_kind="iter_month",
+            lower_bound=lower.isoformat(),
+            upper_bound=upper.isoformat(),
+            candidate_contract_days=len(materialized),
+            referenced_chunks=("_hyper_1_0_chunk", "_hyper_1_1_chunk"),
+            maximum_plan_rows=len(materialized) * 1000,
+            node_types=("Index Scan", "Nested Loop"),
+        )
+        entries = (
+            (summary,)
+            if self.plan_entry_factory is None
+            else tuple(self.plan_entry_factory(summary))
+        )
+        self._plan_summaries.extend(entries)
         self._candidate_days.update(
             (candidate.trade_date, candidate.daily_contract)
             for candidate in materialized
@@ -254,6 +285,210 @@ def test_minute_backtester_produces_auditable_tables_and_feedback() -> None:
     assert (
         run_config["minute_table_max"] == source.audit["minute_table_max"].isoformat()
     )
+
+
+def _explain_only_summary() -> MinutePlanSummary:
+    return MinutePlanSummary(
+        query_kind="explain_only",
+        lower_bound=datetime(2023, 12, 1, tzinfo=TZ).isoformat(),
+        upper_bound=datetime(2024, 1, 1, tzinfo=TZ).isoformat(),
+        candidate_contract_days=5,
+        referenced_chunks=("_hyper_0_0_chunk",),
+        maximum_plan_rows=500,
+        node_types=("Index Scan",),
+    )
+
+
+def _minute_query_plan_rows(result: CarryBacktestResult) -> pd.DataFrame:
+    return result.minute_data_quality.loc[
+        result.minute_data_quality["check"].eq("minute_query_plan")
+    ].reset_index(drop=True)
+
+
+def test_minute_backtester_records_one_query_plan_row_per_actual_month() -> None:
+    explain_summary = _explain_only_summary()
+    source = FakeMinuteSource(initial_plan_audit=(explain_summary,))
+
+    result = _run_fixture(source)
+
+    rows = _minute_query_plan_rows(result)
+    assert len(rows) == len(source.calls) == source.audit["minute_query_months"]
+    assert len(source.plan_audit) == len(source.calls) + 1
+    assert source.plan_audit[0] is explain_summary
+    for index, row in rows.iterrows():
+        candidates, lower, upper = source.calls[index]
+        detail = json.loads(row["detail"])
+        assert row["query_month"] == f"{candidates[-1].trade_date:%Y-%m}"
+        assert detail == {
+            "candidate_contract_days": len(candidates),
+            "lower_bound": lower.isoformat(),
+            "maximum_plan_rows": len(candidates) * 1000,
+            "node_types": ["Index Scan", "Nested Loop"],
+            "query_kind": "iter_month",
+            "referenced_chunks": ["_hyper_1_0_chunk", "_hyper_1_1_chunk"],
+            "upper_bound": upper.isoformat(),
+        }
+        assert row["observed_rows"] == len(candidates)
+
+
+def test_minute_query_plan_rows_survive_report_serialization(tmp_path) -> None:
+    result = _run_fixture()
+    expected = [
+        json.loads(value) for value in _minute_query_plan_rows(result)["detail"]
+    ]
+    output = tmp_path / "minute_data_quality.json"
+
+    result.minute_data_quality.to_json(
+        output,
+        orient="table",
+        date_format="iso",
+    )
+
+    written = pd.read_json(output, orient="table")
+    written = written.loc[written["check"].eq("minute_query_plan")].reset_index(
+        drop=True
+    )
+    assert [json.loads(value) for value in written["detail"]] == expected
+    assert set(expected[0]) == {
+        "query_kind",
+        "lower_bound",
+        "upper_bound",
+        "candidate_contract_days",
+        "referenced_chunks",
+        "maximum_plan_rows",
+        "node_types",
+    }
+
+
+@pytest.mark.parametrize(
+    ("source", "field"),
+    [
+        (SimpleNamespace(), "plan_audit"),
+        (FakeMinuteSource(plan_audit_override=None), "plan_audit"),
+        (FakeMinuteSource(plan_audit_override=lambda: ()), "plan_audit"),
+        (FakeMinuteSource(plan_audit_override=[]), "plan_audit"),
+    ],
+    ids=("absent", "none", "callable", "mutable_sequence"),
+)
+def test_minute_backtester_requires_an_immutable_plan_audit_snapshot(
+    source,
+    field: str,
+) -> None:
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert exc_info.value.check == "minute_query_plan"
+    assert exc_info.value.context["field"] == field
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda summary: None,
+        lambda summary: replace(summary, query_kind="explain_only"),
+        lambda summary: replace(summary, lower_bound=17),
+        lambda summary: replace(summary, upper_bound="2024-02-01T00:00:00"),
+        lambda summary: replace(summary, candidate_contract_days=True),
+        lambda summary: replace(summary, candidate_contract_days=0),
+        lambda summary: replace(summary, referenced_chunks=["_hyper_1_0_chunk"]),
+        lambda summary: replace(summary, referenced_chunks=(17,)),
+        lambda summary: replace(summary, referenced_chunks=("not_a_chunk",)),
+        lambda summary: replace(summary, maximum_plan_rows=True),
+        lambda summary: replace(summary, maximum_plan_rows=-1),
+        lambda summary: replace(summary, maximum_plan_rows=float("nan")),
+        lambda summary: replace(summary, maximum_plan_rows=10_000_000),
+        lambda summary: replace(summary, maximum_plan_rows=10**1000),
+        lambda summary: replace(summary, node_types=["Index Scan"]),
+        lambda summary: replace(summary, node_types=(17,)),
+        lambda summary: replace(summary, node_types=()),
+    ],
+    ids=(
+        "none_summary",
+        "wrong_query_kind",
+        "lower_bound_type",
+        "naive_upper_bound",
+        "candidate_count_bool",
+        "candidate_count_mismatch",
+        "chunks_container",
+        "chunk_member",
+        "chunk_name",
+        "maximum_rows_bool",
+        "maximum_rows_negative",
+        "maximum_rows_nan",
+        "maximum_rows_unsafe",
+        "maximum_rows_overflow",
+        "node_types_container",
+        "node_type_member",
+        "node_types_empty",
+    ),
+)
+def test_minute_backtester_rejects_malformed_relevant_plan_summary(mutate) -> None:
+    source = FakeMinuteSource(
+        plan_entry_factory=lambda summary: (mutate(summary),),
+    )
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert exc_info.value.check == "minute_query_plan"
+
+
+@pytest.mark.parametrize(
+    "plan_entry_factory",
+    [
+        lambda summary: (),
+        lambda summary: (summary, summary),
+    ],
+    ids=("missing_summary", "extra_summary"),
+)
+def test_minute_backtester_rejects_plan_summary_count_mismatch(
+    plan_entry_factory,
+) -> None:
+    source = FakeMinuteSource(plan_entry_factory=plan_entry_factory)
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert exc_info.value.check == "minute_query_plan"
+    assert exc_info.value.context["actual_monthly_queries"] == 1
+
+
+def test_minute_backtester_rejects_plan_bounds_that_do_not_match_query() -> None:
+    source = FakeMinuteSource(
+        plan_entry_factory=lambda summary: (
+            replace(summary, lower_bound=summary.upper_bound),
+        ),
+    )
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert exc_info.value.check == "minute_query_plan"
+    assert exc_info.value.context["field"] == "lower_bound"
+
+
+def test_minute_backtester_rejects_source_audit_query_count_mismatch() -> None:
+    source = FakeMinuteSource(audit_query_months_delta=1)
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert exc_info.value.check == "minute_query_plan"
+    assert exc_info.value.context == {
+        "actual_monthly_queries": len(source.calls),
+        "plan_summary_count": len(source.calls),
+        "source_audit_minute_query_months": len(source.calls) + 1,
+    }
+
+
+def test_minute_backtester_accepts_mapping_style_plan_summary() -> None:
+    source = FakeMinuteSource(
+        plan_entry_factory=lambda summary: (asdict(summary),),
+    )
+
+    result = _run_fixture(source)
+
+    assert len(_minute_query_plan_rows(result)) == len(source.calls)
 
 
 def _valid_source_audit() -> dict[str, object]:

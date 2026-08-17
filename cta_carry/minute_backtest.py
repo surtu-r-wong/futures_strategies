@@ -7,7 +7,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time, timedelta
 import hashlib
+import json
 import math
+import re
 from typing import Any
 
 from zoneinfo import ZoneInfo
@@ -727,6 +729,264 @@ _SOURCE_AUDIT_FIELDS = (
     "minute_rows",
     "minute_candidate_contract_days",
 )
+_PLAN_SUMMARY_FIELDS = (
+    "query_kind",
+    "lower_bound",
+    "upper_bound",
+    "candidate_contract_days",
+    "referenced_chunks",
+    "maximum_plan_rows",
+    "node_types",
+)
+_PLAN_CHUNK_NAME = re.compile(r"_hyper_\d+_\d+_chunk")
+
+
+def _plan_audit_error(
+    field: str,
+    reason: str,
+    *,
+    value: object | None = None,
+    context: Mapping[str, object] | None = None,
+) -> MinuteDataError:
+    details: dict[str, object] = {"field": field}
+    if value is not None:
+        details.update(value=value, value_type=type(value).__name__)
+    if context is not None:
+        details.update(context)
+    return MinuteDataError(
+        check="minute_query_plan",
+        reason=reason,
+        context=details,
+    )
+
+
+def _plan_audit_snapshot(source: Any) -> tuple[object, ...]:
+    try:
+        payload = source.plan_audit
+    except AttributeError as exc:
+        raise _plan_audit_error(
+            "plan_audit",
+            "minute source must expose an immutable plan audit snapshot",
+        ) from exc
+    if payload is None or callable(payload) or type(payload) is not tuple:
+        raise _plan_audit_error(
+            "plan_audit",
+            "minute source plan audit must be an immutable tuple snapshot",
+            value=payload,
+        )
+    return payload
+
+
+def _plan_summary_values(payload: object) -> dict[str, object]:
+    if payload is None or callable(payload):
+        raise _plan_audit_error(
+            "summary",
+            "minute query plan summary must be a mapping or field object",
+            value=payload,
+        )
+    values: dict[str, object] = {}
+    for field in _PLAN_SUMMARY_FIELDS:
+        if isinstance(payload, Mapping):
+            if field not in payload:
+                raise _plan_audit_error(field, "minute query plan field is missing")
+            values[field] = payload[field]
+        else:
+            try:
+                values[field] = getattr(payload, field)
+            except AttributeError as exc:
+                raise _plan_audit_error(
+                    field,
+                    "minute query plan field is missing",
+                ) from exc
+    return values
+
+
+def _validated_plan_summary(
+    payload: object,
+    *,
+    lower: datetime,
+    upper: datetime,
+    candidate_contract_days: int,
+) -> dict[str, object]:
+    values = _plan_summary_values(payload)
+    if type(values["query_kind"]) is not str or values["query_kind"] != "iter_month":
+        raise _plan_audit_error(
+            "query_kind",
+            "actual monthly query summary must have query_kind='iter_month'",
+            value=values["query_kind"],
+        )
+
+    parsed_bounds: dict[str, datetime] = {}
+    for field in ("lower_bound", "upper_bound"):
+        value = values[field]
+        if type(value) is not str:
+            raise _plan_audit_error(
+                field,
+                "minute query plan bound must be an ISO datetime string",
+                value=value,
+            )
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise _plan_audit_error(
+                field,
+                "minute query plan bound must be an ISO datetime string",
+                value=value,
+            ) from exc
+        if not _is_timezone_aware(parsed):
+            raise _plan_audit_error(
+                field,
+                "minute query plan bound must include a timezone offset",
+                value=value,
+            )
+        parsed_bounds[field] = parsed
+    try:
+        invalid_order = parsed_bounds["lower_bound"] >= parsed_bounds["upper_bound"]
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise _plan_audit_error(
+            "lower_bound",
+            "minute query plan bounds must be mutually comparable",
+        ) from exc
+    if invalid_order:
+        raise _plan_audit_error(
+            "lower_bound",
+            "minute query plan lower bound must precede its upper bound",
+        )
+    for field, expected in (("lower_bound", lower), ("upper_bound", upper)):
+        if values[field] != expected.isoformat():
+            raise _plan_audit_error(
+                field,
+                "minute query plan bound does not match the actual monthly query",
+                value=values[field],
+                context={"expected": expected.isoformat()},
+            )
+
+    count = values["candidate_contract_days"]
+    if type(count) is not int or count <= 0:
+        raise _plan_audit_error(
+            "candidate_contract_days",
+            "minute query plan candidate count must be a positive integer",
+            value=count,
+        )
+    if count != candidate_contract_days:
+        raise _plan_audit_error(
+            "candidate_contract_days",
+            "minute query plan candidate count does not match the actual query",
+            value=count,
+            context={"expected": candidate_contract_days},
+        )
+
+    chunks = values["referenced_chunks"]
+    if type(chunks) is not tuple:
+        raise _plan_audit_error(
+            "referenced_chunks",
+            "minute query plan chunk names must be an immutable tuple",
+            value=chunks,
+        )
+    for chunk in chunks:
+        if type(chunk) is not str or _PLAN_CHUNK_NAME.fullmatch(chunk) is None:
+            raise _plan_audit_error(
+                "referenced_chunks",
+                "minute query plan contains an invalid Timescale chunk name",
+                value=chunk,
+            )
+    if chunks != tuple(sorted(set(chunks))):
+        raise _plan_audit_error(
+            "referenced_chunks",
+            "minute query plan chunk names must be unique and sorted",
+            value=chunks,
+        )
+
+    maximum_rows = values["maximum_plan_rows"]
+    if (
+        type(maximum_rows) not in (int, float)
+        or (type(maximum_rows) is float and not math.isfinite(maximum_rows))
+        or maximum_rows < 0
+        or maximum_rows >= 10_000_000
+    ):
+        raise _plan_audit_error(
+            "maximum_plan_rows",
+            "minute query plan maximum row estimate must be finite and safely bounded",
+            value=maximum_rows,
+        )
+
+    node_types = values["node_types"]
+    if type(node_types) is not tuple or not node_types:
+        raise _plan_audit_error(
+            "node_types",
+            "minute query plan node types must be a nonempty immutable tuple",
+            value=node_types,
+        )
+    for node_type in node_types:
+        if (
+            type(node_type) is not str
+            or not node_type.strip()
+            or node_type.strip() != node_type
+        ):
+            raise _plan_audit_error(
+                "node_types",
+                "minute query plan contains an invalid node type",
+                value=node_type,
+            )
+    if node_types != tuple(sorted(set(node_types))):
+        raise _plan_audit_error(
+            "node_types",
+            "minute query plan node types must be unique and sorted",
+            value=node_types,
+        )
+    return values
+
+
+def _query_plan_quality_record(
+    values: Mapping[str, object],
+    *,
+    query_month: str,
+) -> dict[str, object]:
+    return {
+        "check": "minute_query_plan",
+        "trade_date": None,
+        "product": None,
+        "contract": None,
+        "candidate_role": None,
+        "observed_rows": values["candidate_contract_days"],
+        "missing_slots": None,
+        "query_month": query_month,
+        "detail": json.dumps(
+            dict(values),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ),
+    }
+
+
+def _plan_summary_for_query(
+    source: Any,
+    *,
+    initial_count: int,
+    actual_monthly_queries: int,
+    lower: datetime,
+    upper: datetime,
+    candidate_contract_days: int,
+) -> dict[str, object]:
+    snapshot = _plan_audit_snapshot(source)
+    plan_summary_count = len(snapshot) - initial_count
+    if plan_summary_count != actual_monthly_queries:
+        raise MinuteDataError(
+            check="minute_query_plan",
+            reason="source plan audit count does not match actual monthly queries",
+            context={
+                "actual_monthly_queries": actual_monthly_queries,
+                "plan_summary_count": plan_summary_count,
+            },
+        )
+    return _validated_plan_summary(
+        snapshot[-1],
+        lower=lower,
+        upper=upper,
+        candidate_contract_days=candidate_contract_days,
+    )
 
 
 def _source_audit_error(
@@ -827,6 +1087,7 @@ class CarryMinuteBacktester:
             backtest_start=self.start,
             prewarm_calendar_days=self.config.prewarm_calendar_days,
         )
+        initial_plan_summary_count = len(_plan_audit_snapshot(self.minute_source))
         prices = self.data.prices.loc[self.data.prices["trade_date"] <= self.end].copy()
         dates = sorted(prices["trade_date"].dropna().unique().tolist())
         if not dates:
@@ -1171,11 +1432,25 @@ class CarryMinuteBacktester:
                 current_frames = {}
                 candidates = month_candidates.get(month, ())
                 if candidates:
-                    current_frames, _, _, _ = _load_month_rows(
+                    current_frames, _, lower, upper = _load_month_rows(
                         self.minute_source,
                         candidates,
                     )
                     query_months.append(f"{month[0]:04d}-{month[1]:02d}")
+                    plan_values = _plan_summary_for_query(
+                        self.minute_source,
+                        initial_count=initial_plan_summary_count,
+                        actual_monthly_queries=len(query_months),
+                        lower=lower,
+                        upper=upper,
+                        candidate_contract_days=len(candidates),
+                    )
+                    quality_records.append(
+                        _query_plan_quality_record(
+                            plan_values,
+                            query_month=query_months[-1],
+                        )
+                    )
                     for candidate in candidates:
                         context = contexts[
                             (candidate.trade_date, candidate.daily_contract)
@@ -1688,6 +1963,30 @@ class CarryMinuteBacktester:
         if session_versions != [SESSION_RULES_VERSION]:
             raise ValueError("session rules must use the repository rules version")
         source_audit = _validated_source_audit(self.minute_source)
+        final_plan_summary_count = (
+            len(_plan_audit_snapshot(self.minute_source))
+            - initial_plan_summary_count
+        )
+        actual_monthly_queries = len(query_months)
+        if not (
+            final_plan_summary_count
+            == actual_monthly_queries
+            == source_audit["minute_query_months"]
+        ):
+            raise MinuteDataError(
+                check="minute_query_plan",
+                reason=(
+                    "actual monthly queries, plan summaries and source audit count "
+                    "must match"
+                ),
+                context={
+                    "actual_monthly_queries": actual_monthly_queries,
+                    "plan_summary_count": final_plan_summary_count,
+                    "source_audit_minute_query_months": source_audit[
+                        "minute_query_months"
+                    ],
+                },
+            )
         config_rows: list[dict[str, object]] = [
             {"key": "requested_start", "value": self.start},
             {"key": "requested_end", "value": self.end},
