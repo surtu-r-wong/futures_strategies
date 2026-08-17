@@ -739,6 +739,8 @@ _PLAN_SUMMARY_FIELDS = (
     "node_types",
 )
 _PLAN_CHUNK_NAME = re.compile(r"_hyper_\d+_\d+_chunk")
+_DetachedPlanEntry = tuple[tuple[str, object], ...]
+_DetachedPlanSnapshot = tuple[_DetachedPlanEntry, ...]
 
 
 def _plan_audit_error(
@@ -836,9 +838,49 @@ def _plan_summary_values(payload: object) -> dict[str, object]:
     return values
 
 
+def _detached_plan_value(value: object, *, field: str) -> object:
+    if type(value) in (str, int, float, bool, type(None)):
+        return value
+    if type(value) in (tuple, list):
+        try:
+            return tuple(
+                _detached_plan_value(item, field=field)
+                for item in value
+            )
+        except MinuteDataError:
+            raise
+        except Exception as exc:
+            raise _plan_audit_error(
+                field,
+                "minute query plan nested field detachment failed",
+            ) from exc
+    raise _plan_audit_error(
+        field,
+        "minute query plan field cannot be safely detached",
+        context={"value_type": type(value).__name__},
+    )
+
+
+def _detached_plan_entry(payload: object) -> _DetachedPlanEntry:
+    values = _plan_summary_values(payload)
+    return tuple(
+        (
+            field,
+            _detached_plan_value(values[field], field=field),
+        )
+        for field in _PLAN_SUMMARY_FIELDS
+    )
+
+
+def _detached_plan_snapshot(
+    snapshot: tuple[object, ...],
+) -> _DetachedPlanSnapshot:
+    return tuple(_detached_plan_entry(payload) for payload in snapshot)
+
+
 def _plan_snapshots_equal(
-    left: tuple[object, ...],
-    right: tuple[object, ...],
+    left: _DetachedPlanSnapshot,
+    right: _DetachedPlanSnapshot,
 ) -> bool:
     try:
         return left == right
@@ -1021,13 +1063,14 @@ def _query_plan_quality_record(
 def _plan_summary_for_query(
     source: Any,
     *,
-    accepted_snapshot: tuple[object, ...],
+    accepted_snapshot: _DetachedPlanSnapshot,
     actual_monthly_queries: int,
     lower: datetime,
     upper: datetime,
     candidate_contract_days: int,
-) -> tuple[dict[str, object], tuple[object, ...]]:
-    snapshot = _plan_audit_snapshot(source)
+) -> tuple[dict[str, object], _DetachedPlanSnapshot]:
+    observed_snapshot = _plan_audit_snapshot(source)
+    snapshot = _detached_plan_snapshot(observed_snapshot)
     appended_entries = len(snapshot) - len(accepted_snapshot)
     if appended_entries != 1:
         raise MinuteDataError(
@@ -1045,7 +1088,7 @@ def _plan_summary_for_query(
             context={"actual_monthly_queries": actual_monthly_queries},
         )
     values = _validated_plan_summary(
-        snapshot[-1],
+        observed_snapshot[-1],
         lower=lower,
         upper=upper,
         candidate_contract_days=candidate_contract_days,
@@ -1151,7 +1194,9 @@ class CarryMinuteBacktester:
             backtest_start=self.start,
             prewarm_calendar_days=self.config.prewarm_calendar_days,
         )
-        initial_plan_snapshot = _plan_audit_snapshot(self.minute_source)
+        initial_plan_snapshot = _detached_plan_snapshot(
+            _plan_audit_snapshot(self.minute_source)
+        )
         accepted_plan_snapshot = initial_plan_snapshot
         prices = self.data.prices.loc[self.data.prices["trade_date"] <= self.end].copy()
         dates = sorted(prices["trade_date"].dropna().unique().tolist())
@@ -2028,7 +2073,9 @@ class CarryMinuteBacktester:
         if session_versions != [SESSION_RULES_VERSION]:
             raise ValueError("session rules must use the repository rules version")
         source_audit = _validated_source_audit(self.minute_source)
-        final_plan_snapshot = _plan_audit_snapshot(self.minute_source)
+        final_plan_snapshot = _detached_plan_snapshot(
+            _plan_audit_snapshot(self.minute_source)
+        )
         final_snapshot_matches = _plan_snapshots_equal(
             final_plan_snapshot,
             accepted_plan_snapshot,

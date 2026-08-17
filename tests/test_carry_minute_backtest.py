@@ -444,6 +444,65 @@ def test_minute_backtester_rejects_final_plan_snapshot_mutation() -> None:
     assert exc_info.value.check == "minute_query_plan"
 
 
+def test_minute_backtester_rejects_in_place_relevant_mapping_mutation() -> None:
+    def mutate_final_mapping(snapshot, read_count):
+        if read_count >= 4:
+            snapshot[-1]["query_kind"] = "explain_only"
+        return snapshot
+
+    source = FakeMinuteSource(
+        plan_entry_factory=lambda summary: (asdict(summary),),
+        plan_audit_snapshot_factory=mutate_final_mapping,
+    )
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert len(source.calls) == 2
+    assert exc_info.value.check == "minute_query_plan"
+
+
+def test_minute_backtester_rejects_in_place_preexisting_mapping_mutation() -> None:
+    prefix = asdict(_explain_only_summary())
+
+    def mutate_prefix_mapping(snapshot, read_count):
+        if read_count >= 2:
+            snapshot[0]["query_kind"] = "corrupted"
+        return snapshot
+
+    source = FakeMinuteSource(
+        initial_plan_audit=(prefix,),
+        plan_audit_snapshot_factory=mutate_prefix_mapping,
+    )
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert len(source.calls) == 1
+    assert exc_info.value.check == "minute_query_plan"
+
+
+def test_minute_backtester_detaches_nested_preexisting_mapping_lists() -> None:
+    prefix = asdict(_explain_only_summary())
+    prefix["referenced_chunks"] = list(prefix["referenced_chunks"])
+
+    def mutate_nested_prefix_list(snapshot, read_count):
+        if read_count >= 2:
+            snapshot[0]["referenced_chunks"].append("_hyper_0_1_chunk")
+        return snapshot
+
+    source = FakeMinuteSource(
+        initial_plan_audit=(prefix,),
+        plan_audit_snapshot_factory=mutate_nested_prefix_list,
+    )
+
+    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
+        _run_fixture(source)
+
+    assert len(source.calls) == 1
+    assert exc_info.value.check == "minute_query_plan"
+
+
 def test_minute_backtester_wraps_plan_audit_getter_failure() -> None:
     class RaisingPlanAuditSource(FakeMinuteSource):
         @property
@@ -475,30 +534,32 @@ def test_minute_backtester_preserves_structured_plan_audit_getter_failure() -> N
     assert exc_info.value is expected
 
 
-def test_minute_backtester_preserves_structured_snapshot_comparison_failure() -> None:
-    expected = minute_backtest_module.MinuteDataError(
-        check="minute_query_plan",
-        reason="already structured comparison failure",
-    )
-
+def test_minute_backtester_does_not_execute_plan_entry_equality_protocol() -> None:
     class RaisingEquality:
+        def __init__(self, summary):
+            self._summary = summary
+
         def __eq__(self, other):
-            raise expected
+            raise RuntimeError("unsafe equality protocol executed")
+
+        def __getattr__(self, name):
+            return getattr(self._summary, name)
+
+    prefix = _explain_only_summary()
 
     def replace_prefix_identity(snapshot, read_count):
         if read_count >= 2:
-            return (RaisingEquality(), *snapshot[1:])
+            return (RaisingEquality(prefix), *snapshot[1:])
         return snapshot
 
     source = FakeMinuteSource(
-        initial_plan_audit=(RaisingEquality(),),
+        initial_plan_audit=(RaisingEquality(prefix),),
         plan_audit_snapshot_factory=replace_prefix_identity,
     )
 
-    with pytest.raises(minute_backtest_module.MinuteDataError) as exc_info:
-        _run_fixture(source)
+    result = _run_fixture(source)
 
-    assert exc_info.value is expected
+    assert len(_minute_query_plan_rows(result)) == len(source.calls)
 
 
 def test_minute_backtester_wraps_object_plan_field_failure() -> None:
