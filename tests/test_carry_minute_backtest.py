@@ -653,9 +653,9 @@ def test_minute_backtester_observes_object_plan_fields_once_per_snapshot() -> No
 
     plan_rows = _minute_query_plan_rows(result)
     assert len(plan_rows) == len(source.calls)
-    assert {
-        json.loads(detail)["query_kind"] for detail in plan_rows["detail"]
-    } == {"iter_month"}
+    assert {json.loads(detail)["query_kind"] for detail in plan_rows["detail"]} == {
+        "iter_month"
+    }
     assert entries
     assert all(max(entry.maximum_reads.values()) == 1 for entry in entries)
 
@@ -705,9 +705,9 @@ def test_minute_backtester_observes_mapping_plan_fields_once_per_snapshot() -> N
 
     plan_rows = _minute_query_plan_rows(result)
     assert len(plan_rows) == len(source.calls)
-    assert {
-        json.loads(detail)["query_kind"] for detail in plan_rows["detail"]
-    } == {"iter_month"}
+    assert {json.loads(detail)["query_kind"] for detail in plan_rows["detail"]} == {
+        "iter_month"
+    }
     assert entries
     assert all(max(entry.maximum_reads.values()) == 1 for entry in entries)
 

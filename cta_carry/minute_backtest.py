@@ -851,10 +851,7 @@ def _detached_plan_value(value: object, *, field: str) -> object:
         try:
             return _DetachedPlanSequence(
                 container_type="tuple" if type(value) is tuple else "list",
-                items=tuple(
-                    _detached_plan_value(item, field=field)
-                    for item in value
-                ),
+                items=tuple(_detached_plan_value(item, field=field) for item in value),
             )
         except MinuteDataError:
             raise
@@ -897,10 +894,7 @@ def _restored_plan_value(value: object) -> object:
 
 
 def _detached_plan_values(entry: _DetachedPlanEntry) -> dict[str, object]:
-    return {
-        field: _restored_plan_value(value)
-        for field, value in entry
-    }
+    return {field: _restored_plan_value(value) for field, value in entry}
 
 
 def _plan_snapshots_equal(
@@ -2118,9 +2112,7 @@ class CarryMinuteBacktester:
             context = {
                 "actual_monthly_queries": actual_monthly_queries,
                 "plan_summary_count": final_plan_summary_count,
-                "source_audit_minute_query_months": source_audit[
-                    "minute_query_months"
-                ],
+                "source_audit_minute_query_months": source_audit["minute_query_months"],
             }
             if not final_snapshot_matches:
                 context["final_snapshot_matches"] = False
