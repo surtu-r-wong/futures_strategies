@@ -743,6 +743,12 @@ _DetachedPlanEntry = tuple[tuple[str, object], ...]
 _DetachedPlanSnapshot = tuple[_DetachedPlanEntry, ...]
 
 
+@dataclass(frozen=True)
+class _DetachedPlanSequence:
+    container_type: str
+    items: tuple[object, ...]
+
+
 def _plan_audit_error(
     field: str,
     reason: str,
@@ -807,12 +813,12 @@ def _plan_summary_values(payload: object) -> dict[str, object]:
     for field in _PLAN_SUMMARY_FIELDS:
         if mapping_style:
             try:
-                if field not in payload:
-                    raise _plan_audit_error(
-                        field,
-                        "minute query plan field is missing",
-                    )
                 values[field] = payload[field]
+            except KeyError as exc:
+                raise _plan_audit_error(
+                    field,
+                    "minute query plan field is missing",
+                ) from exc
             except MinuteDataError:
                 raise
             except Exception as exc:
@@ -843,9 +849,12 @@ def _detached_plan_value(value: object, *, field: str) -> object:
         return value
     if type(value) in (tuple, list):
         try:
-            return tuple(
-                _detached_plan_value(item, field=field)
-                for item in value
+            return _DetachedPlanSequence(
+                container_type="tuple" if type(value) is tuple else "list",
+                items=tuple(
+                    _detached_plan_value(item, field=field)
+                    for item in value
+                ),
             )
         except MinuteDataError:
             raise
@@ -876,6 +885,22 @@ def _detached_plan_snapshot(
     snapshot: tuple[object, ...],
 ) -> _DetachedPlanSnapshot:
     return tuple(_detached_plan_entry(payload) for payload in snapshot)
+
+
+def _restored_plan_value(value: object) -> object:
+    if isinstance(value, _DetachedPlanSequence):
+        items = tuple(_restored_plan_value(item) for item in value.items)
+        if value.container_type == "list":
+            return list(items)
+        return items
+    return value
+
+
+def _detached_plan_values(entry: _DetachedPlanEntry) -> dict[str, object]:
+    return {
+        field: _restored_plan_value(value)
+        for field, value in entry
+    }
 
 
 def _plan_snapshots_equal(
@@ -1088,7 +1113,7 @@ def _plan_summary_for_query(
             context={"actual_monthly_queries": actual_monthly_queries},
         )
     values = _validated_plan_summary(
-        observed_snapshot[-1],
+        _detached_plan_values(snapshot[-1]),
         lower=lower,
         upper=upper,
         candidate_contract_days=candidate_contract_days,

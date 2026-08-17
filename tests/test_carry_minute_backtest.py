@@ -614,6 +614,104 @@ def test_minute_backtester_wraps_mapping_plan_field_failure() -> None:
     assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
+def test_minute_backtester_observes_object_plan_fields_once_per_snapshot() -> None:
+    entries = []
+
+    class StatefulObjectSummary:
+        def __init__(self, summary):
+            self._summary = summary
+            self._observation_reads = {}
+            self.maximum_reads = {}
+
+        def begin_observation(self):
+            self._observation_reads = {}
+
+        def __getattr__(self, name):
+            reads = self._observation_reads.get(name, 0) + 1
+            self._observation_reads[name] = reads
+            self.maximum_reads[name] = max(self.maximum_reads.get(name, 0), reads)
+            if name == "query_kind" and reads > 1:
+                return "explain_only"
+            return getattr(self._summary, name)
+
+    def wrap_summary(summary):
+        entry = StatefulObjectSummary(summary)
+        entries.append(entry)
+        return (entry,)
+
+    def begin_snapshot(snapshot, read_count):
+        for entry in snapshot:
+            entry.begin_observation()
+        return snapshot
+
+    source = FakeMinuteSource(
+        plan_entry_factory=wrap_summary,
+        plan_audit_snapshot_factory=begin_snapshot,
+    )
+
+    result = _run_fixture(source)
+
+    plan_rows = _minute_query_plan_rows(result)
+    assert len(plan_rows) == len(source.calls)
+    assert {
+        json.loads(detail)["query_kind"] for detail in plan_rows["detail"]
+    } == {"iter_month"}
+    assert entries
+    assert all(max(entry.maximum_reads.values()) == 1 for entry in entries)
+
+
+def test_minute_backtester_observes_mapping_plan_fields_once_per_snapshot() -> None:
+    entries = []
+
+    class StatefulMappingSummary(Mapping):
+        def __init__(self, summary):
+            self._values = asdict(summary)
+            self._observation_reads = {}
+            self.maximum_reads = {}
+
+        def begin_observation(self):
+            self._observation_reads = {}
+
+        def __getitem__(self, key):
+            reads = self._observation_reads.get(key, 0) + 1
+            self._observation_reads[key] = reads
+            self.maximum_reads[key] = max(self.maximum_reads.get(key, 0), reads)
+            if key == "query_kind" and reads > 1:
+                return "explain_only"
+            return self._values[key]
+
+        def __iter__(self):
+            return iter(self._values)
+
+        def __len__(self):
+            return len(self._values)
+
+    def wrap_summary(summary):
+        entry = StatefulMappingSummary(summary)
+        entries.append(entry)
+        return (entry,)
+
+    def begin_snapshot(snapshot, read_count):
+        for entry in snapshot:
+            entry.begin_observation()
+        return snapshot
+
+    source = FakeMinuteSource(
+        plan_entry_factory=wrap_summary,
+        plan_audit_snapshot_factory=begin_snapshot,
+    )
+
+    result = _run_fixture(source)
+
+    plan_rows = _minute_query_plan_rows(result)
+    assert len(plan_rows) == len(source.calls)
+    assert {
+        json.loads(detail)["query_kind"] for detail in plan_rows["detail"]
+    } == {"iter_month"}
+    assert entries
+    assert all(max(entry.maximum_reads.values()) == 1 for entry in entries)
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
