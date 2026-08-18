@@ -1617,7 +1617,7 @@ Expected: all comparison tests pass before commit.
 - Modify: `docs/operations/carry-daily-research.md`
 - Modify: any code/test files required by failures, limited to root-cause fixes.
 
-- [ ] **Step 0: Close the explain-only and plan-summary audit gap with TDD**
+- [x] **Step 0: Close the explain-only and plan-summary audit gap with TDD**
 
 Before the real smoke, add failing source and backtester tests for an immutable,
 serializable `MinutePlanSummary`. `PublicMinuteSource.explain_month(...)` must reuse
@@ -1636,7 +1636,7 @@ must fail closed. Tests must cover the single-contract/five-date explain-only
 smoke shape, unsafe-plan cleanup, absence of a data SELECT, and report-table
 serialization before proceeding to Step 1.
 
-- [ ] **Step 1: Explain the real bounded query before selecting rows**
+- [x] **Step 1: Explain the real bounded query before selecting rows**
 
 Use a single active contract and five trade dates in 2020. Run the source's explain-only entry point with a 300-second timeout.
 
@@ -1648,6 +1648,27 @@ Expected:
 - no sequential scan over the entire hypertable.
 
 Save the plan summary into the smoke run's `minute_data_quality`.
+
+**Step 0 result (delivered 2026-08-17, verified 2026-08-18):** `MinutePlanSummary`,
+`PublicMinuteSource.explain_month()` and the backtester `minute_query_plan` rows landed in
+`13aeabd` / `09df0da` / `9c25ed5` / `bc54246` / `011e8c1` / `663eea0` / `a50bf63`. Test
+coverage confirmed for the explain-only summary, unsafe-plan cleanup, absence of a data
+SELECT, immutable plan-audit snapshots, count mismatch, bounds mismatch and report-table
+serialization (`tests/test_carry_minute_pg_source.py`, `tests/test_carry_minute_backtest.py`).
+Full suite on 2026-08-18: `835 passed` with only the known absent session-asset gate failing.
+
+**Step 1 result (2026-08-18):** run against the real Debian primary with `RB2005.SHF` and
+five 2020 trade dates (01-03, 01-06, 01-07, 01-08, 01-09). All four expectations pass:
+bare `symbol = c.minute_symbol` index condition; 2 chunks referenced out of 264;
+maximum plan rows 852,013; no sequential scan on the hypertable — the only `Seq Scan`
+is on the 5-row temp candidate table, which is the intended small-side driver.
+`audit.minute_query_months == 0` and `audit.minute_rows == 0` prove no data SELECT ran.
+Full evidence: `docs/research/2026-08-18-carry-minute-task12-step1-explain-smoke.md`.
+
+**Not yet done in Step 1:** persisting the summary into a smoke run's `minute_data_quality`
+happens inside the backtester run, i.e. Step 2, which is blocked — `cta_carry/__main__.py:294`
+hard-loads `config/carry_minute_sessions.csv` on the `--execution minute` path and that formal
+asset does not exist yet.
 
 - [ ] **Step 2: Run a real five-product smoke backtest**
 
