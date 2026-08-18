@@ -32,6 +32,8 @@ from cta_carry.minute_sessions import (
     SessionRule,
     build_trading_slots,
     load_session_rules,
+    night_label_to_offset,
+    parse_night_interval,
     resolve_session_rule,
     validate_capture_coverage,
 )
@@ -41,13 +43,13 @@ from cta_carry.pg_source import (
 )
 from cta_carry.session_authority import (
     EffectiveAuthorityRange,
-    NoNightDate,
     SessionAuthority,
     SessionAuthorityError,
+    SessionException,
     authorize_night_observation,
     load_session_authority,
     matching_ranges,
-    validate_no_night_calendar,
+    validate_session_exception_calendar,
 )
 
 
@@ -90,7 +92,9 @@ HISTORY_EXCEPTIONS_PATH = (
     / "carry_liquidity_history_exceptions.csv"
 )
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-NO_NIGHT_PATH = REPOSITORY_ROOT / "config" / "carry_minute_no_night_dates.csv"
+SESSION_EXCEPTIONS_PATH = (
+    REPOSITORY_ROOT / "config" / "carry_minute_session_exceptions.csv"
+)
 DAY_ONLY_PATH = REPOSITORY_ROOT / "config" / "carry_minute_day_only_regimes.csv"
 SESSION_RULES_PATH = REPOSITORY_ROOT / "config" / "carry_minute_sessions.csv"
 
@@ -767,8 +771,15 @@ def _require_boundary(row: Any, field: str, expected: datetime) -> None:
         _boundary_error(row, field, expected)
 
 
-def classify_session_boundary(row: Any) -> str:
-    """Classify one exact empirical row into the four supported night clocks."""
+def _night_boundary_error(row: Any, field: str, reason: str) -> None:
+    raise SessionCaptureError(
+        f"{row['trade_date']} {row['exchange']} {row['product']} "
+        f"{row['daily_contract']} {field}: {reason}"
+    )
+
+
+def classify_session_boundary(row: Any) -> tuple[str, str]:
+    """Classify one exact empirical row into its authoritative night interval."""
     trade_date = row["trade_date"]
     previous_trade_date = row["previous_trade_date"]
     if type(trade_date) is not date or type(previous_trade_date) is not date:
@@ -787,58 +798,84 @@ def classify_session_boundary(row: Any) -> str:
     night_first = row["night_first"]
     night_last = row["night_last"]
     if _missing_boundary(night_first) and _missing_boundary(night_last):
-        return "none"
+        return ("none", "none")
     if _missing_boundary(night_first) or _missing_boundary(night_last):
         _boundary_error(
             row,
             "night_first" if _missing_boundary(night_first) else "night_last",
             None,
         )
-    _require_boundary(row, "night_first", _at(previous_trade_date, 21, 0))
+    for field, value in (
+        ("night_first", night_first),
+        ("night_last", night_last),
+    ):
+        if not isinstance(value, datetime) or value.tzinfo is None:
+            _night_boundary_error(row, field, "requires an aware datetime")
+    try:
+        start = night_first.astimezone(SHANGHAI)
+        end = night_last.astimezone(SHANGHAI) + timedelta(minutes=1)
+    except (TypeError, ValueError, OverflowError):
+        _night_boundary_error(
+            row, "night_first", "could not be converted to the exchange clock"
+        )
     after_midnight = previous_trade_date.fromordinal(
         previous_trade_date.toordinal() + 1
     )
-    endings = {
-        "23:00": _at(previous_trade_date, 22, 59),
-        "23:30": _at(previous_trade_date, 23, 29),
-        "01:00": _at(after_midnight, 0, 59),
-        "02:30": _at(after_midnight, 2, 29),
-    }
-    for label, expected in endings.items():
+    if start.date() != previous_trade_date:
+        _night_boundary_error(
+            row,
+            "night_first",
+            f"expected the previous trade date {previous_trade_date}; "
+            f"got {start.date()}",
+        )
+    if end > _at(after_midnight, 2, 30):
+        _night_boundary_error(
+            row,
+            "night_last",
+            f"ends after the 02:30 commodity clock bound; got {end}",
+        )
+    labels = (f"{start:%H:%M}", f"{end:%H:%M}")
+    for field, label in (("night_first", labels[0]), ("night_last", labels[1])):
         try:
-            matches = night_last.astimezone(SHANGHAI) == expected
-        except (AttributeError, TypeError, ValueError, OverflowError):
-            matches = False
-        if matches:
-            return label
-    _boundary_error(row, "night_last", None)
-    raise AssertionError("unreachable")
+            night_label_to_offset(label)
+        except ValueError as exc:
+            _night_boundary_error(row, field, str(exc))
+    try:
+        parse_night_interval(*labels)
+    except ValueError as exc:
+        _night_boundary_error(row, "night_first/night_last", str(exc))
+    return labels
 
 
 def classify_authorized_boundaries(
     boundaries: pd.DataFrame,
     authority: SessionAuthority,
+    *,
+    global_calendar: Sequence[date],
 ) -> tuple[pd.DataFrame, tuple[AmbiguityRecord, ...]]:
     """Classify every boundary and reconcile each result with authority."""
     identity_columns = {"exchange", "product", "trade_date"}
     missing = sorted(identity_columns.difference(boundaries.columns))
     if missing:
         raise SessionCaptureError(f"captured boundaries missing columns: {missing}")
+    loaded_dates = frozenset(_ordered_calendar(global_calendar))
 
     classified: list[dict[str, Any]] = []
     ambiguous: list[AmbiguityRecord] = []
+    consumed_exception_keys: set[tuple[str, date]] = set()
     ordered = boundaries.sort_values(
         ["trade_date", "exchange", "product", "daily_contract"],
         kind="mergesort",
     )
     for row in ordered.to_dict("records"):
         try:
-            night_end = classify_session_boundary(row)
-            authorize_night_observation(
+            night_start, night_end = classify_session_boundary(row)
+            consumed = authorize_night_observation(
                 authority,
                 exchange=row["exchange"],
                 product=row["product"],
                 trade_date=row["trade_date"],
+                observed_night_start=night_start,
                 observed_night_end=night_end,
             )
         except (SessionCaptureError, SessionAuthorityError) as exc:
@@ -852,32 +889,63 @@ def classify_authorized_boundaries(
                 )
             )
             continue
+        if consumed is not None:
+            consumed_exception_keys.add((consumed.exchange, consumed.trade_date))
         classified.append(
             {
                 "exchange": row["exchange"],
                 "product": row["product"],
                 "trade_date": row["trade_date"],
+                "night_start": night_start,
                 "night_end": night_end,
             }
+        )
+    relevant_keys = sorted(
+        {
+            (row.exchange, row.trade_date)
+            for row in authority.session_exceptions
+            if row.trade_date in loaded_dates
+        }
+    )
+    for exchange, trade_date in relevant_keys:
+        if (exchange, trade_date) in consumed_exception_keys:
+            continue
+        ambiguous.append(
+            AmbiguityRecord(
+                trade_date=trade_date,
+                exchange=exchange,
+                product="*",
+                check="session_exception_unconsumed",
+                reason=(
+                    "loaded session exception was never consumed by an audited "
+                    "product-day observation"
+                ),
+            )
         )
     return (
         pd.DataFrame(
             classified,
-            columns=["exchange", "product", "trade_date", "night_end"],
+            columns=[
+                "exchange",
+                "product",
+                "trade_date",
+                "night_start",
+                "night_end",
+            ],
         ),
         tuple(sorted(ambiguous)),
     )
 
 
-def validate_capture_no_night_calendar(
-    rows: Sequence[NoNightDate],
+def validate_capture_session_exception_calendar(
+    rows: Sequence[SessionException],
     global_calendar: Sequence[date],
 ) -> None:
     """Validate only authority rows whose target date is in the loaded calendar."""
     calendar = _ordered_calendar(global_calendar)
     loaded_dates = frozenset(calendar)
     relevant = tuple(row for row in rows if row.trade_date in loaded_dates)
-    validate_no_night_calendar(relevant, calendar)
+    validate_session_exception_calendar(relevant, calendar)
 
 
 def authorized_history_gap_lines(
@@ -1202,7 +1270,7 @@ def _validate_authority_hashes(
     authority: SessionAuthority,
     authority_paths: Mapping[str, Path],
 ) -> None:
-    expected_names = {"no_night", "day_only", "history_exception"}
+    expected_names = {"session_exception", "day_only", "history_exception"}
     if set(authority_paths) != expected_names:
         raise SessionCaptureError(
             "authority_hash_paths: expected all three fixed authority assets"
@@ -1383,7 +1451,7 @@ def _authority_line(authority: SessionAuthority) -> str:
     hashes = authority.sha256_by_asset
     return (
         f"session_authority version={SESSION_RULES_VERSION} "
-        f"no_night_sha256={hashes['no_night']} "
+        f"session_exception_sha256={hashes['session_exception']} "
         f"day_only_sha256={hashes['day_only']} "
         f"history_exception_sha256={hashes['history_exception']}"
     )
@@ -1467,12 +1535,12 @@ def _capture_and_publish_outcome(
         prewarm_calendar_days=config.prewarm_calendar_days,
     )
     authority_paths = {
-        "no_night": NO_NIGHT_PATH,
+        "session_exception": SESSION_EXCEPTIONS_PATH,
         "day_only": DAY_ONLY_PATH,
         "history_exception": HISTORY_EXCEPTIONS_PATH,
     }
     authority = load_session_authority(
-        no_night_path=NO_NIGHT_PATH,
+        session_exception_path=SESSION_EXCEPTIONS_PATH,
         day_only_path=DAY_ONLY_PATH,
         history_exception_path=HISTORY_EXCEPTIONS_PATH,
     )
@@ -1521,8 +1589,8 @@ def _capture_and_publish_outcome(
     for line in history_gap_lines:
         print(line)
     log_lines = (*base_log_lines, *history_gap_lines)
-    validate_capture_no_night_calendar(
-        authority.no_night_dates, audit.global_calendar
+    validate_capture_session_exception_calendar(
+        authority.session_exceptions, audit.global_calendar
     )
     report = coverage_report(
         data_quality=data.data_quality,
@@ -1575,7 +1643,9 @@ def _capture_and_publish_outcome(
         raise SessionCaptureError(
             "checked_days_mismatch: boundary and yearly audited totals differ"
         )
-    classified, ambiguities = classify_authorized_boundaries(boundaries, authority)
+    classified, ambiguities = classify_authorized_boundaries(
+        boundaries, authority, global_calendar=audit.global_calendar
+    )
     if ambiguities:
         for item in ambiguities:
             print(

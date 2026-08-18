@@ -25,8 +25,8 @@ from cta_carry.minute_sessions import (
 from cta_carry.data import CarryDataSet
 from cta_carry.session_authority import (
     EffectiveAuthorityRange,
-    NoNightDate,
     SessionAuthority,
+    SessionException,
 )
 from scripts.carry import capture_minute_sessions as capture_module
 from scripts.carry.capture_minute_sessions import (
@@ -933,7 +933,15 @@ def test_repository_session_rules_are_nonoverlapping_and_cover_fixture_products(
             assert previous.effective_end < current.effective_start
 
 
-def _captured_boundary(*, night_end):
+def _night_instant(previous, label):
+    hour, minute = (int(part) for part in label.split(":"))
+    day = previous if hour >= 21 else previous + timedelta(days=1)
+    return datetime.combine(day, datetime.min.time(), tzinfo=SHANGHAI).replace(
+        hour=hour, minute=minute
+    )
+
+
+def _captured_boundary(*, night_end, night_start="21:00"):
     trade_date = date(2024, 1, 8)
     previous = date(2024, 1, 5)
     values = {
@@ -952,25 +960,32 @@ def _captured_boundary(*, night_end):
     if night_end == "none":
         values.update(night_first=None, night_last=None)
     else:
-        last = {
-            "23:00": _dt(2024, 1, 5, 22, 59),
-            "23:30": _dt(2024, 1, 5, 23, 29),
-            "01:00": _dt(2024, 1, 6, 0, 59),
-            "02:30": _dt(2024, 1, 6, 2, 29),
-        }[night_end]
         values.update(
-            night_first=_dt(2024, 1, 5, 21, 0),
-            night_last=last,
+            night_first=_night_instant(previous, night_start),
+            night_last=_night_instant(previous, night_end) - timedelta(minutes=1),
         )
     return values
+
+
+def test_capture_classifies_dce_delayed_open_as_an_exact_pair():
+    row = _captured_boundary(night_start="22:30", night_end="23:00")
+    assert classify_session_boundary(row) == ("22:30", "23:00")
+
+
+def test_capture_rejects_a_non_grid_night_start():
+    row = _captured_boundary(night_start="22:30", night_end="23:00")
+    row["night_first"] = row["night_first"] + timedelta(minutes=1)
+    with pytest.raises(SessionCaptureError, match="night_first"):
+        classify_session_boundary(row)
 
 
 @pytest.mark.parametrize(
     "night_end", ["none", "23:00", "23:30", "01:00", "02:30"]
 )
 def test_capture_classifies_only_supported_exact_session_boundaries(night_end):
+    expected = ("none", "none") if night_end == "none" else ("21:00", night_end)
     assert classify_session_boundary(_captured_boundary(night_end=night_end)) == (
-        night_end
+        expected
     )
 
 
@@ -995,7 +1010,7 @@ def test_capture_treats_pandas_nat_as_an_absent_night_session():
     row["night_first"] = pd.NaT
     row["night_last"] = pd.NaT
 
-    assert classify_session_boundary(row) == "none"
+    assert classify_session_boundary(row) == ("none", "none")
 
 
 def test_capture_rejects_a_missing_standard_day_segment():
@@ -1708,7 +1723,7 @@ def test_capture_entry_wires_default_config_history_and_audit_candidates(
         "use_test": True,
     }
     assert captured["authority_paths"] == {
-        "no_night_path": capture_module.NO_NIGHT_PATH,
+        "session_exception_path": capture_module.SESSION_EXCEPTIONS_PATH,
         "day_only_path": capture_module.DAY_ONLY_PATH,
         "history_exception_path": capture_module.HISTORY_EXCEPTIONS_PATH,
     }
@@ -1722,25 +1737,27 @@ def test_capture_entry_wires_default_config_history_and_audit_candidates(
 
 def _authority(
     *,
-    no_night=(),
+    session_exceptions=(),
     day_only=(),
     history_exceptions=(),
     hashes=None,
 ):
     return SessionAuthority(
-        no_night_dates=tuple(no_night),
+        session_exceptions=tuple(session_exceptions),
         day_only_regimes=tuple(day_only),
         liquidity_history_exceptions=tuple(history_exceptions),
         sha256_by_asset=hashes
         or {
-            "no_night": "a" * 64,
+            "session_exception": "a" * 64,
             "day_only": "b" * 64,
             "history_exception": "c" * 64,
         },
     )
 
 
-def _observation(day, previous, *, night_end, exchange="SHFE", product="AU"):
+def _observation(
+    day, previous, *, night_end, night_start="21:00", exchange="SHFE", product="AU"
+):
     row = {
         "trade_date": day,
         "previous_trade_date": previous,
@@ -1757,18 +1774,25 @@ def _observation(day, previous, *, night_end, exchange="SHFE", product="AU"):
     if night_end == "none":
         row.update(night_first=None, night_last=None)
         return row
-    after_midnight = previous + timedelta(days=1)
-    end_day, hour, minute = {
-        "23:00": (previous, 22, 59),
-        "23:30": (previous, 23, 29),
-        "01:00": (after_midnight, 0, 59),
-        "02:30": (after_midnight, 2, 29),
-    }[night_end]
     row.update(
-        night_first=_at_for_test(previous, 21, 0),
-        night_last=_at_for_test(end_day, hour, minute),
+        night_first=_night_instant(previous, night_start),
+        night_last=_night_instant(previous, night_end) - timedelta(minutes=1),
     )
     return row
+
+
+def _session_exception(**overrides):
+    values = {
+        "exchange": "DCE",
+        "version": SESSION_RULES_VERSION,
+        "trade_date": date(2019, 12, 26),
+        "night_start": "22:30",
+        "night_end": "23:00",
+        "reason": "delayed night open notice_evening=2019-12-25",
+        "source_url": "https://www.dce.com.cn/notice/6202113",
+    }
+    values.update(overrides)
+    return SessionException(**values)
 
 
 def _at_for_test(day, hour, minute):
@@ -1783,6 +1807,7 @@ def test_authority_rejects_weekend_shaped_none_without_authority():
     rows, ambiguities = capture_module.classify_authorized_boundaries(
         pd.DataFrame([_observation(monday, friday, night_end="none")]),
         _authority(),
+        global_calendar=(friday, monday),
     )
 
     assert rows.empty
@@ -1793,14 +1818,16 @@ def test_authority_rejects_weekend_shaped_none_without_authority():
 def test_authority_accepts_declared_none(authority_kind):
     friday = date(2024, 1, 5)
     monday = date(2024, 1, 8)
-    no_night = ()
+    session_exceptions = ()
     day_only = ()
     if authority_kind == "holiday":
-        no_night = (
-            NoNightDate(
-                version=SESSION_RULES_VERSION,
+        session_exceptions = (
+            SessionException(
                 exchange="SHFE",
+                version=SESSION_RULES_VERSION,
                 trade_date=monday,
+                night_start="none",
+                night_end="none",
                 reason="notice_evening=2024-01-05 holiday halt",
                 source_url="https://www.shfe.com.cn/example",
             ),
@@ -1820,7 +1847,8 @@ def test_authority_accepts_declared_none(authority_kind):
 
     rows, ambiguities = capture_module.classify_authorized_boundaries(
         pd.DataFrame([_observation(monday, friday, night_end="none")]),
-        _authority(no_night=no_night, day_only=day_only),
+        _authority(session_exceptions=session_exceptions, day_only=day_only),
+        global_calendar=(friday, monday),
     )
 
     assert ambiguities == ()
@@ -1829,6 +1857,7 @@ def test_authority_accepts_declared_none(authority_kind):
             "exchange": "SHFE",
             "product": "AU",
             "trade_date": monday,
+            "night_start": "none",
             "night_end": "none",
         }
     ]
@@ -1844,6 +1873,7 @@ def test_authority_collects_every_unauthorized_continuous_none():
             ]
         ),
         _authority(),
+        global_calendar=tuple(days),
     )
 
     assert rows.empty
@@ -1854,31 +1884,97 @@ def test_authority_collects_every_unauthorized_continuous_none():
 def test_authority_rejects_observed_night_inside_declared_none():
     friday = date(2024, 1, 5)
     monday = date(2024, 1, 8)
-    declared = NoNightDate(
-        version=SESSION_RULES_VERSION,
+    declared = SessionException(
         exchange="SHFE",
+        version=SESSION_RULES_VERSION,
         trade_date=monday,
+        night_start="none",
+        night_end="none",
         reason="notice_evening=2024-01-05 holiday halt",
         source_url="https://www.shfe.com.cn/example",
     )
 
     rows, ambiguities = capture_module.classify_authorized_boundaries(
         pd.DataFrame([_observation(monday, friday, night_end="23:00")]),
-        _authority(no_night=(declared,)),
+        _authority(session_exceptions=(declared,)),
+        global_calendar=(friday, monday),
     )
 
     assert rows.empty
-    assert [item.check for item in ambiguities] == ["night_authority_conflict"]
+    assert [(item.product, item.check) for item in ambiguities] == [
+        ("*", "session_exception_unconsumed"),
+        ("AU", "night_authority_conflict"),
+    ]
+
+
+def test_authorized_delayed_open_is_classified_for_every_dce_product():
+    day = date(2019, 12, 26)
+    previous = date(2019, 12, 25)
+    exception = _session_exception()
+    boundaries = pd.DataFrame(
+        [
+            _observation(
+                day,
+                previous,
+                night_start="22:30",
+                night_end="23:00",
+                exchange="DCE",
+                product="I",
+            ),
+            _observation(
+                day,
+                previous,
+                night_start="22:30",
+                night_end="23:00",
+                exchange="DCE",
+                product="J",
+            ),
+        ]
+    )
+    classified, ambiguities = capture_module.classify_authorized_boundaries(
+        boundaries,
+        _authority(session_exceptions=(exception,)),
+        global_calendar=(day,),
+    )
+    assert ambiguities == ()
+    assert set(classified["night_start"]) == {"22:30"}
+    assert set(classified["night_end"]) == {"23:00"}
+
+
+def test_loaded_but_unconsumed_exception_blocks_capture():
+    day = date(2019, 12, 26)
+    classified, ambiguities = capture_module.classify_authorized_boundaries(
+        pd.DataFrame(
+            [
+                _observation(
+                    day,
+                    date(2019, 12, 25),
+                    night_start="21:00",
+                    night_end="23:00",
+                    exchange="SHFE",
+                    product="RB",
+                )
+            ]
+        ),
+        _authority(session_exceptions=(_session_exception(),)),
+        global_calendar=(day,),
+    )
+    assert classified.empty is False
+    assert [(item.exchange, item.product, item.check) for item in ambiguities] == [
+        ("DCE", "*", "session_exception_unconsumed")
+    ]
 
 
 def test_capture_calendar_validation_filters_outside_authority_and_calls_once(
     monkeypatch,
 ):
     calendar = (date(2024, 1, 5), date(2024, 1, 8))
-    outside = NoNightDate(
-        version=SESSION_RULES_VERSION,
+    outside = SessionException(
         exchange="SHFE",
+        version=SESSION_RULES_VERSION,
         trade_date=date(2024, 2, 19),
+        night_start="none",
+        night_end="none",
         reason="notice_evening=2024-02-08 holiday halt",
         source_url="https://www.shfe.com.cn/outside",
     )
@@ -1887,25 +1983,31 @@ def test_capture_calendar_validation_filters_outside_authority_and_calls_once(
     def record(rows, actual_calendar):
         calls.append((tuple(rows), tuple(actual_calendar)))
 
-    monkeypatch.setattr(capture_module, "validate_no_night_calendar", record)
+    monkeypatch.setattr(
+        capture_module, "validate_session_exception_calendar", record
+    )
 
-    capture_module.validate_capture_no_night_calendar((outside,), calendar)
+    capture_module.validate_capture_session_exception_calendar(
+        (outside,), calendar
+    )
 
     assert calls == [((), calendar)]
 
 
 def test_capture_calendar_validation_keeps_in_range_off_by_one_fail_closed():
     calendar = (date(2024, 1, 5), date(2024, 1, 8))
-    wrong_target = NoNightDate(
-        version=SESSION_RULES_VERSION,
+    wrong_target = SessionException(
         exchange="SHFE",
+        version=SESSION_RULES_VERSION,
         trade_date=date(2024, 1, 8),
+        night_start="none",
+        night_end="none",
         reason="notice_evening=2024-01-04 holiday halt",
         source_url="https://www.shfe.com.cn/in-range",
     )
 
     with pytest.raises(ValueError, match="notice_target_trade_date"):
-        capture_module.validate_capture_no_night_calendar(
+        capture_module.validate_capture_session_exception_calendar(
             (wrong_target,),
             calendar,
         )
@@ -2168,7 +2270,7 @@ def test_coverage_report_has_every_requested_year_and_independent_counts():
 
 def _authority_files(tmp_path):
     payloads = {
-        "no_night": b"no-night-authority",
+        "session_exception": b"session-exception-authority",
         "day_only": b"day-only-authority",
         "history_exception": b"history-exception-authority",
     }
@@ -2579,7 +2681,7 @@ def _install_capture_flow(
 
     monkeypatch.setattr(
         capture_module,
-        "validate_no_night_calendar",
+        "validate_session_exception_calendar",
         validate_calendar,
         raising=False,
     )
@@ -2753,7 +2855,9 @@ def test_capture_success_failures_preserve_old_output_and_honest_diagnostics(
         night_ends=("23:00",),
         authority=_authority(hashes=hashes),
     )
-    monkeypatch.setattr(capture_module, "NO_NIGHT_PATH", paths["no_night"])
+    monkeypatch.setattr(
+        capture_module, "SESSION_EXCEPTIONS_PATH", paths["session_exception"]
+    )
     monkeypatch.setattr(capture_module, "DAY_ONLY_PATH", paths["day_only"])
     monkeypatch.setattr(
         capture_module,
