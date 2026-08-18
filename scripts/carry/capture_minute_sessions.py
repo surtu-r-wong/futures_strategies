@@ -33,6 +33,7 @@ from cta_carry.minute_sessions import (
     build_trading_slots,
     load_session_rules,
     night_label_to_offset,
+    night_offset_to_label,
     parse_night_interval,
     resolve_session_rule,
     validate_capture_coverage,
@@ -59,6 +60,7 @@ CSV_COLUMNS = (
     "product",
     "effective_start",
     "effective_end",
+    "night_start",
     "night_end",
     "version",
 )
@@ -72,7 +74,6 @@ BOUNDARY_COLUMNS = (
     "day_3_first",
     "day_3_last",
 )
-ALLOWED_NIGHT_ENDS = ("none", "23:00", "23:30", "01:00", "02:30")
 AuditKey = tuple[str, str, date]
 _RAW_EXCLUSION_IDENTITY = re.compile(
     r"^(?P<product>[A-Za-z]+)(?P<delivery>[0-9]{3,4})"
@@ -1092,6 +1093,39 @@ def coverage_report(
     )
 
 
+def _classified_night_interval(
+    exchange: str, product: str, record: Any
+) -> tuple[str, str]:
+    night_start = record.night_start
+    night_end = record.night_end
+    try:
+        parse_night_interval(night_start, night_end)
+    except ValueError as exc:
+        raise SessionCaptureError(
+            f"{record.trade_date} {exchange} {product}: unsupported night "
+            f"interval {night_start!r}/{night_end!r}: {exc}"
+        ) from exc
+    return (night_start, night_end)
+
+
+def _collapsed_rule(
+    exchange: str,
+    product: str,
+    effective_start: date,
+    effective_end: date,
+    night_interval: tuple[str, str],
+) -> dict[str, Any]:
+    return {
+        "exchange": exchange,
+        "product": product,
+        "effective_start": effective_start,
+        "effective_end": effective_end,
+        "night_start": night_interval[0],
+        "night_end": night_interval[1],
+        "version": SESSION_RULES_VERSION,
+    }
+
+
 def collapse_session_rules(
     classified: pd.DataFrame,
     *,
@@ -1099,7 +1133,7 @@ def collapse_session_rules(
     audit_keys: Iterable[AuditKey],
 ) -> list[dict[str, Any]]:
     """Collapse adjacent audited product dates with identical observed clocks."""
-    required = {"exchange", "product", "trade_date", "night_end"}
+    required = {"exchange", "product", "trade_date", "night_start", "night_end"}
     missing = sorted(required.difference(classified.columns))
     if missing:
         raise SessionCaptureError(f"classified boundaries missing columns: {missing}")
@@ -1137,40 +1171,25 @@ def collapse_session_rules(
     ):
         records = list(group.itertuples(index=False))
         start = records[0].trade_date
-        night_end = records[0].night_end
-        if night_end not in ALLOWED_NIGHT_ENDS:
-            raise SessionCaptureError(f"unsupported night_end {night_end!r}")
+        night_interval = _classified_night_interval(exchange, product, records[0])
         previous_date = start
         for record in records[1:]:
-            if record.night_end not in ALLOWED_NIGHT_ENDS:
-                raise SessionCaptureError(f"unsupported night_end {record.night_end!r}")
+            observed = _classified_night_interval(exchange, product, record)
             adjacent = (
                 position_by_date[record.trade_date]
                 == position_by_date[previous_date] + 1
             )
-            if record.night_end != night_end or not adjacent:
+            if observed != night_interval or not adjacent:
                 rules.append(
-                    {
-                        "exchange": exchange,
-                        "product": product,
-                        "effective_start": start,
-                        "effective_end": previous_date,
-                        "night_end": night_end,
-                        "version": SESSION_RULES_VERSION,
-                    }
+                    _collapsed_rule(
+                        exchange, product, start, previous_date, night_interval
+                    )
                 )
                 start = record.trade_date
-                night_end = record.night_end
+                night_interval = observed
             previous_date = record.trade_date
         rules.append(
-            {
-                "exchange": exchange,
-                "product": product,
-                "effective_start": start,
-                "effective_end": previous_date,
-                "night_end": night_end,
-                "version": SESSION_RULES_VERSION,
-            }
+            _collapsed_rule(exchange, product, start, previous_date, night_interval)
         )
     return sorted(
         rules,
@@ -1331,6 +1350,7 @@ def _stage_session_rules(output: Path, rules: Sequence[dict[str, Any]]) -> Path:
                         "product": rule["product"],
                         "effective_start": rule["effective_start"].isoformat(),
                         "effective_end": rule["effective_end"].isoformat(),
+                        "night_start": rule["night_start"],
                         "night_end": rule["night_end"],
                         "version": rule["version"],
                     }
@@ -1343,25 +1363,23 @@ def _stage_session_rules(output: Path, rules: Sequence[dict[str, Any]]) -> Path:
     return temporary
 
 
-def _expected_night_end(rule: SessionRule) -> str:
-    night_segments = [
+def _expected_night_interval(rule: SessionRule) -> tuple[str, str]:
+    night_segments = tuple(
         segment
         for segment in rule.segments
         if segment.start_minute < 0 or segment.end_minute <= 150
-    ]
+    )
     if not night_segments:
-        return "none"
-    offsets = {
-        (-180, -60): "23:00",
-        (-180, -30): "23:30",
-        (-180, 60): "01:00",
-        (-180, 150): "02:30",
-    }
-    pair = (night_segments[0].start_minute, night_segments[0].end_minute)
-    try:
-        return offsets[pair]
-    except KeyError as exc:
-        raise SessionCaptureError(f"unsupported loaded night segment {pair!r}") from exc
+        return "none", "none"
+    if len(night_segments) != 1:
+        raise SessionCaptureError(
+            "session_rule_replay: expected at most one night segment"
+        )
+    segment = night_segments[0]
+    return (
+        night_offset_to_label(segment.start_minute),
+        night_offset_to_label(segment.end_minute),
+    )
 
 
 def validate_audited_boundaries(
@@ -1376,10 +1394,13 @@ def validate_audited_boundaries(
             row["product"],
             row["trade_date"],
         )
-        actual_night_end = classify_session_boundary(row)
-        if _expected_night_end(rule) != actual_night_end:
+        expected_interval = _expected_night_interval(rule)
+        actual_interval = classify_session_boundary(row)
+        if expected_interval != actual_interval:
             raise SessionCaptureError(
-                f"{row['trade_date']} {row['product']}: captured rule changed after reload"
+                f"session_rule_replay: {row['trade_date']} {row['product']}: "
+                "captured rule changed after reload; "
+                f"expected={expected_interval}; actual={actual_interval}"
             )
         slots = build_trading_slots(
             row["trade_date"],

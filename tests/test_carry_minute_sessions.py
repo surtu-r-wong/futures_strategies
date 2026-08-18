@@ -1002,7 +1002,7 @@ def test_capture_reverse_maps_2330_session_segment():
         version=SESSION_RULES_VERSION,
     )
 
-    assert capture_module._expected_night_end(rule) == "23:30"
+    assert capture_module._expected_night_interval(rule) == ("21:00", "23:30")
 
 
 def test_capture_treats_pandas_nat_as_an_absent_night_session():
@@ -1031,6 +1031,7 @@ def test_capture_collapse_accepts_2330_as_an_allowed_boundary():
                     "exchange": "DCE",
                     "product": "I",
                     "trade_date": trade_date,
+                    "night_start": "21:00",
                     "night_end": "23:30",
                 }
             ]
@@ -1043,6 +1044,7 @@ def test_capture_collapse_accepts_2330_as_an_allowed_boundary():
             "product": "I",
             "effective_start": trade_date,
             "effective_end": trade_date,
+            "night_start": "21:00",
             "night_end": "23:30",
             "version": SESSION_RULES_VERSION,
         }
@@ -1056,24 +1058,28 @@ def test_capture_collapses_every_observed_rule_change_even_inside_a_month():
                 "exchange": "SHFE",
                 "product": "AU",
                 "trade_date": date(2024, 1, 8),
+                "night_start": "none",
                 "night_end": "none",
             },
             {
                 "exchange": "SHFE",
                 "product": "AU",
                 "trade_date": date(2024, 1, 9),
+                "night_start": "none",
                 "night_end": "none",
             },
             {
                 "exchange": "SHFE",
                 "product": "AU",
                 "trade_date": date(2024, 1, 10),
+                "night_start": "21:00",
                 "night_end": "02:30",
             },
             {
                 "exchange": "SHFE",
                 "product": "AU",
                 "trade_date": date(2024, 1, 11),
+                "night_start": "21:00",
                 "night_end": "02:30",
             },
         ]
@@ -1094,6 +1100,7 @@ def test_capture_collapses_every_observed_rule_change_even_inside_a_month():
             "product": "AU",
             "effective_start": date(2024, 1, 8),
             "effective_end": date(2024, 1, 9),
+            "night_start": "none",
             "night_end": "none",
             "version": SESSION_RULES_VERSION,
         },
@@ -1102,6 +1109,7 @@ def test_capture_collapses_every_observed_rule_change_even_inside_a_month():
             "product": "AU",
             "effective_start": date(2024, 1, 10),
             "effective_end": date(2024, 1, 11),
+            "night_start": "21:00",
             "night_end": "02:30",
             "version": SESSION_RULES_VERSION,
         },
@@ -2054,6 +2062,7 @@ def test_collapse_keeps_night_none_night_as_three_rules():
                 "exchange": "SHFE",
                 "product": "AU",
                 "trade_date": day,
+                "night_start": "none" if value == "none" else "21:00",
                 "night_end": value,
             }
             for day, value in zip(days, ("23:00", "none", "23:00"), strict=True)
@@ -2073,9 +2082,11 @@ def test_collapse_keeps_night_none_night_as_three_rules():
     ]
 
 
-@pytest.mark.parametrize("right_night_end", ["23:00", "02:30"])
+@pytest.mark.parametrize(
+    "right_night", [("21:00", "23:00"), ("21:00", "02:30"), ("22:30", "23:00")]
+)
 def test_collapse_never_bridges_an_unaudited_global_trading_day(
-    right_night_end, tmp_path
+    right_night, tmp_path
 ):
     days = [date(2024, 1, day) for day in (8, 9, 10)]
     audit_keys = frozenset(
@@ -2090,13 +2101,15 @@ def test_collapse_never_bridges_an_unaudited_global_trading_day(
                 "exchange": "SHFE",
                 "product": "AU",
                 "trade_date": days[0],
+                "night_start": "21:00",
                 "night_end": "23:00",
             },
             {
                 "exchange": "SHFE",
                 "product": "AU",
                 "trade_date": days[2],
-                "night_end": right_night_end,
+                "night_start": right_night[0],
+                "night_end": right_night[1],
             },
         ]
     )
@@ -2112,6 +2125,36 @@ def test_collapse_never_bridges_an_unaudited_global_trading_day(
     assert len(rules) == 2
     with pytest.raises(SessionClockError, match="session_rule_cardinality"):
         resolve_session_rule(rules, "SHFE", "AU", days[1])
+
+
+def test_collapse_breaks_when_only_night_start_changes():
+    days = (date(2019, 12, 25), date(2019, 12, 26))
+    classified = pd.DataFrame(
+        [
+            {
+                "exchange": "DCE",
+                "product": "I",
+                "trade_date": days[0],
+                "night_start": "21:00",
+                "night_end": "23:00",
+            },
+            {
+                "exchange": "DCE",
+                "product": "I",
+                "trade_date": days[1],
+                "night_start": "22:30",
+                "night_end": "23:00",
+            },
+        ]
+    )
+    keys = frozenset(("DCE", "I", day) for day in days)
+    rules = collapse_session_rules(
+        classified, global_calendar=days, audit_keys=keys
+    )
+    assert [(row["night_start"], row["night_end"]) for row in rules] == [
+        ("21:00", "23:00"),
+        ("22:30", "23:00"),
+    ]
 
 
 def _key(day, product="RB"):
@@ -2286,12 +2329,16 @@ def _authority_files(tmp_path):
     return paths, hashes
 
 
-def _single_rule_capture(tmp_path):
+def _single_rule_capture(tmp_path, *, night_start="21:00", night_end="23:00"):
     previous = date(2024, 1, 5)
     day = date(2024, 1, 8)
     audit_keys = frozenset({("SHFE", "AU", day)})
     boundaries = pd.DataFrame(
-        [_observation(day, previous, night_end="23:00")]
+        [
+            _observation(
+                day, previous, night_start=night_start, night_end=night_end
+            )
+        ]
     )
     classified = pd.DataFrame(
         [
@@ -2299,7 +2346,8 @@ def _single_rule_capture(tmp_path):
                 "exchange": "SHFE",
                 "product": "AU",
                 "trade_date": day,
-                "night_end": "23:00",
+                "night_start": night_start,
+                "night_end": night_end,
             }
         ]
     )
@@ -2363,7 +2411,14 @@ def test_boundary_keys_equal_audit_keys_on_success():
 
 @pytest.mark.parametrize(
     "failure",
-    ["hash_mismatch", "loader_replay", "reverse_key_mismatch", "diagnostics", "replace"],
+    [
+        "hash_mismatch",
+        "session_exception_mutation",
+        "loader_replay",
+        "reverse_key_mismatch",
+        "diagnostics",
+        "replace",
+    ],
 )
 def test_atomic_publisher_preserves_old_asset_and_removes_temporary_files(
     failure, monkeypatch, tmp_path
@@ -2384,6 +2439,8 @@ def test_atomic_publisher_preserves_old_asset_and_removes_temporary_files(
 
     if failure == "hash_mismatch":
         authority = _authority(hashes={**hashes, "day_only": "0" * 64})
+    elif failure == "session_exception_mutation":
+        paths["session_exception"].write_bytes(b"mutated-after-load\n")
     elif failure == "loader_replay":
         monkeypatch.setattr(capture_module, "load_session_rules", lambda path: ())
     elif failure == "reverse_key_mismatch":
@@ -2521,6 +2578,123 @@ def test_atomic_publisher_replays_and_reverse_expands_before_replace(tmp_path):
         loaded,
         global_calendar=calendar,
     ) == audit_keys
+
+
+def test_atomic_publisher_installs_the_exact_interval_schema(tmp_path):
+    (
+        boundaries,
+        rows,
+        calendar,
+        audit_keys,
+        paths,
+        hashes,
+    ) = _single_rule_capture(tmp_path, night_start="22:30", night_end="23:00")
+    output = tmp_path / "sessions.csv"
+
+    loaded = capture_module.publish_session_rules(
+        output=output,
+        rule_rows=rows,
+        boundaries=boundaries,
+        global_calendar=calendar,
+        audit_keys=audit_keys,
+        authority=_authority(hashes=hashes),
+        authority_paths=paths,
+    )
+
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == (
+        "exchange,product,effective_start,effective_end,"
+        "night_start,night_end,version"
+    )
+    assert lines[1] == "SHFE,AU,2024-01-08,2024-01-08,22:30,23:00,commodity-v1"
+    assert loaded[0].segments[0] == SessionSegment(-90, -60)
+    assert load_session_rules(output)[0].segments[0] == SessionSegment(-90, -60)
+
+
+def test_atomic_publisher_rejects_a_mutated_staged_night_start(monkeypatch, tmp_path):
+    (
+        boundaries,
+        rows,
+        calendar,
+        audit_keys,
+        paths,
+        hashes,
+    ) = _single_rule_capture(tmp_path, night_start="22:30", night_end="23:00")
+    output = tmp_path / "sessions.csv"
+    original = b"old-authoritative-bytes\n"
+    output.write_bytes(original)
+    real_stage = capture_module._stage_session_rules
+
+    def tamper(target, rule_rows):
+        temporary = real_stage(target, rule_rows)
+        temporary.write_text(
+            temporary.read_text(encoding="utf-8").replace(",22:30,", ",21:00,"),
+            encoding="utf-8",
+        )
+        return temporary
+
+    monkeypatch.setattr(capture_module, "_stage_session_rules", tamper)
+
+    with pytest.raises(SessionCaptureError, match="session_rule_replay"):
+        capture_module.publish_session_rules(
+            output=output,
+            rule_rows=rows,
+            boundaries=boundaries,
+            global_calendar=calendar,
+            audit_keys=audit_keys,
+            authority=_authority(hashes=hashes),
+            authority_paths=paths,
+        )
+
+    assert output.read_bytes() == original
+    assert list(tmp_path.glob(".sessions.csv.*.tmp")) == []
+
+
+def test_publisher_requires_all_three_authority_hash_names(tmp_path):
+    (
+        boundaries,
+        rows,
+        calendar,
+        audit_keys,
+        paths,
+        hashes,
+    ) = _single_rule_capture(tmp_path)
+    output = tmp_path / "sessions.csv"
+    call = {
+        "rule_rows": rows,
+        "boundaries": boundaries,
+        "global_calendar": calendar,
+        "audit_keys": audit_keys,
+    }
+
+    with pytest.raises(SessionCaptureError, match="authority_hash_paths"):
+        capture_module.publish_session_rules(
+            output=output,
+            authority=_authority(hashes=hashes),
+            authority_paths={
+                "no_night": paths["session_exception"],
+                "day_only": paths["day_only"],
+                "history_exception": paths["history_exception"],
+            },
+            **call,
+        )
+
+    with pytest.raises(SessionCaptureError, match="authority_hash_manifest"):
+        capture_module.publish_session_rules(
+            output=output,
+            authority=_authority(
+                hashes={
+                    "no_night": hashes["session_exception"],
+                    "day_only": hashes["day_only"],
+                    "history_exception": hashes["history_exception"],
+                }
+            ),
+            authority_paths=paths,
+            **call,
+        )
+
+    assert not output.exists()
+    assert list(tmp_path.glob(".sessions.csv.*.tmp")) == []
 
 
 def test_unkeyable_normalization_refuses_publication():
