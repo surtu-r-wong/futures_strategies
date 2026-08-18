@@ -253,9 +253,7 @@ def raw_exclusion_product_day_identity(
             "raw_exclusion_identity: trade_date must be an exact date"
         )
     if type(object_id) is not str:
-        raise SessionCaptureError(
-            "raw_exclusion_identity: object_id must be a string"
-        )
+        raise SessionCaptureError("raw_exclusion_identity: object_id must be a string")
     match = _RAW_EXCLUSION_IDENTITY.fullmatch(object_id.strip())
     if match is None:
         raise SessionCaptureError(
@@ -1025,9 +1023,7 @@ def coverage_report(
         if not start <= trade_date <= end:
             continue
         try:
-            key = raw_exclusion_product_day_identity(
-                row["object_id"], trade_date
-            )
+            key = raw_exclusion_product_day_identity(row["object_id"], trade_date)
         except SessionCaptureError:
             unkeyable_by_year[trade_date.year] = (
                 unkeyable_by_year.get(trade_date.year, 0) + 1
@@ -1042,15 +1038,11 @@ def coverage_report(
         normalized = frozenset(
             key for key in key_sets.normalized_keys if key[2].year == year
         )
-        in_pool = frozenset(
-            key for key in key_sets.in_pool_keys if key[2].year == year
-        )
+        in_pool = frozenset(key for key in key_sets.in_pool_keys if key[2].year == year)
         universe = frozenset(
             key for key in key_sets.audit_universe_keys if key[2].year == year
         )
-        audited = frozenset(
-            key for key in key_sets.audit_keys if key[2].year == year
-        )
+        audited = frozenset(key for key in key_sets.audit_keys if key[2].year == year)
         if not in_pool <= normalized <= universe:
             raise SessionCaptureError(
                 f"coverage_key_subset: invalid normalized chain for year={year}"
@@ -1073,9 +1065,7 @@ def coverage_report(
                 "audit_universe_days": len(universe),
                 "audited_days": len(audited),
                 "audited_ratio": (
-                    f"{len(audited) / len(universe):.6f}"
-                    if universe
-                    else "0.000000"
+                    f"{len(audited) / len(universe):.6f}" if universe else "0.000000"
                 ),
                 "normalization_excluded_product_days": sum(
                     key[2].year == year for key in excluded_keys
@@ -1205,9 +1195,7 @@ def validate_boundary_keys(
     required = {"exchange", "product", "trade_date"}
     missing_columns = sorted(required.difference(boundaries.columns))
     if missing_columns:
-        raise SessionCaptureError(
-            f"boundary_schema: missing columns {missing_columns}"
-        )
+        raise SessionCaptureError(f"boundary_schema: missing columns {missing_columns}")
     if boundaries.empty:
         raise SessionCaptureError("boundary_zero_rows: no boundaries returned")
     identity = boundaries.loc[:, ["exchange", "product", "trade_date"]]
@@ -1223,9 +1211,7 @@ def validate_boundary_keys(
     missing = audited.difference(boundary_keys)
     unexpected = boundary_keys.difference(audited)
     if missing:
-        raise SessionCaptureError(
-            "boundary_missing_keys: " + repr(sorted(missing))
-        )
+        raise SessionCaptureError("boundary_missing_keys: " + repr(sorted(missing)))
     if unexpected:
         raise SessionCaptureError(
             "boundary_unexpected_keys: " + repr(sorted(unexpected))
@@ -1256,8 +1242,7 @@ def validate_capture_request(
         prewarm_calendar_days=prewarm_calendar_days,
     )
     if (
-        Path(output).resolve(strict=False)
-        == SESSION_RULES_PATH.resolve(strict=False)
+        Path(output).resolve(strict=False) == SESSION_RULES_PATH.resolve(strict=False)
         and start != SESSION_RULES_CAPTURE_START
     ):
         raise SessionCaptureError(
@@ -1300,7 +1285,9 @@ def _validate_authority_hashes(
         )
     for name in sorted(expected_names):
         try:
-            actual = hashlib.sha256(Path(authority_paths[name]).read_bytes()).hexdigest()
+            actual = hashlib.sha256(
+                Path(authority_paths[name]).read_bytes()
+            ).hexdigest()
         except OSError as exc:
             raise SessionCaptureError(
                 f"authority_hash_read: {name} could not be read"
@@ -1633,10 +1620,7 @@ def _capture_and_publish_outcome(
         blocked = report.unknown_date_unkeyable_rows + sum(
             row["normalization_unkeyable_rows"] for row in report.rows
         )
-        summary = (
-            f"products={len(products)} rules=0 checked_days=0 "
-            "ambiguous=0"
-        )
+        summary = f"products={len(products)} rules=0 checked_days=0 ambiguous=0"
         print(
             f"publication_blocked=normalization_unkeyable count={blocked}",
             file=os.sys.stderr,
@@ -1699,6 +1683,7 @@ def _capture_and_publish_outcome(
         global_calendar=audit.global_calendar,
         audit_keys=audit.key_sets.audit_keys,
     )
+
     def write_validated_diagnostics(
         validated_rules: tuple[SessionRule, ...],
     ) -> None:

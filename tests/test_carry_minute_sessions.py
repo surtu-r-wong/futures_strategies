@@ -979,9 +979,7 @@ def test_capture_rejects_a_non_grid_night_start():
         classify_session_boundary(row)
 
 
-@pytest.mark.parametrize(
-    "night_end", ["none", "23:00", "23:30", "01:00", "02:30"]
-)
+@pytest.mark.parametrize("night_end", ["none", "23:00", "23:30", "01:00", "02:30"])
 def test_capture_classifies_only_supported_exact_session_boundaries(night_end):
     expected = ("none", "none") if night_end == "none" else ("21:00", night_end)
     assert classify_session_boundary(_captured_boundary(night_end=night_end)) == (
@@ -1991,13 +1989,9 @@ def test_capture_calendar_validation_filters_outside_authority_and_calls_once(
     def record(rows, actual_calendar):
         calls.append((tuple(rows), tuple(actual_calendar)))
 
-    monkeypatch.setattr(
-        capture_module, "validate_session_exception_calendar", record
-    )
+    monkeypatch.setattr(capture_module, "validate_session_exception_calendar", record)
 
-    capture_module.validate_capture_session_exception_calendar(
-        (outside,), calendar
-    )
+    capture_module.validate_capture_session_exception_calendar((outside,), calendar)
 
     assert calls == [((), calendar)]
 
@@ -2085,9 +2079,7 @@ def test_collapse_keeps_night_none_night_as_three_rules():
 @pytest.mark.parametrize(
     "right_night", [("21:00", "23:00"), ("21:00", "02:30"), ("22:30", "23:00")]
 )
-def test_collapse_never_bridges_an_unaudited_global_trading_day(
-    right_night, tmp_path
-):
+def test_collapse_never_bridges_an_unaudited_global_trading_day(right_night, tmp_path):
     days = [date(2024, 1, day) for day in (8, 9, 10)]
     audit_keys = frozenset(
         {
@@ -2148,9 +2140,7 @@ def test_collapse_breaks_when_only_night_start_changes():
         ]
     )
     keys = frozenset(("DCE", "I", day) for day in days)
-    rules = collapse_session_rules(
-        classified, global_calendar=days, audit_keys=keys
-    )
+    rules = collapse_session_rules(classified, global_calendar=days, audit_keys=keys)
     assert [(row["night_start"], row["night_end"]) for row in rules] == [
         ("21:00", "23:00"),
         ("22:30", "23:00"),
@@ -2172,10 +2162,13 @@ def _key(day, product="RB"):
 def test_raw_exclusion_identity_accepts_nonstandard_contract_markers(
     object_id, expected
 ):
-    assert capture_module.raw_exclusion_product_day_identity(
-        object_id,
-        date(2026, 1, 5),
-    ) == expected
+    assert (
+        capture_module.raw_exclusion_product_day_identity(
+            object_id,
+            date(2026, 1, 5),
+        )
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -2240,9 +2233,7 @@ def test_coverage_report_has_every_requested_year_and_independent_counts():
     key_sets = capture_module.AuditKeySets(
         normalized_keys=frozenset({_key(day), _key(day, "AU")}),
         in_pool_keys=frozenset({_key(day)}),
-        audit_universe_keys=frozenset(
-            {_key(day), _key(day, "AU"), _key(day, "CU")}
-        ),
+        audit_universe_keys=frozenset({_key(day), _key(day, "AU"), _key(day, "CU")}),
         audit_keys=frozenset({_key(day), _key(day, "CU")}),
     )
     quality = pd.DataFrame(
@@ -2323,8 +2314,7 @@ def _authority_files(tmp_path):
         path.write_bytes(payload)
         paths[name] = path
     hashes = {
-        name: hashlib.sha256(payload).hexdigest()
-        for name, payload in payloads.items()
+        name: hashlib.sha256(payload).hexdigest() for name, payload in payloads.items()
     }
     return paths, hashes
 
@@ -2334,11 +2324,7 @@ def _single_rule_capture(tmp_path, *, night_start="21:00", night_end="23:00"):
     day = date(2024, 1, 8)
     audit_keys = frozenset({("SHFE", "AU", day)})
     boundaries = pd.DataFrame(
-        [
-            _observation(
-                day, previous, night_start=night_start, night_end=night_end
-            )
-        ]
+        [_observation(day, previous, night_start=night_start, night_end=night_end)]
     )
     classified = pd.DataFrame(
         [
@@ -2401,9 +2387,7 @@ def test_boundary_key_validation_fails_closed(problem, tmp_path):
 
 def test_boundary_keys_equal_audit_keys_on_success():
     day = date(2024, 1, 8)
-    boundaries = pd.DataFrame(
-        [_observation(day, date(2024, 1, 5), night_end="23:00")]
-    )
+    boundaries = pd.DataFrame([_observation(day, date(2024, 1, 5), night_end="23:00")])
     audit_keys = frozenset({("SHFE", "AU", day)})
 
     assert capture_module.validate_boundary_keys(boundaries, audit_keys) == audit_keys
@@ -2450,6 +2434,7 @@ def test_atomic_publisher_preserves_old_asset_and_removes_temporary_files(
             lambda *args, **kwargs: frozenset(),
         )
     elif failure == "diagnostics":
+
         def fail_diagnostics(rules):
             raise OSError("diagnostics failed")
 
@@ -2574,10 +2559,13 @@ def test_atomic_publisher_replays_and_reverse_expands_before_replace(tmp_path):
 
     assert output.exists()
     assert len(loaded) == 1
-    assert capture_module.expand_rule_keys(
-        loaded,
-        global_calendar=calendar,
-    ) == audit_keys
+    assert (
+        capture_module.expand_rule_keys(
+            loaded,
+            global_calendar=calendar,
+        )
+        == audit_keys
+    )
 
 
 def test_atomic_publisher_installs_the_exact_interval_schema(tmp_path):
@@ -2603,8 +2591,7 @@ def test_atomic_publisher_installs_the_exact_interval_schema(tmp_path):
 
     lines = output.read_text(encoding="utf-8").splitlines()
     assert lines[0] == (
-        "exchange,product,effective_start,effective_end,"
-        "night_start,night_end,version"
+        "exchange,product,effective_start,effective_end,night_start,night_end,version"
     )
     assert lines[1] == "SHFE,AU,2024-01-08,2024-01-08,22:30,23:00,commodity-v1"
     assert loaded[0].segments[0] == SessionSegment(-90, -60)
@@ -2779,8 +2766,7 @@ def _install_capture_flow(
 ):
     previous = date(2024, 1, 5)
     days = [
-        date(2024, 1, 8) + timedelta(days=index)
-        for index in range(len(night_ends))
+        date(2024, 1, 8) + timedelta(days=index) for index in range(len(night_ends))
     ]
     calendar = [previous, *days]
     keys = frozenset(("SHFE", "AU", day) for day in days)
@@ -2803,9 +2789,7 @@ def _install_capture_flow(
                 calendar[index],
                 night_end=night_end,
             )
-            for index, (day, night_end) in enumerate(
-                zip(days, night_ends, strict=True)
-            )
+            for index, (day, night_end) in enumerate(zip(days, night_ends, strict=True))
         ]
     )
     quality = (
@@ -3151,29 +3135,30 @@ def test_capture_unkeyable_uses_the_single_gate_without_querying_minutes(
     assert inventory.read_text().splitlines() == [
         "exchange,product,trade_date,check,reason"
     ]
-    assert capture_module.main(
-        [
-            "--start",
-            "2024-01-08",
-            "--end",
-            "2024-01-08",
-            "--backtest-start",
-            "2026-01-08",
-            "--output",
-            str(output),
-            "--inventory-output",
-            str(inventory),
-            "--audit-report",
-            str(report),
-        ]
-    ) == 1
+    assert (
+        capture_module.main(
+            [
+                "--start",
+                "2024-01-08",
+                "--end",
+                "2024-01-08",
+                "--backtest-start",
+                "2026-01-08",
+                "--output",
+                str(output),
+                "--inventory-output",
+                str(inventory),
+                "--audit-report",
+                str(report),
+            ]
+        )
+        == 1
+    )
     assert output.read_bytes() == b"old\n"
     assert gate_calls == 2
     captured = capsys.readouterr()
     assert "ambiguous_session=normalization_unkeyable" not in captured.err
-    assert captured.out.count(
-        "products=1 rules=0 checked_days=0 ambiguous=0"
-    ) == 2
+    assert captured.out.count("products=1 rules=0 checked_days=0 ambiguous=0") == 2
 
 
 @pytest.mark.parametrize(

@@ -42,10 +42,14 @@ def _stable_value(value: object) -> str:
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, Mapping):
-        return "{" + ", ".join(
-            f"{key!r}: {_stable_value(item)}"
-            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
-        ) + "}"
+        return (
+            "{"
+            + ", ".join(
+                f"{key!r}: {_stable_value(item)}"
+                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            )
+            + "}"
+        )
     return repr(value)
 
 
@@ -211,10 +215,7 @@ class EffectiveAuthorityRange:
                     "effective_end_type": type(self.effective_end).__name__,
                 },
             )
-        if (
-            self.effective_end is not None
-            and self.effective_start > self.effective_end
-        ):
+        if self.effective_end is not None and self.effective_start > self.effective_end:
             raise SessionAuthorityError(
                 check="authority_range_order",
                 reason="effective_start must not exceed effective_end",
@@ -231,9 +232,7 @@ class SessionAuthority:
     sha256_by_asset: Mapping[str, str]
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "session_exceptions", tuple(self.session_exceptions)
-        )
+        object.__setattr__(self, "session_exceptions", tuple(self.session_exceptions))
         object.__setattr__(self, "day_only_regimes", tuple(self.day_only_regimes))
         object.__setattr__(
             self,
@@ -245,9 +244,7 @@ class SessionAuthority:
         )
 
 
-def _row_identity(
-    row: Mapping[str, str], *, row_number: int
-) -> dict[str, object]:
+def _row_identity(row: Mapping[str, str], *, row_number: int) -> dict[str, object]:
     return {"row_number": row_number, **row}
 
 
@@ -481,15 +478,12 @@ def _load_authority_ranges_payload(
             ) from exc
 
     ordered = tuple(sorted(parsed, key=_range_sort_key))
-    prior_by_identity: dict[
-        tuple[str, str, str], EffectiveAuthorityRange
-    ] = {}
+    prior_by_identity: dict[tuple[str, str, str], EffectiveAuthorityRange] = {}
     for row in ordered:
         identity = (row.version, row.exchange, row.product)
         prior = prior_by_identity.get(identity)
         if prior is not None and (
-            prior.effective_end is None
-            or row.effective_start <= prior.effective_end
+            prior.effective_end is None or row.effective_start <= prior.effective_end
         ):
             raise SessionAuthorityError(
                 check="authority_range_overlap",
@@ -583,8 +577,13 @@ def validate_session_exception_calendar(
 def _validate_match_query(
     *, exchange: object, product: object | None, trade_date: object
 ) -> None:
-    if not isinstance(exchange, str) or not exchange.strip() or (
-        product is not None and (not isinstance(product, str) or not product.strip())
+    if (
+        not isinstance(exchange, str)
+        or not exchange.strip()
+        or (
+            product is not None
+            and (not isinstance(product, str) or not product.strip())
+        )
     ):
         raise SessionAuthorityError(
             check="authority_match_identity",
@@ -611,9 +610,7 @@ def matching_ranges(
     trade_date: date,
 ) -> tuple[EffectiveAuthorityRange, ...]:
     """Return the one deterministic inclusive range match, or fail on multiplicity."""
-    _validate_match_query(
-        exchange=exchange, product=product, trade_date=trade_date
-    )
+    _validate_match_query(exchange=exchange, product=product, trade_date=trade_date)
     matches = tuple(
         sorted(
             (
@@ -679,9 +676,7 @@ def authorize_night_observation(
     observed_night_end: str,
 ) -> SessionException | None:
     """Bidirectionally reconcile an observation against repository authority."""
-    _validate_match_query(
-        exchange=exchange, product=product, trade_date=trade_date
-    )
+    _validate_match_query(exchange=exchange, product=product, trade_date=trade_date)
     identity = {
         "exchange": exchange,
         "product": product,
@@ -700,9 +695,7 @@ def authorize_night_observation(
             },
         ) from exc
 
-    regimes = matching_ranges(
-        authority.day_only_regimes, exchange, product, trade_date
-    )
+    regimes = matching_ranges(authority.day_only_regimes, exchange, product, trade_date)
     exceptions = matching_session_exceptions(
         authority.session_exceptions, exchange, trade_date
     )

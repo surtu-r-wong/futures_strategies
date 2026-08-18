@@ -220,8 +220,7 @@ def test_loaders_reject_empty_required_values(tmp_path, loader, header, row):
         (
             load_session_exceptions,
             SESSION_EXCEPTION_HEADER,
-            "SHFE,commodity-v1,2024-02-30,none,none,holiday,"
-            "https://www.shfe.com.cn/\n",
+            "SHFE,commodity-v1,2024-02-30,none,none,holiday,https://www.shfe.com.cn/\n",
         ),
         (
             load_authority_ranges,
@@ -250,8 +249,7 @@ def test_loaders_reject_invalid_iso_dates(tmp_path, loader, header, row):
         (
             load_session_exceptions,
             SESSION_EXCEPTION_HEADER,
-            "SHFE,commodity-v2,2024-02-19,none,none,holiday,"
-            "https://www.shfe.com.cn/\n",
+            "SHFE,commodity-v2,2024-02-19,none,none,holiday,https://www.shfe.com.cn/\n",
         ),
         (
             load_authority_ranges,
@@ -294,18 +292,12 @@ def test_session_exception_loader_rejects_duplicate_keys(tmp_path):
         "commodity-v1,SHFE,AU,2012-01-01,,second,https://www.shfe.com.cn/\n",
     ],
 )
-def test_range_loader_rejects_closed_and_open_ended_overlaps(
-    tmp_path, second_row
-):
+def test_range_loader_rejects_closed_and_open_ended_overlaps(tmp_path, second_row):
     first = (
-        "commodity-v1,SHFE,AU,2011-01-01,2011-03-01,first,"
-        "https://www.shfe.com.cn/\n"
+        "commodity-v1,SHFE,AU,2011-01-01,2011-03-01,first,https://www.shfe.com.cn/\n"
     )
     if second_row.startswith("commodity-v1,SHFE,AU,2012"):
-        first = (
-            "commodity-v1,SHFE,AU,2011-01-01,,first,"
-            "https://www.shfe.com.cn/\n"
-        )
+        first = "commodity-v1,SHFE,AU,2011-01-01,,first,https://www.shfe.com.cn/\n"
     path = _write(tmp_path / "ranges.csv", RANGE_HEADER + first + second_row)
 
     with pytest.raises(SessionAuthorityError, match="authority_range_overlap") as exc:
@@ -316,12 +308,10 @@ def test_range_loader_rejects_closed_and_open_ended_overlaps(
 
 def test_range_loader_rejects_duplicate_start_keys_before_overlap(tmp_path):
     first = (
-        "commodity-v1,SHFE,AU,2011-01-01,2011-03-01,first,"
-        "https://www.shfe.com.cn/\n"
+        "commodity-v1,SHFE,AU,2011-01-01,2011-03-01,first,https://www.shfe.com.cn/\n"
     )
     second = (
-        "commodity-v1,SHFE,AU,2011-01-01,2011-04-01,second,"
-        "https://www.shfe.com.cn/\n"
+        "commodity-v1,SHFE,AU,2011-01-01,2011-04-01,second,https://www.shfe.com.cn/\n"
     )
     path = _write(tmp_path / "ranges.csv", RANGE_HEADER + first + second)
 
@@ -383,8 +373,7 @@ def test_session_authority_parses_the_same_snapshot_bound_to_each_digest(tmp_pat
     day_only_path = _write(tmp_path / "day-only.csv", RANGE_HEADER)
     history_path = _write(tmp_path / "history.csv", RANGE_HEADER)
     replacement = (
-        SESSION_EXCEPTION_HEADER
-        + "DCE,commodity-v1,2024-02-19,none,none,"
+        SESSION_EXCEPTION_HEADER + "DCE,commodity-v1,2024-02-19,none,none,"
         "holiday notice_evening=2024-02-08,https://www.dce.com.cn/\n"
     ).encode()
     exception_path = _AtomicReplacingPath(raw_exception_path).arm_atomic_replacement(
@@ -399,9 +388,10 @@ def test_session_authority_parses_the_same_snapshot_bound_to_each_digest(tmp_pat
 
     assert Path(exception_path).read_bytes() == replacement
     assert authority.session_exceptions == ()
-    assert authority.sha256_by_asset["session_exception"] == hashlib.sha256(
-        original
-    ).hexdigest()
+    assert (
+        authority.sha256_by_asset["session_exception"]
+        == hashlib.sha256(original).hexdigest()
+    )
 
 
 def test_notice_evening_maps_to_the_next_target_trade_date():
@@ -411,9 +401,7 @@ def test_notice_evening_maps_to_the_next_target_trade_date():
     validate_session_exception_calendar((row,), calendar)
 
     bad = replace(row, trade_date=date(2024, 2, 8))
-    with pytest.raises(
-        SessionAuthorityError, match="notice_target_trade_date"
-    ) as exc:
+    with pytest.raises(SessionAuthorityError, match="notice_target_trade_date") as exc:
         validate_session_exception_calendar((bad,), calendar)
 
     assert exc.value.check == "notice_target_trade_date"
@@ -461,12 +449,8 @@ def test_matching_helpers_are_deterministic_and_inclusive():
     assert matching_session_exceptions(
         reversed(exceptions), "SHFE", date(2019, 12, 26)
     ) == (exceptions[1],)
-    assert matching_ranges(ranges, "SHFE", "AU", date(2011, 1, 1)) == (
-        ranges[1],
-    )
-    assert matching_ranges(ranges, "SHFE", "AU", date(2013, 7, 4)) == (
-        ranges[1],
-    )
+    assert matching_ranges(ranges, "SHFE", "AU", date(2011, 1, 1)) == (ranges[1],)
+    assert matching_ranges(ranges, "SHFE", "AU", date(2013, 7, 4)) == (ranges[1],)
 
 
 def test_matching_helpers_reject_multiplicity_even_for_unloaded_rows():
@@ -528,9 +512,7 @@ def test_observed_none_requires_exactly_one_authority():
     }
 
     assert (
-        authorize_night_observation(
-            _authority(day_only_regimes=(day_only,)), **values
-        )
+        authorize_night_observation(_authority(day_only_regimes=(day_only,)), **values)
         is None
     )
     assert (
@@ -615,12 +597,12 @@ def test_authorization_rejects_unknown_observations_and_keeps_error_context():
 def test_repository_authority_assets_have_exact_header_only_contracts():
     repository = Path(__file__).resolve().parents[1]
 
-    assert (
-        repository / "config/carry_minute_session_exceptions.csv"
-    ).read_text(encoding="utf-8") == SESSION_EXCEPTION_HEADER
-    assert (
-        repository / "config/carry_minute_day_only_regimes.csv"
-    ).read_text(encoding="utf-8") == RANGE_HEADER
-    assert (
-        repository / "config/carry_liquidity_history_exceptions.csv"
-    ).read_text(encoding="utf-8") == RANGE_HEADER
+    assert (repository / "config/carry_minute_session_exceptions.csv").read_text(
+        encoding="utf-8"
+    ) == SESSION_EXCEPTION_HEADER
+    assert (repository / "config/carry_minute_day_only_regimes.csv").read_text(
+        encoding="utf-8"
+    ) == RANGE_HEADER
+    assert (repository / "config/carry_liquidity_history_exceptions.csv").read_text(
+        encoding="utf-8"
+    ) == RANGE_HEADER
