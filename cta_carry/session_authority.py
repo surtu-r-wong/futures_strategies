@@ -11,16 +11,18 @@ import re
 from types import MappingProxyType
 from typing import Any
 
-from .minute_sessions import SESSION_RULES_VERSION
+from .minute_sessions import SESSION_RULES_VERSION, parse_night_interval
 
 
 AUTHORITY_VERSION = SESSION_RULES_VERSION
 NOTICE_EVENING = re.compile(r"\bnotice_evening=(\d{4}-\d{2}-\d{2})\b")
 
-_NO_NIGHT_COLUMNS = (
-    "version",
+_SESSION_EXCEPTION_COLUMNS = (
     "exchange",
+    "version",
     "trade_date",
+    "night_start",
+    "night_end",
     "reason",
     "source_url",
 )
@@ -33,7 +35,7 @@ _RANGE_COLUMNS = (
     "reason",
     "source_url",
 )
-_SUPPORTED_NIGHT_ENDS = frozenset({"none", "23:00", "23:30", "01:00", "02:30"})
+_NORMAL_NIGHT_ENDS = frozenset({"23:00", "23:30", "01:00", "02:30"})
 
 
 def _stable_value(value: object) -> str:
@@ -79,7 +81,7 @@ class SessionAuthorityError(ValueError):
 def _authority_row_identity(row: object | None) -> dict[str, object] | None:
     if row is None:
         return None
-    if isinstance(row, NoNightDate):
+    if isinstance(row, SessionException):
         return {
             "version": row.version,
             "exchange": row.exchange,
@@ -111,11 +113,13 @@ def _validate_required_record_text(
         )
 
 
-@dataclass(frozen=True)
-class NoNightDate:
-    version: str
+@dataclass(frozen=True, order=True)
+class SessionException:
     exchange: str
+    version: str
     trade_date: date
+    night_start: str
+    night_end: str
     reason: str
     source_url: str
 
@@ -136,7 +140,7 @@ class NoNightDate:
             )
         for field in ("exchange", "reason", "source_url"):
             _validate_required_record_text(
-                record_kind="no-night authority",
+                record_kind="session exception",
                 field=field,
                 value=getattr(self, field),
                 identity=identity,
@@ -144,10 +148,22 @@ class NoNightDate:
         if type(self.trade_date) is not date:
             raise SessionAuthorityError(
                 check="authority_record_date",
-                reason="no-night trade_date must be an actual date",
+                reason="session exception trade_date must be an actual date",
                 row_identity=identity,
                 context={"field": "trade_date", "type": type(self.trade_date).__name__},
             )
+        try:
+            parse_night_interval(self.night_start, self.night_end)
+        except ValueError as exc:
+            raise SessionAuthorityError(
+                check="authority_csv_time",
+                reason=str(exc),
+                row_identity=identity,
+                context={
+                    "night_start": self.night_start,
+                    "night_end": self.night_end,
+                },
+            ) from exc
 
 
 @dataclass(frozen=True)
@@ -209,13 +225,15 @@ class EffectiveAuthorityRange:
 
 @dataclass(frozen=True)
 class SessionAuthority:
-    no_night_dates: tuple[NoNightDate, ...]
+    session_exceptions: tuple[SessionException, ...]
     day_only_regimes: tuple[EffectiveAuthorityRange, ...]
     liquidity_history_exceptions: tuple[EffectiveAuthorityRange, ...]
     sha256_by_asset: Mapping[str, str]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "no_night_dates", tuple(self.no_night_dates))
+        object.__setattr__(
+            self, "session_exceptions", tuple(self.session_exceptions)
+        )
         object.__setattr__(self, "day_only_regimes", tuple(self.day_only_regimes))
         object.__setattr__(
             self,
@@ -319,11 +337,13 @@ def _parse_csv_date(
         ) from exc
 
 
-def _no_night_sort_key(row: NoNightDate) -> tuple[object, ...]:
+def _session_exception_sort_key(row: SessionException) -> tuple[object, ...]:
     return (
         row.version,
         row.exchange,
         row.trade_date,
+        row.night_start,
+        row.night_end,
         row.reason,
         row.source_url,
     )
@@ -341,13 +361,13 @@ def _range_sort_key(row: EffectiveAuthorityRange) -> tuple[object, ...]:
     )
 
 
-def _load_no_night_dates_payload(
+def _load_session_exceptions_payload(
     path: Path, payload: bytes
-) -> tuple[NoNightDate, ...]:
-    parsed: list[NoNightDate] = []
+) -> tuple[SessionException, ...]:
+    parsed: list[SessionException] = []
     seen: set[tuple[str, str, date]] = set()
     for row_number, row in _read_csv_rows(
-        path, payload, columns=_NO_NIGHT_COLUMNS
+        path, payload, columns=_SESSION_EXCEPTION_COLUMNS
     ):
         trade_date = _parse_csv_date(
             path=path, row_number=row_number, row=row, field="trade_date"
@@ -356,7 +376,7 @@ def _load_no_night_dates_payload(
         if key in seen:
             raise SessionAuthorityError(
                 check="authority_duplicate_key",
-                reason="duplicate no-night authority key",
+                reason="duplicate session exception authority key",
                 row_identity={
                     "version": key[0],
                     "exchange": key[1],
@@ -365,21 +385,37 @@ def _load_no_night_dates_payload(
                 context={"path": str(path), "row_number": row_number},
             )
         seen.add(key)
-        parsed.append(
-            NoNightDate(
-                version=row["version"],
-                exchange=row["exchange"],
-                trade_date=trade_date,
-                reason=row["reason"],
-                source_url=row["source_url"],
+        try:
+            parsed.append(
+                SessionException(
+                    exchange=row["exchange"],
+                    version=row["version"],
+                    trade_date=trade_date,
+                    night_start=row["night_start"],
+                    night_end=row["night_end"],
+                    reason=row["reason"],
+                    source_url=row["source_url"],
+                )
             )
-        )
-    return tuple(sorted(parsed, key=_no_night_sort_key))
+        except SessionAuthorityError as exc:
+            if exc.check != "authority_csv_time":
+                raise
+            raise SessionAuthorityError(
+                check=exc.check,
+                reason=exc.reason,
+                row_identity=_row_identity(row, row_number=row_number),
+                context={
+                    "path": str(path),
+                    "night_start": row["night_start"],
+                    "night_end": row["night_end"],
+                },
+            ) from exc
+    return tuple(sorted(parsed, key=_session_exception_sort_key))
 
 
-def load_no_night_dates(path: Path) -> tuple[NoNightDate, ...]:
-    """Load exchange-wide no-night dates with exact schema and unique keys."""
-    return _load_no_night_dates_payload(path, _read_asset_bytes(path))
+def load_session_exceptions(path: Path) -> tuple[SessionException, ...]:
+    """Load exchange-date session exceptions with exact schema and unique keys."""
+    return _load_session_exceptions_payload(path, _read_asset_bytes(path))
 
 
 def _load_authority_ranges_payload(
@@ -474,18 +510,21 @@ def load_authority_ranges(path: Path) -> tuple[EffectiveAuthorityRange, ...]:
 
 
 def load_session_authority(
-    *, no_night_path: Path, day_only_path: Path, history_exception_path: Path
+    *,
+    session_exception_path: Path,
+    day_only_path: Path,
+    history_exception_path: Path,
 ) -> SessionAuthority:
     """Load all authority assets and bind their exact bytes to content hashes."""
     paths = {
-        "no_night": no_night_path,
+        "session_exception": session_exception_path,
         "day_only": day_only_path,
         "history_exception": history_exception_path,
     }
     payloads = {name: _read_asset_bytes(path) for name, path in paths.items()}
     return SessionAuthority(
-        no_night_dates=_load_no_night_dates_payload(
-            no_night_path, payloads["no_night"]
+        session_exceptions=_load_session_exceptions_payload(
+            session_exception_path, payloads["session_exception"]
         ),
         day_only_regimes=_load_authority_ranges_payload(
             day_only_path, payloads["day_only"]
@@ -500,8 +539,8 @@ def load_session_authority(
     )
 
 
-def validate_no_night_calendar(
-    rows: Sequence[NoNightDate], global_calendar: Sequence[date]
+def validate_session_exception_calendar(
+    rows: Sequence[SessionException], global_calendar: Sequence[date]
 ) -> None:
     """Verify that notice evenings map to the next global target trade date."""
     for value in global_calendar:
@@ -602,9 +641,9 @@ def matching_ranges(
     return matches
 
 
-def matching_no_night_dates(
-    rows: Iterable[NoNightDate], exchange: str, trade_date: date
-) -> tuple[NoNightDate, ...]:
+def matching_session_exceptions(
+    rows: Iterable[SessionException], exchange: str, trade_date: date
+) -> tuple[SessionException, ...]:
     """Return the one deterministic exchange-date match, or fail on multiplicity."""
     _validate_match_query(exchange=exchange, product=None, trade_date=trade_date)
     matches = tuple(
@@ -614,13 +653,13 @@ def matching_no_night_dates(
                 for row in rows
                 if row.exchange == exchange and row.trade_date == trade_date
             ),
-            key=_no_night_sort_key,
+            key=_session_exception_sort_key,
         )
     )
     if len(matches) > 1:
         raise SessionAuthorityError(
             check="authority_match_cardinality",
-            reason="expected at most one no-night authority date match",
+            reason="expected at most one session exception match",
             row_identity={
                 "exchange": exchange,
                 "trade_date": trade_date.isoformat(),
@@ -636,8 +675,9 @@ def authorize_night_observation(
     exchange: str,
     product: str,
     trade_date: date,
+    observed_night_start: str,
     observed_night_end: str,
-) -> None:
+) -> SessionException | None:
     """Bidirectionally reconcile an observation against repository authority."""
     _validate_match_query(
         exchange=exchange, product=product, trade_date=trade_date
@@ -647,33 +687,43 @@ def authorize_night_observation(
         "product": product,
         "trade_date": trade_date.isoformat(),
     }
-    if observed_night_end not in _SUPPORTED_NIGHT_ENDS:
+    try:
+        parse_night_interval(observed_night_start, observed_night_end)
+    except ValueError as exc:
         raise SessionAuthorityError(
             check="night_observation_value",
-            reason="unsupported observed night-session endpoint",
+            reason=str(exc),
             row_identity=identity,
-            context={"observed_night_end": observed_night_end},
-        )
+            context={
+                "observed_night_start": observed_night_start,
+                "observed_night_end": observed_night_end,
+            },
+        ) from exc
 
     regimes = matching_ranges(
         authority.day_only_regimes, exchange, product, trade_date
     )
-    halts = matching_no_night_dates(
-        authority.no_night_dates, exchange, trade_date
+    exceptions = matching_session_exceptions(
+        authority.session_exceptions, exchange, trade_date
     )
-    if observed_night_end == "none" and len(regimes) == 1:
-        return
-    if observed_night_end == "none" and not regimes and len(halts) == 1:
-        return
-    if observed_night_end != "none" and not regimes and not halts:
-        return
+    observed = (observed_night_start, observed_night_end)
+    if regimes:
+        if observed == ("none", "none") and not exceptions:
+            return None
+    elif exceptions:
+        expected = (exceptions[0].night_start, exceptions[0].night_end)
+        if observed == expected:
+            return exceptions[0]
+    elif observed_night_start == "21:00" and observed_night_end in _NORMAL_NIGHT_ENDS:
+        return None
     raise SessionAuthorityError(
         check="night_authority_conflict",
-        reason="observed night session conflicts with repository authority",
+        reason="observed night interval conflicts with repository authority",
         row_identity=identity,
         context={
+            "observed_night_start": observed_night_start,
             "observed_night_end": observed_night_end,
             "day_only_matches": len(regimes),
-            "no_night_matches": len(halts),
+            "session_exception_matches": len(exceptions),
         },
     )
