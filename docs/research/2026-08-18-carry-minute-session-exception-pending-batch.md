@@ -16,12 +16,12 @@ exchange,version,trade_date,night_start,night_end,reason,source_url
 
 ---
 
-## 批次 A：DCE 2019-12-26 延迟开盘（原文已取回，可直接定稿）
+## 批次 A：DCE 2019-12-26 延迟开盘（字段齐全，**待用户点头即可写入**）
 
 ### 提议行
 
 ```csv
-DCE,commodity-v1,2019-12-26,22:30,23:00,delayed night open per 大商所发[2019]553号 notice_evening=2019-12-25,<source_url 待确认>
+DCE,commodity-v1,2019-12-26,22:30,23:00,delayed night open per 大商所发[2019]553号 notice_evening=2019-12-25,http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6202113/index.html
 ```
 
 ### 权威原文（用户 2026-08-18 提供，逐字保留）
@@ -53,7 +53,7 @@ DCE,commodity-v1,2019-12-26,22:30,23:00,delayed night open per 大商所发[2019
 | `night_start` | `22:30` | 「夜盘交易时间调整为22:30—23:00」 |
 | `night_end` | `23:00` | 同上。语义为**排他上界**：段为 `[22:30, 23:00)`，最后一根 K 线 22:59，共 30 根 |
 | `reason` | 见提议行 | 含唯一 `notice_evening=2019-12-25` token；**原文未给出调整原因**，因此不得编造缘由 |
-| `source_url` | **待确认** | 用户已取回正文但未告知实际生效的 URL |
+| `source_url` | `http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6202113/index.html` | 用户 2026-08-18 于浏览器从该镜像取回正文；该 host 与登记表中另外约 15 条 DCE 通知一致 |
 
 ### 两处此前不确定、现已由原文解决
 
@@ -65,9 +65,11 @@ DCE,commodity-v1,2019-12-26,22:30,23:00,delayed night open per 大商所发[2019
 
 ### 定稿前仍需解决
 
+所有 CSV 字段均已坐实，**唯一未决的是用户是否批准写入**。另有一项与本行正确性无关、
+但会影响后续采集能否通过的事实待验证：
+
 | 项 | 说明 |
 |---|---|
-| `source_url` | 需用户告知实际取到正文的 URL。登记表原记为 `http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6202113/index.html`；2026-08-18 实测该 URL 与 `qhxy.dce.com.cn` 镜像均返回瑞数 JS 挑战页（HTTP 412），机器不可读 |
 | 集合竞价 K 线 | 原文另给出**集合竞价 22:25—22:30**。需在真实分钟数据上确认供应商**是否**为集合竞价成交单独打一根 22:25–22:29 的 K 线。若打了，经验分类得到的 `night_first` 就不是 22:30，会 fail-closed 报 `night_first` 错误 —— 那不是缺陷，是需要先确认的事实 |
 
 ---
@@ -124,7 +126,7 @@ DCE,commodity-v1,2019-12-26,22:30,23:00,delayed night open per 大商所发[2019
 
 ## 明天定稿的推荐顺序
 
-1. 确认 DCE `source_url`（唯一阻挡批次 A 定稿的字段）。
+1. 批次 A 字段已齐全，用户点头后即可写入资产（一行）。
 2. 读有界采集产物：`round1_inventory.csv`（ambiguity 清单）与 `round1_audit.txt`。
 3. 用采集的全局交易日历把批次 B 的 45 条 + DCE 2020-01-23 映射成 `trade_date`。
 4. 三方交叉（官方来源 × 日历映射 × 经验清单），只有三者一致的行才进批次。

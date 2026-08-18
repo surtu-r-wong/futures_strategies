@@ -73,7 +73,7 @@
 | INE | holiday_no_night_corroborative | `notice_evening=2024-04-03` | https://www.ine.cn/eng/circularnews/circular/202403/t20240329_823079.html | 0 | `reviewed_direct_corroborative`：已由 2024 年度公告 canonical 覆盖，不重复派生 candidate |
 | DCE | session_launch_and_clock_change | P/J 2014-07-04 首批；A/B/M/Y/JM/I 2014-12-26 加入，初始 02:30；2019-03-29 统一至 23:00 并新增 L/V/PP/EG/C/CS | https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf | 22 | `reviewed_direct`：官方回顾材料直接列明产品、日期与时段 |
 | DCE | session_clock_change | 自 2015-05-08 21:00（目标交易日 2015-05-11）起，既有 8 品种由 02:30 调整至 23:30 | https://www.dce.com.cn/dalianshangpin/resource/cms/2016/07/%E5%A4%A7%E8%BF%9E%E6%9C%9F%E8%B4%A7%E5%B8%82%E5%9C%BA%E6%9C%88%E6%8A%A5%EF%BC%882015%E5%B9%B45%E6%9C%88%EF%BC%89.pdf | 8 | `reviewed_direct`：与 2019 回顾材料按事件去重，不是重复键 |
-| DCE | irregular_night_session | **原文已取回（用户 2026-08-18 提供）**：《关于调整夜盘交易时间的通知》大商所发[2019]553号，2019-12-25 发布。原文「2019年12月25日晚夜盘交易时间调整为22:30—23:00，集合竞价时间为22：25—22：30」，**无品种限定=全所口径**；目标交易日 2019-12-26，该交易日不是 `none` | http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6202113/index.html | 0 | `text_retrieved_pending_url`：正文与文号已坐实，但实际生效 URL 待用户确认（2026-08-18 实测该 URL 与 qhxy 镜像均返回瑞数 JS 挑战 HTTP 412）；候选行见 2026-08-18 待审批次，仍未写入资产 |
+| DCE | irregular_night_session | **原文已取回（用户 2026-08-18 提供）**：《关于调整夜盘交易时间的通知》大商所发[2019]553号，2019-12-25 发布。原文「2019年12月25日晚夜盘交易时间调整为22:30—23:00，集合竞价时间为22：25—22：30」，**无品种限定=全所口径**；目标交易日 2019-12-26，该交易日不是 `none` | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6202113/index.html | 1 | `reviewed_direct`：正文、文号与生效 URL 均已坐实（用户 2026-08-18 于浏览器取回；脚本访问该镜像返回瑞数 JS 挑战 HTTP 412）。`rows_derived=1` 表示来源层可派生一行，**尚未写入资产**；候选行见 2026-08-18 待审批次 |
 | DCE | holiday_reopening_boundary | 2020 年春节休市延长至 02-02，02-03 起照常开市；该通知所称 02-03 当晚恢复夜盘随后被专项暂停通知覆盖 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6204380/index.html | 0 | `reviewed_boundary_superseded_part`：只修订 2020 年度公告中的春节恢复边界；不另生成 `notice_evening` |
 | DCE | night_suspension | 自 2020-02-03 晚起暂停全部夜盘 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6204446/index.html | 0 | `reviewed_direct`：与恢复边界及全局日历已展开 2020-02-04 至 05-06 的 63 个目标日 |
 | DCE | night_resumption | 2020-05-06 晚恢复夜盘，并新增 PG 夜盘 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6215428/index.html | 1 | `reviewed_direct`：1 行只指 PG 启动；闭合暂停区间，不重复计暂停行 |
@@ -167,7 +167,7 @@ ORDER BY exchange_suffix, product;
 | official source-register entries | 96 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源；包含 1 条待人工取回正文的 DCE 官方旧页 |
 | accepted exact `none,none` evening candidates | 219 | 上轮 143 加 DCE 2014–2025 的 76 个 canonical 候选；必须逐行映射到下一全局 `trade_date` 后才能写 session exception CSV |
 | DCE `none,none` working candidates | 78 | DCE 2014–2025 的 76 个唯一 `notice_evening`，加现有 2026-02-13、04-03 两项；不含尚待 inventory 与官方来源闭合的 2025-12-31 |
-| known irregular-session candidates | 1 | DCE 目标交易日 2019-12-26；不是 `none`，不计入 219 或 DCE 78。承载它的 schema 已于 2026-08-18 实施（见下），但本次实施**没有**提交任何该日的 exception 行；仍待 `6202113` 原文取回并复核 |
+| known irregular-session candidates | 1 | DCE 目标交易日 2019-12-26；不是 `none`，不计入 219 或 DCE 78。承载它的 schema 已于 2026-08-18 实施，同日原文经用户人工取回并复核完毕（大商所发[2019]553号，全所口径 22:30—23:00）。字段齐全的候选行见 2026-08-18 待审批次，**仍未写入资产** |
 | holiday `none,none` rows working estimate | 300–450 | 只估四所节前日期，不含 2020 暂停期；以 inventory 为准 |
 | 2020 suspension expanded rows | 252 | SHFE、INE、DCE、CZCE 各 63 个目标日（2020-02-04 至 2020-05-06）；不含另按节后规则归因的 2020-02-03 |
 | expected total `none,none` exception rows | not measured | 节前日期与 2020 展开去重后的并集 |
@@ -235,8 +235,9 @@ DCE 2019-12-25 晚 22:30–23:00 的异常时段候选只增加来源登记项�
   22:30–23:00（目标交易日 2019-12-26）。**2026-08-18 由用户人工取回正文**：
   《关于调整夜盘交易时间的通知》大商所发[2019]553号，原文确认 22:30—23:00
   且无品种限定（全所口径），另给出集合竞价 22:25—22:30。登记状态改为
-  `text_retrieved_pending_url`（仅缺实际生效 URL），`rows_derived` 仍维持 0。该日有夜盘，
-  不是 `none`。承载它所需的 schema 已于 2026-08-18 实施：会话资产与 exception
+  `reviewed_direct`，生效 URL 为 `http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6202113/index.html`
+  （与登记表中另外约 15 条 DCE 通知同一官方镜像 host）。`rows_derived` 改为 1，
+  表示来源层可派生一行，**但仍未写入资产**。该日有夜盘，不是 `none`。承载它所需的 schema 已于 2026-08-18 实施：会话资产与 exception
   资产都已能表达 `night_start=22:30`（见下节）。**但本次实施没有提交任何
   DCE 2019-12-26 的 exception 行**——schema 就绪不等于权威就绪。发布覆盖该日的
   分钟时段资产前仍必须先取回原文，不能把它降级为 `none` 或普通 21:00–23:00 时段。
