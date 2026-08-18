@@ -781,3 +781,39 @@ def test_fundamental_lineage_summary_renders_none_metadata():
     assert cta_main._fundamental_lineage_summary(
         {"source": "none"}
     ) == "fundamentals: source=none"
+
+
+def test_coverage_gate_honours_the_builds_waived_slices():
+    data = _sample_cta_data()
+    data.fundamental_metadata["absence_slices"] = [
+        {"trade_date": "2020-01-01", "metric": "basis_rate"}
+    ]
+
+    with pytest.raises(FundamentalCoverageError) as error:
+        build_factor_sleeves(
+            data,
+            factors=default_cta_factors(),
+            symbols=data.symbols,
+            enforce_coverage=True,
+        )
+
+    # The waived slice is gone; everything else still fails exactly as before.
+    assert "2020-01-01 basis_rate" not in str(error.value)
+
+
+def test_a_waived_slice_is_marked_waived_in_the_coverage_audit():
+    data = _sample_cta_data()
+    data.fundamental_metadata["absence_slices"] = [
+        {"trade_date": "2020-01-01", "metric": "basis_rate"}
+    ]
+
+    _, _, coverage_audit = build_factor_sleeves(
+        data,
+        factors=default_cta_factors(),
+        symbols=data.symbols,
+        enforce_coverage=False,
+    )
+
+    waived = coverage_audit[coverage_audit["status"] == "waived"]
+    assert len(waived) == 1
+    assert waived.iloc[0]["metric"] == "basis_rate"

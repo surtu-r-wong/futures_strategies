@@ -73,15 +73,35 @@ def _finish(rows, failures, enforce):
     return audit
 
 
+def _waived_keys(absences):
+    """Normalise the build's waived slices to (date, metric) keys.
+
+    The slices come from `fundamental_build.absence_slices`, written by the
+    upstream build from a reviewed file. A consumer cannot otherwise tell an
+    approved hole from a data outage, and must not guess.
+    """
+    keys = set()
+    for entry in absences or ():
+        keys.add(
+            (
+                pd.Timestamp(entry["trade_date"]),
+                str(entry["metric"]),
+            )
+        )
+    return keys
+
+
 def evaluate_daily_fundamental_coverage(
     matrices,
     *,
     symbols,
     required_products,
     enforce,
+    absences=(),
 ):
     requested_symbols = list(symbols)
     required = int(required_products)
+    waived = _waived_keys(absences)
     rows = []
     failures = []
 
@@ -92,10 +112,13 @@ def evaluate_daily_fundamental_coverage(
         for trade_date, day in _date_groups(matrix):
             finite = _finite_mask(day.to_numpy())
             available = int(finite.any(axis=0).sum())
-            status = "pass" if available >= required else "fail"
+            if (pd.Timestamp(trade_date), str(metric)) in waived:
+                status = "waived"
+            else:
+                status = "pass" if available >= required else "fail"
             reason = (
                 ""
-                if status == "pass"
+                if status != "fail"
                 else (
                     f"{_date_label(trade_date)} {metric} "
                     f"coverage={available} required={required}"

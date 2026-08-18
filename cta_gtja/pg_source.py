@@ -295,6 +295,23 @@ def _load_standard_fundamentals(
         ORDER BY d.product_code, d.trade_date, d.metric
     """
 
+    build_sql = f"""
+        /* cta-standard-build */
+        SELECT b.build_version,
+               b.absence_slices
+        FROM {schema}.fundamental_build AS b
+        WHERE b.status = 'complete'
+          AND b.pit_mode = 'conservative'
+          AND b.build_version = (
+              SELECT build_version
+              FROM {schema}.fundamental_build
+              WHERE status = 'complete'
+                AND pit_mode = 'conservative'
+              ORDER BY finished_at DESC
+              LIMIT 1
+          )
+    """
+
     values = _read_sql(values_sql, conn, params=params)
     if values.empty:
         raise ValueError("no complete conservative build")
@@ -344,9 +361,26 @@ def _load_standard_fundamentals(
     wide.columns.name = None
     wide = wide.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
 
+    build_row = _read_sql(build_sql, conn, params={})
+    if build_row.empty:
+        raise ValueError("no complete conservative build row")
+    if len(build_row) != 1:
+        raise ValueError("expected exactly one build row")
+    if build_row["build_version"].iloc[0] != build_version:
+        raise ValueError("build-row/value build-version mismatch")
+    absence_slices = build_row["absence_slices"].iloc[0]
+    # A build that never ran with a reviewed absence file records NULL. Treat
+    # that as "nothing waived" rather than "unknown": the gate then behaves
+    # exactly as it did before this column existed.
+    if absence_slices is None or (
+        isinstance(absence_slices, float) and pd.isna(absence_slices)
+    ):
+        absence_slices = []
+
     metadata = {
         "source": "standard",
         "pit_mode": "conservative",
+        "absence_slices": list(absence_slices),
         "build_version": build_version,
         "catalog_version": catalog_version,
         "source_recorded_cutoff": values["source_recorded_cutoff"].iloc[0],

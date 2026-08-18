@@ -232,6 +232,15 @@ def _install_standard_sql(
             return values.copy()
         if "/* cta-standard-audit */" in sql:
             return audit.copy()
+        if "/* cta-standard-build */" in sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "build_version": values["build_version"].iloc[0],
+                        "absence_slices": [],
+                    }
+                ]
+            )
         raise AssertionError("unexpected SQL marker")
 
     monkeypatch.setattr(pg_source, "_read_sql", fake_read_sql)
@@ -239,11 +248,17 @@ def _install_standard_sql(
 
 
 def _assert_standard_sql_contract(calls):
-    assert len(calls) == 2
+    assert len(calls) == 3
     sqls = [" ".join(sql.lower().split()) for sql, _ in calls]
     assert any("/* cta-standard-values */" in sql for sql in sqls)
     assert any("/* cta-standard-audit */" in sql for sql in sqls)
-    for sql in sqls:
+    assert any("/* cta-standard-build */" in sql for sql in sqls)
+    row_sqls = [
+        sql
+        for sql in sqls
+        if "/* cta-standard-build */" not in sql
+    ]
+    for sql in row_sqls:
         assert "status = 'complete'" in sql
         assert "pit_mode = 'conservative'" in sql
         assert "build_version = (" in sql
@@ -286,6 +301,7 @@ def test_load_standard_fundamentals_pivots_values_and_returns_lineage(monkeypatc
     assert metadata == {
         "source": "standard",
         "pit_mode": "conservative",
+        "absence_slices": [],
         "build_version": "build-c-1",
         "catalog_version": "v1",
         "source_recorded_cutoff": pd.Timestamp("2026-01-01"),
@@ -321,7 +337,13 @@ def test_load_standard_fundamentals_adds_optional_filters(monkeypatch):
         schema="commodity_research",
     )
 
-    for sql, params in calls:
+    row_calls = [
+        (sql, params)
+        for sql, params in calls
+        if "/* cta-standard-build */" not in sql
+    ]
+    assert len(row_calls) == 2
+    for sql, params in row_calls:
         normalized = " ".join(sql.lower().split())
         assert "trade_date >= %(start)s" in normalized
         assert "trade_date <= %(end)s" in normalized
@@ -331,6 +353,16 @@ def test_load_standard_fundamentals_adds_optional_filters(monkeypatch):
             "end": end,
             "symbols": ["M", "CU"],
         }
+
+    # The build row is per-build, not per-row: it takes no window or symbol
+    # filter, and must not silently inherit one.
+    build_sql, build_params = next(
+        (sql, params)
+        for sql, params in calls
+        if "/* cta-standard-build */" in sql
+    )
+    assert build_params == {}
+    assert "%(start)s" not in build_sql
 
 
 def test_load_standard_fundamentals_rejects_schema_before_sql(monkeypatch):
@@ -453,5 +485,80 @@ def test_load_standard_fundamentals_rejects_multiple_audit_versions(
             start=None,
             end=None,
             symbols=["M", "CU"],
+            schema="commodity_research",
+        )
+
+
+def test_load_standard_fundamentals_carries_the_builds_waived_slices(monkeypatch):
+    values = _standard_values()
+    audit_rows = _standard_audit(values)
+    slices = [{"trade_date": "2020-02-07", "metric": "basis_rate"}]
+
+    def fake_read_sql(sql, conn, *, params):
+        if "/* cta-standard-values */" in sql:
+            return values.copy()
+        if "/* cta-standard-audit */" in sql:
+            return audit_rows.copy()
+        if "/* cta-standard-build */" in sql:
+            return pd.DataFrame(
+                [{"build_version": "build-c-1", "absence_slices": slices}]
+            )
+        raise AssertionError("unexpected SQL marker")
+
+    monkeypatch.setattr(pg_source, "_read_sql", fake_read_sql)
+
+    _, _, metadata = pg_source._load_standard_fundamentals(
+        object(), start=None, end=None, symbols=["M", "CU"],
+        schema="commodity_research",
+    )
+
+    assert metadata["absence_slices"] == slices
+
+
+def test_load_standard_fundamentals_defaults_absence_slices_to_empty(monkeypatch):
+    values = _standard_values()
+    audit_rows = _standard_audit(values)
+
+    def fake_read_sql(sql, conn, *, params):
+        if "/* cta-standard-values */" in sql:
+            return values.copy()
+        if "/* cta-standard-audit */" in sql:
+            return audit_rows.copy()
+        if "/* cta-standard-build */" in sql:
+            return pd.DataFrame(
+                [{"build_version": "build-c-1", "absence_slices": None}]
+            )
+        raise AssertionError("unexpected SQL marker")
+
+    monkeypatch.setattr(pg_source, "_read_sql", fake_read_sql)
+
+    _, _, metadata = pg_source._load_standard_fundamentals(
+        object(), start=None, end=None, symbols=["M", "CU"],
+        schema="commodity_research",
+    )
+
+    assert metadata["absence_slices"] == []
+
+
+def test_load_standard_fundamentals_rejects_a_build_row_for_another_build(monkeypatch):
+    values = _standard_values()
+    audit_rows = _standard_audit(values)
+
+    def fake_read_sql(sql, conn, *, params):
+        if "/* cta-standard-values */" in sql:
+            return values.copy()
+        if "/* cta-standard-audit */" in sql:
+            return audit_rows.copy()
+        if "/* cta-standard-build */" in sql:
+            return pd.DataFrame(
+                [{"build_version": "someone-else", "absence_slices": []}]
+            )
+        raise AssertionError("unexpected SQL marker")
+
+    monkeypatch.setattr(pg_source, "_read_sql", fake_read_sql)
+
+    with pytest.raises(ValueError, match="build-row/value build-version mismatch"):
+        pg_source._load_standard_fundamentals(
+            object(), start=None, end=None, symbols=["M", "CU"],
             schema="commodity_research",
         )

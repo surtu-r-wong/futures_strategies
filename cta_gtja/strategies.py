@@ -171,6 +171,11 @@ def build_factor_sleeves(
                 symbols=symbols,
                 required_products=6,
                 enforce=enforce_coverage,
+                # Every fundamental matrix is reindexed onto the price calendar
+                # above, so a slice the build legitimately omitted arrives here
+                # as an all-NaN row and is indistinguishable from an outage.
+                # The build itself says which slices those are.
+                absences=data.fundamental_metadata.get("absence_slices", ()),
             )
         )
 

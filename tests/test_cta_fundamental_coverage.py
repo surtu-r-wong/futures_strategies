@@ -173,3 +173,64 @@ def test_inventory_audit_columns_match_coverage_columns_in_stable_order():
     )
 
     assert tuple(audit.columns) == tuple(COVERAGE_COLUMNS)
+
+
+def test_waived_slices_are_skipped_and_recorded_as_waived():
+    dates = ["2020-02-06", "2020-02-07", "2020-02-10", "2020-02-11"]
+    matrices = {
+        "basis_rate": _daily_matrix(dates, [9, 0, 0, 9]),
+        "inventory": _daily_matrix(dates, [8, 8, 8, 8]),
+    }
+    absences = [
+        {"trade_date": "2020-02-07", "metric": "basis_rate"},
+        {"trade_date": "2020-02-10", "metric": "basis_rate"},
+    ]
+
+    audit = evaluate_daily_fundamental_coverage(
+        matrices,
+        symbols=SYMBOLS,
+        required_products=6,
+        enforce=True,
+        absences=absences,
+    )
+
+    waived = audit[audit["status"] == "waived"]
+    assert sorted(
+        waived["trade_date"].dt.strftime("%Y-%m-%d").tolist()
+    ) == ["2020-02-07", "2020-02-10"]
+    assert set(waived["metric"]) == {"basis_rate"}
+    assert (waived["available_products"] == 0).all()
+    assert not (audit["status"] == "fail").any()
+
+
+def test_a_waiver_does_not_cover_another_metric_on_the_same_date():
+    dates = ["2020-02-07"]
+    matrices = {
+        "basis_rate": _daily_matrix(dates, [0]),
+        "profit": _daily_matrix(dates, [3]),
+    }
+    absences = [{"trade_date": "2020-02-07", "metric": "basis_rate"}]
+
+    with pytest.raises(FundamentalCoverageError) as excinfo:
+        evaluate_daily_fundamental_coverage(
+            matrices,
+            symbols=SYMBOLS,
+            required_products=6,
+            enforce=True,
+            absences=absences,
+        )
+
+    assert str(excinfo.value) == "2020-02-07 profit coverage=3 required=6"
+
+
+def test_no_absences_keeps_the_previous_behaviour():
+    dates = ["2020-02-07"]
+    matrices = {"basis_rate": _daily_matrix(dates, [0])}
+
+    with pytest.raises(FundamentalCoverageError, match="coverage=0"):
+        evaluate_daily_fundamental_coverage(
+            matrices,
+            symbols=SYMBOLS,
+            required_products=6,
+            enforce=True,
+        )
