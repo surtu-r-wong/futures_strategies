@@ -73,7 +73,7 @@
 | INE | holiday_no_night_corroborative | `notice_evening=2024-04-03` | https://www.ine.cn/eng/circularnews/circular/202403/t20240329_823079.html | 0 | `reviewed_direct_corroborative`：已由 2024 年度公告 canonical 覆盖，不重复派生 candidate |
 | DCE | session_launch_and_clock_change | P/J 2014-07-04 首批；A/B/M/Y/JM/I 2014-12-26 加入，初始 02:30；2019-03-29 统一至 23:00 并新增 L/V/PP/EG/C/CS | https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf | 22 | `reviewed_direct`：官方回顾材料直接列明产品、日期与时段 |
 | DCE | session_clock_change | 自 2015-05-08 21:00（目标交易日 2015-05-11）起，既有 8 品种由 02:30 调整至 23:30 | https://www.dce.com.cn/dalianshangpin/resource/cms/2016/07/%E5%A4%A7%E8%BF%9E%E6%9C%9F%E8%B4%A7%E5%B8%82%E5%9C%BA%E6%9C%88%E6%8A%A5%EF%BC%882015%E5%B9%B45%E6%9C%88%EF%BC%89.pdf | 8 | `reviewed_direct`：与 2019 回顾材料按事件去重，不是重复键 |
-| DCE | irregular_night_session | 待人工复核：2019-12-25 晚夜盘延后为 22:30–23:00，目标交易日 2019-12-26；该交易日不是 `none` | http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6202113/index.html | 0 | `pending_manual_fetch`：当前官方旧页无法再次直读；只登记异常时段候选，不生成 no-night 或时段资产行 |
+| DCE | irregular_night_session | **原文已取回（用户 2026-08-18 提供）**：《关于调整夜盘交易时间的通知》大商所发[2019]553号，2019-12-25 发布。原文「2019年12月25日晚夜盘交易时间调整为22:30—23:00，集合竞价时间为22：25—22：30」，**无品种限定=全所口径**；目标交易日 2019-12-26，该交易日不是 `none` | http://www.dce.com.cn/dalianshangpin/yw/fw/jystz/ywtz/6202113/index.html | 0 | `text_retrieved_pending_url`：正文与文号已坐实，但实际生效 URL 待用户确认（2026-08-18 实测该 URL 与 qhxy 镜像均返回瑞数 JS 挑战 HTTP 412）；候选行见 2026-08-18 待审批次，仍未写入资产 |
 | DCE | holiday_reopening_boundary | 2020 年春节休市延长至 02-02，02-03 起照常开市；该通知所称 02-03 当晚恢复夜盘随后被专项暂停通知覆盖 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6204380/index.html | 0 | `reviewed_boundary_superseded_part`：只修订 2020 年度公告中的春节恢复边界；不另生成 `notice_evening` |
 | DCE | night_suspension | 自 2020-02-03 晚起暂停全部夜盘 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6204446/index.html | 0 | `reviewed_direct`：与恢复边界及全局日历已展开 2020-02-04 至 05-06 的 63 个目标日 |
 | DCE | night_resumption | 2020-05-06 晚恢复夜盘，并新增 PG 夜盘 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6215428/index.html | 1 | `reviewed_direct`：1 行只指 PG 启动；闭合暂停区间，不重复计暂停行 |
@@ -232,8 +232,10 @@ DCE 2019-12-25 晚 22:30–23:00 的异常时段候选只增加来源登记项�
   inventory、下一全局目标交易日映射与对应官方来源共同复核，不计入 78，也不得
   临时写入 CSV。
 - DCE 官方旧页 `6202113` 所对应的异常时段候选为 2019-12-25 晚
-  22:30–23:00（目标交易日 2019-12-26），当前**仍**尚待人工取回并复核原文，
-  登记状态维持 `pending_manual_fetch`，`rows_derived` 维持 0。该日有夜盘，
+  22:30–23:00（目标交易日 2019-12-26）。**2026-08-18 由用户人工取回正文**：
+  《关于调整夜盘交易时间的通知》大商所发[2019]553号，原文确认 22:30—23:00
+  且无品种限定（全所口径），另给出集合竞价 22:25—22:30。登记状态改为
+  `text_retrieved_pending_url`（仅缺实际生效 URL），`rows_derived` 仍维持 0。该日有夜盘，
   不是 `none`。承载它所需的 schema 已于 2026-08-18 实施：会话资产与 exception
   资产都已能表达 `night_start=22:30`（见下节）。**但本次实施没有提交任何
   DCE 2019-12-26 的 exception 行**——schema 就绪不等于权威就绪。发布覆盖该日的
