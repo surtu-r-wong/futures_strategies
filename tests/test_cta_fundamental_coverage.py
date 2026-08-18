@@ -234,3 +234,26 @@ def test_no_absences_keeps_the_previous_behaviour():
             required_products=6,
             enforce=True,
         )
+
+
+def test_one_sided_dates_can_be_flagged_flat_instead_of_failing():
+    audit = evaluate_inventory_sides(
+        _inventory_scores(),
+        required_each=2,
+        enforce=True,
+        on_one_sided="flat",
+    )
+
+    flat = audit[audit["status"] == "flat"]
+    assert flat["reason"].tolist() == [
+        "2020-01-03 inventory long=2 short=1 required_each=2"
+    ]
+    assert not audit["status"].eq("fail").any()
+    assert tuple(audit.columns) == tuple(COVERAGE_COLUMNS)
+
+
+def test_default_stays_fail_closed():
+    with pytest.raises(FundamentalCoverageError):
+        evaluate_inventory_sides(
+            _inventory_scores(), required_each=2, enforce=True
+        )

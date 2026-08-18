@@ -872,3 +872,46 @@ def test_inventory_sides_are_measured_on_the_signal_that_sets_positions():
     sides = audit[audit["check"] == "inventory_sides"]
     assert not sides.empty
     assert not sides["status"].eq("fail").any()
+
+
+def test_one_sided_inventory_days_go_flat_without_failing_the_run():
+    """A single product against the rest is a 50%-of-gross single-name bet.
+
+    Demeaning guarantees both sides exist but not that either has two members,
+    so the sleeve stands aside on those days rather than taking the position or
+    stopping the whole backtest.
+    """
+    data = _sample_cta_data()
+    inventory = InventoryFactor()
+    raw = inventory.compute(data, data.symbols).reindex(
+        index=data.dates, columns=data.symbols
+    )
+    one_sided = raw.copy()
+    target = one_sided.index[-1]
+    # One product far above the rest: demeaned gives long=1, short=n-1.
+    one_sided.loc[target] = 1.0
+    one_sided.loc[target, one_sided.columns[0]] = 100.0
+
+    class _OneSidedInventory(InventoryFactor):
+        def compute(self, data, symbols):
+            return one_sided.reindex(columns=symbols)
+
+    # This fixture has four symbols, so the six-product daily gate can never
+    # pass; that the sides check itself stops raising is asserted in
+    # tests/test_cta_fundamental_coverage.py.
+    weights_by_factor, _, audit = build_factor_sleeves(
+        data,
+        factors=[_OneSidedInventory()],
+        symbols=data.symbols,
+        enforce_coverage=False,
+    )
+
+    sides = audit[audit["check"] == "inventory_sides"]
+    flat = sides[sides["status"] == "flat"]
+    assert pd.Timestamp(target) in set(flat["trade_date"])
+    assert not sides["status"].eq("fail").any()
+    assert (weights_by_factor["inventory"].loc[target] == 0.0).all()
+    # A day the check passed keeps its position.
+    # The weight index holds plain dates while the audit holds Timestamps.
+    kept = sides.loc[sides["status"].eq("pass"), "trade_date"].iloc[-1].date()
+    assert weights_by_factor["inventory"].loc[kept].abs().sum() > 0.0

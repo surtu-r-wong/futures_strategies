@@ -195,6 +195,7 @@ def build_factor_sleeves(
                 ),
                 required_each=2,
                 enforce=enforce_coverage,
+                on_one_sided="flat",
             )
         )
 
@@ -215,6 +216,26 @@ def build_factor_sleeves(
     for factor in factors:
         scores = scores_by_factor[factor.name]
         weights_by_factor[factor.name] = factor_weights(factor, scores).reindex(columns=symbols).fillna(0.0)
+
+    # Stand the inventory sleeve down on days its basket had only one product on
+    # a side. The other sleeves are unaffected.
+    flat_dates = coverage_audit.loc[
+        coverage_audit["check"].eq("inventory_sides")
+        & coverage_audit["status"].eq("flat"),
+        "trade_date",
+    ]
+    if "inventory" in weights_by_factor and not flat_dates.empty:
+        inventory_weights = weights_by_factor["inventory"]
+        # The audit carries Timestamps while a weight index may hold plain
+        # dates, so match on a normalised key rather than on the index objects.
+        wanted = set(pd.DatetimeIndex(flat_dates))
+        stand_down = [
+            label
+            for label in inventory_weights.index
+            if pd.Timestamp(label) in wanted
+        ]
+        if stand_down:
+            inventory_weights.loc[stand_down] = 0.0
 
     asset_returns = forward_open_returns(data, symbols)
     factor_returns = pd.DataFrame({

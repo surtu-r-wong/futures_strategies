@@ -144,7 +144,22 @@ def evaluate_daily_fundamental_coverage(
     return _finish(rows, failures, enforce)
 
 
-def evaluate_inventory_sides(scores, *, required_each, enforce):
+def evaluate_inventory_sides(
+    scores,
+    *,
+    required_each,
+    enforce,
+    on_one_sided="fail",
+):
+    """Check that the inventory basket has members on both sides each day.
+
+    ``on_one_sided="flat"`` records a one-sided day as ``flat`` instead of
+    ``fail``: demeaning guarantees both sides exist but not that either has two
+    members, and a single product against the rest is a 50%-of-gross single-name
+    bet. The caller stands the sleeve down on those days.
+    """
+    if on_one_sided not in {"fail", "flat"}:
+        raise ValueError(f"unknown on_one_sided: {on_one_sided!r}")
     required = int(required_each)
     frame = _prepare_frame(scores)
     groups = list(_date_groups(frame))
@@ -171,14 +186,13 @@ def evaluate_inventory_sides(scores, *, required_each, enforce):
         short_candidates = int(
             (finite & (values < 0)).any(axis=0).sum()
         )
-        status = (
-            "pass"
-            if long_candidates >= required and short_candidates >= required
-            else "fail"
+        two_sided = (
+            long_candidates >= required and short_candidates >= required
         )
+        status = "pass" if two_sided else on_one_sided
         reason = (
             ""
-            if status == "pass"
+            if two_sided
             else (
                 f"{_date_label(trade_date)} inventory "
                 f"long={long_candidates} short={short_candidates} "
@@ -199,7 +213,7 @@ def evaluate_inventory_sides(scores, *, required_each, enforce):
                 "reason": reason,
             }
         )
-        if reason:
+        if reason and status == "fail":
             failures.append(reason)
 
     return _finish(rows, failures, enforce)
