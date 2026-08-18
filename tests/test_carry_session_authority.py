@@ -594,15 +594,28 @@ def test_authorization_rejects_unknown_observations_and_keeps_error_context():
     }
 
 
-def test_repository_authority_assets_have_exact_header_only_contracts():
+def test_repository_uses_only_the_session_exception_authority_contract():
     repository = Path(__file__).resolve().parents[1]
+    exception_path = repository / "config/carry_minute_session_exceptions.csv"
+    old_path = repository / "config/carry_minute_no_night_dates.csv"
 
-    assert (repository / "config/carry_minute_session_exceptions.csv").read_text(
-        encoding="utf-8"
-    ) == SESSION_EXCEPTION_HEADER
+    assert exception_path.read_text(encoding="utf-8") == (
+        "exchange,version,trade_date,night_start,night_end,reason,source_url\n"
+    )
+    assert not old_path.exists()
     assert (repository / "config/carry_minute_day_only_regimes.csv").read_text(
         encoding="utf-8"
     ) == RANGE_HEADER
     assert (repository / "config/carry_liquidity_history_exceptions.csv").read_text(
         encoding="utf-8"
     ) == RANGE_HEADER
+
+    import cta_carry.session_authority as module
+
+    for name in (
+        "NoNightDate",
+        "load_no_night_dates",
+        "matching_no_night_dates",
+        "validate_no_night_calendar",
+    ):
+        assert not hasattr(module, name)

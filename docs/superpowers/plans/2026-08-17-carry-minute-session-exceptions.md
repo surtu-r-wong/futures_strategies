@@ -48,7 +48,7 @@
 - Modify: `cta_carry/minute_sessions.py:17-254`
 - Modify: `tests/test_carry_minute_sessions.py:230-310,884-960`
 
-- [ ] **Step 1: Write failing interval and DCE slot tests**
+- [x] **Step 1: Write failing interval and DCE slot tests**
 
 Update the session CSV helper in `tests/test_carry_minute_sessions.py` to write the new exact header and add:
 
@@ -92,7 +92,7 @@ def test_delayed_dce_rule_starts_at_2230_on_the_previous_trade_date(tmp_path):
     assert _dt(2019, 12, 25, 21, 0) not in slots
 ```
 
-- [ ] **Step 2: Run the new tests red**
+- [x] **Step 2: Run the new tests red**
 
 Run:
 
@@ -104,7 +104,7 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: both fail because `_SESSION_RULE_COLUMNS` has no `night_start` and the loader still assumes `-180`.
 
-- [ ] **Step 3: Implement one strict clock conversion seam**
+- [x] **Step 3: Implement one strict clock conversion seam**
 
 In `cta_carry/minute_sessions.py`, replace `_NIGHT_SEGMENTS` with these public module functions so authority and capture code reuse the same rules:
 
@@ -167,7 +167,7 @@ _SESSION_RULE_COLUMNS = (
 
 Require both new fields, call `parse_night_interval`, and wrap its `ValueError` with row/field context while retaining the `session_rule_time` prefix. Prepend the returned segment to the unchanged day segments when it is not `None`.
 
-- [ ] **Step 4: Add failure tests for every invalid interval class**
+- [x] **Step 4: Add failure tests for every invalid interval class**
 
 Add this parameterized test:
 
@@ -196,7 +196,7 @@ def test_csv_rejects_invalid_night_intervals(tmp_path, night_start, night_end):
         load_session_rules(path)
 ```
 
-- [ ] **Step 5: Run the complete clock suite green**
+- [x] **Step 5: Run the complete clock suite green**
 
 Run:
 
@@ -208,7 +208,9 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: zero failures. The excluded repository-asset test remains blocked only because `config/carry_minute_sessions.csv` is intentionally absent and is exercised explicitly in Task 5.
 
-- [ ] **Step 6: Commit the final-rule clock change**
+**Deviation (2026-08-18):** actual result was `9 failed, 156 passed, 1 deselected`. All nine share one root cause: `scripts/carry/capture_minute_sessions.py` `CSV_COLUMNS` still stages the old six-column header, which the newly strict loader rejects on round-trip. This is a plan-ordering artifact — `CSV_COLUMNS` is only migrated in Task 4 Step 5 — not a defect in the Task 1 change. Re-verified at Task 4 Step 7.
+
+- [x] **Step 6: Commit the final-rule clock change**
 
 ```bash
 git add cta_carry/minute_sessions.py tests/test_carry_minute_sessions.py
@@ -224,7 +226,7 @@ git commit -m "feat(carry): support variable minute night sessions"
 - Create: `config/carry_minute_session_exceptions.csv`
 - Delete: `config/carry_minute_no_night_dates.csv`
 
-- [ ] **Step 1: Write failing schema and immutability tests**
+- [x] **Step 1: Write failing schema and immutability tests**
 
 Replace the old imports/helpers in `tests/test_carry_session_authority.py` and add:
 
@@ -264,7 +266,7 @@ def test_session_exception_loader_reads_exact_schema(tmp_path):
     assert load_session_exceptions(path) == (_session_exception(),)
 ```
 
-- [ ] **Step 2: Run authority tests red**
+- [x] **Step 2: Run authority tests red**
 
 Run:
 
@@ -275,7 +277,7 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: collection fails because `SessionException` and `load_session_exceptions` do not exist.
 
-- [ ] **Step 3: Implement the new immutable authority contract**
+- [x] **Step 3: Implement the new immutable authority contract**
 
 In `cta_carry/session_authority.py`, define the exact column order:
 
@@ -384,7 +386,7 @@ def load_session_authority(
 
 Read each file once, parse that byte snapshot, and hash the same payload exactly as the current implementation does.
 
-- [ ] **Step 4: Implement exact bidirectional interval authorization**
+- [x] **Step 4: Implement exact bidirectional interval authorization**
 
 Change `authorize_night_observation` to accept both labels and return the matched exception when one is consumed:
 
@@ -453,7 +455,7 @@ def authorize_night_observation(
     )
 ```
 
-- [ ] **Step 5: Migrate calendar validation and add conflict tests**
+- [x] **Step 5: Migrate calendar validation and add conflict tests**
 
 Rename `validate_no_night_calendar` to `validate_session_exception_calendar` and preserve the exact `notice_evening=YYYY-MM-DD` to next-global-trade-date rule for every exception, including delayed opens.
 
@@ -506,7 +508,7 @@ def test_day_only_and_session_exception_cannot_both_authorize_one_product_day():
 
 Retain tests for malformed headers, empty required cells, invalid dates/version, duplicate keys, one-read hash binding and immutable hash mappings, updated to the new names and fields.
 
-- [ ] **Step 6: Replace the repository authority asset**
+- [x] **Step 6: Replace the repository authority asset**
 
 Create `config/carry_minute_session_exceptions.csv` with exactly:
 
@@ -516,7 +518,7 @@ exchange,version,trade_date,night_start,night_end,reason,source_url
 
 Delete `config/carry_minute_no_night_dates.csv`. Do not add DCE or holiday rows in this task.
 
-- [ ] **Step 7: Run authority and clock tests green**
+- [x] **Step 7: Run authority and clock tests green**
 
 Run:
 
@@ -529,7 +531,9 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: zero failures. The known formal-session-asset gate is deliberately excluded until Task 5 verifies it separately.
 
-- [ ] **Step 8: Commit the authority migration**
+**Deviation (2026-08-18):** `tests/test_carry_session_authority.py` alone is `37 passed`. The combined command still aborts during collection because `tests/test_carry_minute_sessions.py` and `scripts/carry/capture_minute_sessions.py` import `NoNightDate`, which Task 3 Step 6 migrates. Same plan-ordering artifact as Task 1 Step 5; re-verified at Task 3 Step 7.
+
+- [x] **Step 8: Commit the authority migration**
 
 ```bash
 git add cta_carry/session_authority.py tests/test_carry_session_authority.py \
@@ -547,7 +551,7 @@ git commit -m "feat(carry): authorize exact minute session exceptions"
 
 The test snippets below live in `tests/test_carry_minute_sessions.py`. Update that module's existing local authority helpers to construct `SessionException` and `SessionAuthority(session_exceptions=...)`; do not import private helpers from `tests/test_carry_session_authority.py`.
 
-- [ ] **Step 1: Write failing delayed-boundary tests**
+- [x] **Step 1: Write failing delayed-boundary tests**
 
 Extend `_captured_boundary` to accept `night_start`; derive `night_first` from it and keep `night_last` as the minute before `night_end`. Add:
 
@@ -564,7 +568,7 @@ def test_capture_rejects_a_non_grid_night_start():
         classify_session_boundary(row)
 ```
 
-- [ ] **Step 2: Run the boundary tests red**
+- [x] **Step 2: Run the boundary tests red**
 
 Run:
 
@@ -576,7 +580,7 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: the first fails because classification still requires 21:00 and returns only `night_end`.
 
-- [ ] **Step 3: Generalize empirical classification without rounding**
+- [x] **Step 3: Generalize empirical classification without rounding**
 
 Change `classify_session_boundary(row)` to return `tuple[str, str]`. Keep the exact three standard day-segment checks. For a night session:
 
@@ -589,7 +593,7 @@ Change `classify_session_boundary(row)` to return `tuple[str, str]`. Keep the ex
 
 Do not infer an earlier start from the expected product schedule and do not round timestamps to a 15-minute grid.
 
-- [ ] **Step 4: Write failing authorization and unconsumed-exception tests**
+- [x] **Step 4: Write failing authorization and unconsumed-exception tests**
 
 Add:
 
@@ -642,7 +646,7 @@ def test_loaded_but_unconsumed_exception_blocks_capture():
     ]
 ```
 
-- [ ] **Step 5: Track exact consumed exception keys**
+- [x] **Step 5: Track exact consumed exception keys**
 
 Change the classifier signature to:
 
@@ -674,7 +678,7 @@ def validate_capture_session_exception_calendar(
 
 It must filter to dates in the loaded calendar and call `validate_session_exception_calendar` exactly once.
 
-- [ ] **Step 6: Update orchestration call sites and fakes**
+- [x] **Step 6: Update orchestration call sites and fakes**
 
 In `_capture_and_publish_outcome`, replace `NO_NIGHT_PATH` with:
 
@@ -686,7 +690,7 @@ SESSION_EXCEPTIONS_PATH = (
 
 Load `session_exception_path`, validate the filtered calendar, and pass `audit.global_calendar` to `classify_authorized_boundaries`. Update test fakes to use `session_exceptions`, `session_exception` hashes and `night_start/night_end` pairs.
 
-- [ ] **Step 7: Run classification and orchestration tests green**
+- [x] **Step 7: Run classification and orchestration tests green**
 
 Run:
 
@@ -699,7 +703,13 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: zero failures with the known absent formal-session-asset gate excluded.
 
-- [ ] **Step 8: Commit empirical start/end classification**
+**Deviations (2026-08-18):**
+
+- Actual result was `9 failed, 197 passed, 1 deselected` — the same nine publication-path failures recorded under Task 1 Step 5, still waiting on the Task 4 Step 5 `CSV_COLUMNS` migration. Everything in the classification and authorization path is green (197 passed, up from 144).
+- Step 1's `test_authorized_delayed_open_is_classified_for_every_dce_product` snippet omitted `exchange="DCE"`, while `_observation` defaults to `SHFE`. As written the DCE exception would neither match the observation nor be consumed, so the test could not pass. Added the explicit exchange to both observations, preserving the test's stated intent.
+- The Task 4 Step 6 hash renames (`_validate_authority_hashes` expected keys and `_authority_line`) were forced by the Task 2 asset rename and landed here instead.
+
+- [x] **Step 8: Commit empirical start/end classification**
 
 ```bash
 git add scripts/carry/capture_minute_sessions.py tests/test_carry_minute_sessions.py
@@ -713,7 +723,7 @@ git commit -m "feat(carry): classify authoritative night intervals"
 - Modify: `scripts/carry/capture_minute_sessions.py:1027-1390`
 - Modify: `tests/test_carry_minute_sessions.py:1890-2375`
 
-- [ ] **Step 1: Write failing collapse-boundary tests**
+- [x] **Step 1: Write failing collapse-boundary tests**
 
 Add:
 
@@ -750,7 +760,7 @@ def test_collapse_breaks_when_only_night_start_changes():
 
 Extend the existing unaudited-gap test so equal start/end pairs on either side still produce disjoint rules.
 
-- [ ] **Step 2: Run collapse tests red**
+- [x] **Step 2: Run collapse tests red**
 
 Run:
 
@@ -761,11 +771,11 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: failure because `collapse_session_rules` ignores `night_start`.
 
-- [ ] **Step 3: Collapse exact interval pairs**
+- [x] **Step 3: Collapse exact interval pairs**
 
 Change the required classified schema to include both fields. Validate every pair with `parse_night_interval`, including `none,none`. Within each exchange/product group, carry one `night_interval = (record.night_start, record.night_end)` and split when either label changes or the next date is not adjacent in the global calendar. Emit each rule row with both labels.
 
-- [ ] **Step 4: Write failing stage/replay tests**
+- [x] **Step 4: Write failing stage/replay tests**
 
 Extend the existing atomic publication test to assert the staged and installed header is:
 
@@ -775,7 +785,7 @@ exchange,product,effective_start,effective_end,night_start,night_end,version
 
 and that a `22:30/23:00` rule reloads to `SessionSegment(-90, -60)`. Add a replay test where the staged `night_start` is changed to `21:00`; `publish_session_rules` must raise `session_rule_replay` or the existing captured-rule-changed error and must preserve the old output bytes.
 
-- [ ] **Step 5: Publish and replay exact interval pairs**
+- [x] **Step 5: Publish and replay exact interval pairs**
 
 Update `CSV_COLUMNS`, `_stage_session_rules`, and the reverse helper:
 
@@ -801,7 +811,7 @@ def _expected_night_interval(rule: SessionRule) -> tuple[str, str]:
 
 `validate_audited_boundaries` must compare this exact pair to `classify_session_boundary(row)`. Convert a mismatch to a `SessionCaptureError` message containing `session_rule_replay`, the trade date, product, expected pair and actual pair.
 
-- [ ] **Step 6: Rename authority hashes and diagnostics**
+- [x] **Step 6: Rename authority hashes and diagnostics**
 
 Change `_validate_authority_hashes` expected keys to:
 
@@ -817,7 +827,7 @@ session_authority version=commodity-v1 session_exception_sha256=<digest> day_onl
 
 Update tests to prove a post-load mutation of the new exception file fails before staging, all three hash names are required, and temporary output is removed on every replay/hash/callback failure.
 
-- [ ] **Step 7: Run publication tests green**
+- [x] **Step 7: Run publication tests green**
 
 Run:
 
@@ -830,7 +840,11 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: zero failures with the known absent formal-session-asset gate excluded.
 
-- [ ] **Step 8: Commit collapse and publication**
+**Result (2026-08-18):** `212 passed, 1 deselected` — met exactly. The nine publication-path failures carried since Task 1 Step 5 are closed here, so the Task 1 / Task 2 / Task 3 deviation notes are all resolved as of this task.
+
+**Note:** the Step 6 hash renames landed early, in the Task 3 commit, because the Task 2 asset rename forced them. The two regression tests Step 6 asks for (post-load mutation of the exception asset, and all three hash names required) were added here and mutation-checked: reverting `_validate_authority_hashes` to the old `no_night` key turns `test_publisher_requires_all_three_authority_hash_names` red.
+
+- [x] **Step 8: Commit collapse and publication**
 
 ```bash
 git add scripts/carry/capture_minute_sessions.py tests/test_carry_minute_sessions.py
@@ -847,7 +861,7 @@ git commit -m "feat(carry): publish exact minute night intervals"
 - Modify: `docs/research/2026-08-14-carry-minute-execution-handoff.md`
 - Create: `docs/research/2026-08-17-carry-minute-session-exceptions-implementation.md`
 
-- [ ] **Step 1: Add the repository-contract regression**
+- [x] **Step 1: Add the repository-contract regression**
 
 Replace the old header-only test with:
 
@@ -870,7 +884,7 @@ def test_repository_uses_only_the_session_exception_authority_contract():
         assert not hasattr(module, name)
 ```
 
-- [ ] **Step 2: Run the repository-contract test**
+- [x] **Step 2: Run the repository-contract test**
 
 Run:
 
@@ -881,7 +895,7 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: pass after Tasks 2-4; if any old alias survives, fail and remove that alias rather than weakening the test.
 
-- [ ] **Step 3: Update source and handoff records without inventing authority**
+- [x] **Step 3: Update source and handoff records without inventing authority**
 
 In the authority-source register:
 
@@ -898,7 +912,7 @@ In the handoff:
 
 Create `docs/research/2026-08-17-carry-minute-session-exceptions-implementation.md` containing the exact test commands/results, new header/hash name, proof the old asset is absent, and the two remaining external gates. Do not include a fabricated DCE row or a claim of `ambiguous=0`.
 
-- [ ] **Step 4: Run all focused schema regressions**
+- [x] **Step 4: Run all focused schema regressions**
 
 Run:
 
@@ -914,7 +928,7 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: zero failures. The excluded test remains blocked by the intentionally absent `config/carry_minute_sessions.csv` and is exercised by the full-suite command in Step 5. Any failure here must be root-caused and fixed before continuing.
 
-- [ ] **Step 5: Run the complete suite with and without the known external gate**
+- [x] **Step 5: Run the complete suite with and without the known external gate**
 
 Run the currently executable suite:
 
@@ -933,7 +947,7 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -m pyt
 
 Expected: exactly one failure, the missing formal `config/carry_minute_sessions.csv` asset gate. Record the exact pass/fail counts; do not claim the full suite passes.
 
-- [ ] **Step 6: Run static and repository checks**
+- [x] **Step 6: Run static and repository checks**
 
 ```bash
 /home/elfbob/miniconda3/bin/ruff check cta_carry tests scripts/carry
@@ -949,7 +963,17 @@ git status --short
 
 Expected: Ruff and whitespace checks pass; status contains only intentional documentation changes before the final commit.
 
-- [ ] **Step 7: Commit the implementation record**
+**Results (2026-08-18):**
+
+- Step 2: `1 passed`.
+- Step 4: `431 passed, 1 deselected in 233.04s`.
+- Step 5 run A (gate excluded): `835 passed, 1 deselected in 286.11s` — zero failures.
+- Step 5 run B (complete suite): `1 failed, 835 passed in 287.36s`. The single failure is `test_repository_session_rules_are_nonoverlapping_and_cover_fixture_products`, blocked by the intentionally absent `config/carry_minute_sessions.csv`. The complete suite does **not** pass and is not claimed to.
+- Step 6: `ruff check` → `All checks passed!`; `ruff format --check` on all five files → `5 files already formatted`; `git diff --check` → no output.
+
+**Deviation (2026-08-18):** four of the five files Step 6 format-checks (`cta_carry/session_authority.py`, `scripts/carry/capture_minute_sessions.py`, `tests/test_carry_minute_sessions.py`, `tests/test_carry_session_authority.py`) were already non-conforming to `ruff format` at `803b7f7`, before any work in this plan; hunk counts confirmed the changes here added no new drift. On the user's instruction the formatting was applied as a separate commit `d8e6575` (`ruff format` output only, no behavior change) rather than mixed into this plan's functional or documentation commits.
+
+- [x] **Step 7: Commit the implementation record**
 
 ```bash
 git add \

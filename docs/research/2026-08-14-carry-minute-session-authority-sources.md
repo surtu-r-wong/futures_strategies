@@ -7,7 +7,7 @@
 本文只登记交易所官方域名上的材料。`rows_derived` 是来源层可派生的候选行数，
 不是已经批准写入 CSV 的行数。所有节前停夜盘材料先保留公告中的自然日
 `notice_evening`；只有用完整全局交易日历映射后，才会生成
-`carry_minute_no_night_dates.csv.trade_date`。当前登记不以经验缺行反推制度。
+`carry_minute_session_exceptions.csv.trade_date`。当前登记不以经验缺行反推制度。
 
 年度休市公告中的 `E→R` 表示公告明确的节前停夜盘自然日 `E` 与公告所称
 “`R` 日起照常开市”的恢复日期；专项连续交易通知则明确写作“`R` 日当晚恢复
@@ -165,12 +165,12 @@ ORDER BY exchange_suffix, product;
 | counter | current_value | publication_gate |
 |---|---:|---|
 | official source-register entries | 96 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源；包含 1 条待人工取回正文的 DCE 官方旧页 |
-| accepted exact no-night evening candidates | 219 | 上轮 143 加 DCE 2014–2025 的 76 个 canonical 候选；必须逐行映射到下一全局 `trade_date` 后才能写 CSV |
-| DCE no-night working candidates | 78 | DCE 2014–2025 的 76 个唯一 `notice_evening`，加现有 2026-02-13、04-03 两项；不含尚待 inventory 与官方来源闭合的 2025-12-31 |
-| known irregular-session candidates | 1 | DCE 目标交易日 2019-12-26；不是 `none`，不计入 219 或 DCE 78，须经已批准的时段 schema 修订后才可发布 |
-| holiday no-night rows working estimate | 300–450 | 只估四所节前日期，不含 2020 暂停期；以 inventory 为准 |
+| accepted exact `none,none` evening candidates | 219 | 上轮 143 加 DCE 2014–2025 的 76 个 canonical 候选；必须逐行映射到下一全局 `trade_date` 后才能写 session exception CSV |
+| DCE `none,none` working candidates | 78 | DCE 2014–2025 的 76 个唯一 `notice_evening`，加现有 2026-02-13、04-03 两项；不含尚待 inventory 与官方来源闭合的 2025-12-31 |
+| known irregular-session candidates | 1 | DCE 目标交易日 2019-12-26；不是 `none`，不计入 219 或 DCE 78。承载它的 schema 已于 2026-08-18 实施（见下），但本次实施**没有**提交任何该日的 exception 行；仍待 `6202113` 原文取回并复核 |
+| holiday `none,none` rows working estimate | 300–450 | 只估四所节前日期，不含 2020 暂停期；以 inventory 为准 |
 | 2020 suspension expanded rows | 252 | SHFE、INE、DCE、CZCE 各 63 个目标日（2020-02-04 至 2020-05-06）；不含另按节后规则归因的 2020-02-03 |
-| expected total no-night rows | not measured | 节前日期与 2020 展开去重后的并集 |
+| expected total `none,none` exception rows | not measured | 节前日期与 2020 展开去重后的并集 |
 | products requiring regime classification | 80 | 每个实际 audit 产品必须有经验时段或权威 day-only 解释 |
 | accepted 2020 suspension/resumption boundaries | 8 | SHFE、INE、DCE、CZCE 各一停一复；CZCE 旧页当前按 `official_url_manual_fetch` 登记 |
 | unresolved empirical dates | not measured | round 1 必须一次性输出全量，禁止逐条挤牙膏 |
@@ -213,7 +213,7 @@ inventory 与官方来源完成闭合前写 CSV。2020 年 `notice_evening=04-03
 来源层仍保留公告事实，但不得写成第二个 CSV 键。DCE 的 2020-01-23 候选按延长
 通知复核恢复边界为 02-03；暂停区间从 02-04 目标交易日起算，因此两者不重叠。
 DCE 2019-12-25 晚 22:30–23:00 的异常时段候选只增加来源登记项，不是停夜盘，
-因此不计入 219 个 exact no-night 候选或 DCE 78 项工作清单。
+因此不计入 219 个 exact `none,none` 候选或 DCE 78 项工作清单。
 
 在首次全量 capture 前，上述“未测”允许存在；一旦 round 1 产生 inventory，必须替换为
 确定数字，并记录每轮剩余量。预计总共运行 2–3 轮：第一轮完整盘点，第二轮批量补表，
@@ -232,10 +232,12 @@ DCE 2019-12-25 晚 22:30–23:00 的异常时段候选只增加来源登记项�
   inventory、下一全局目标交易日映射与对应官方来源共同复核，不计入 78，也不得
   临时写入 CSV。
 - DCE 官方旧页 `6202113` 所对应的异常时段候选为 2019-12-25 晚
-  22:30–23:00（目标交易日 2019-12-26），当前尚待人工取回并复核原文。该日有夜盘，
-  不是 `none`，不得写入 no-night CSV；现有只表达 `night_end` 的时段模型也无法表示
-  `night_start=22:30`。发布覆盖该日的分钟时段资产前，必须先完成并批准相应 schema
-  修订，不能把它降级为 `none` 或普通 21:00–23:00 时段。
+  22:30–23:00（目标交易日 2019-12-26），当前**仍**尚待人工取回并复核原文，
+  登记状态维持 `pending_manual_fetch`，`rows_derived` 维持 0。该日有夜盘，
+  不是 `none`。承载它所需的 schema 已于 2026-08-18 实施：会话资产与 exception
+  资产都已能表达 `night_start=22:30`（见下节）。**但本次实施没有提交任何
+  DCE 2019-12-26 的 exception 行**——schema 就绪不等于权威就绪。发布覆盖该日的
+  分钟时段资产前仍必须先取回原文，不能把它降级为 `none` 或普通 21:00–23:00 时段。
 - CZCE 的 OI/FG/TC(ZC) 2015 夜盘启动已由郑商发〔2015〕93号闭合；2019-12 的
   23:30→23:00 变更已定位为郑商函〔2019〕473号，签发日 2019-12-10、自然日晚间
   2019-12-11 生效、目标交易日 2019-12-12，但仍缺可登记的 CZCE 原页或附件 URL；
@@ -249,9 +251,29 @@ DCE 2019-12-25 晚 22:30–23:00 的异常时段候选只增加来源登记项�
 这些缺口不会用第三方镜像、经验缺行、普通周末或当前规则反向外推填补。Task 7
 只有在官方来源、目标日期映射和经验 inventory 三者一致后才写权威 CSV。
 
+## 2026-08-18 session exception schema 实施状态
+
+权威资产已从"只能表达无夜盘"泛化为"按交易所/目标交易日的精确夜盘区间例外"。
+
+- 资产更名：`config/carry_minute_no_night_dates.csv` →
+  `config/carry_minute_session_exceptions.csv`，表头为
+  `exchange,version,trade_date,night_start,night_end,reason,source_url`。
+- 哈希清单键 `no_night` → `session_exception`；采集日志行相应改为
+  `session_exception_sha256=`。
+- 会话资产 `config/carry_minute_sessions.csv` 的表头增加 `night_start`，
+  完整表头为
+  `exchange,product,effective_start,effective_end,night_start,night_end,version`。
+
+**当前仓库资产仍是纯表头，零数据行。** 本次实施只交付 schema 与校验代码，
+没有写入任何 exception 行。上表所有 `reviewed_*` 的节前休市来源，其地位不变：
+它们是**将来某个已复核批次**中可用于派生 `none,none` exception 行的合格来源，
+本次没有派生、也没有提交其中任何一行。DCE `6202113` 同样保持 0 行。
+
+实施证据见 `docs/research/2026-08-17-carry-minute-session-exceptions-implementation.md`。
+
 ## 去重与复核规则
 
-- 停夜盘唯一键：`(version, exchange, trade_date)`；研究阶段先以
+- session exception 唯一键：`(version, exchange, trade_date)`；研究阶段先以
   `(exchange, notice_evening)` 去重，再由全局日历映射目标日。
 - 制度区间唯一键：`(version, exchange, product, effective_start)`；同产品区间不得重叠。
 - DCE 2019 回顾材料会复述 2014/2015 事件；按事件选择一个 canonical 来源，不生成重复行。

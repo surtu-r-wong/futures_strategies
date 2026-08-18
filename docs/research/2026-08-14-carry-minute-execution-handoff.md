@@ -34,7 +34,8 @@
 1. Task 12 还需把计划摘要接入分钟回测器质量表，生成 `minute_query_plan` 行并对预期月份数量 fail-closed；随后用真实数据库做“单合约、五个交易日、EXPLAIN-only”烟测。
 2. Task 13 的端到端全链路与最终验证尚未执行。
 3. 正式 `commodity-v1` 会话资产尚未生成；`config/carry_minute_sessions.csv` 不存在，三张权威/例外 CSV 仍只有表头。
-4. 全历史采集仍被 AL 数据缺口与未定稿的异常会话 schema 阻塞。
+4. 全历史采集仍被 AL 数据缺口与 DCE `6202113` 原文缺失阻塞。异常会话 schema 本身已于
+   2026-08-18 实施完毕（见下节），不再是阻塞项。
 
 ## AL1803 数据阻塞
 
@@ -55,23 +56,41 @@
 
 下次若用户提供授权，先请求原始、无补值的 2018-01-02 日盘 1 分钟 OHLCV、成交额与持仓量，并对合约、交易日期、时段和行连续性做审计。若两条商业路径都无数据，再联系上期所市场数据部门询问历史档案授权。
 
-## DCE 异常会话待批准设计
+## DCE 异常会话 schema（2026-08-18 已实施）
 
-大商所 2019-12-25 晚间延迟至 22:30 开盘，对应目标交易日是 2019-12-26，夜盘为 22:30–23:00。旧官方公告编号 `6202113` 当前受反爬脚本保护，来源登记状态为 `pending_manual_fetch`；它不是 `none`，也不在 DCE 78 个无夜盘候选中。
+大商所 2019-12-25 晚间延迟至 22:30 开盘，对应目标交易日是 2019-12-26，夜盘为 22:30–23:00。旧官方公告编号 `6202113` 当前受反爬脚本保护，来源登记状态仍为 `pending_manual_fetch`；它不是 `none`，也不在 DCE 78 个 `none,none` 候选中。
 
-尚未获用户批准、因此不得实施的 schema 提案：
+原提案已获用户批准并按下列计划实施完毕：
 
-- 生成会话 CSV 增加 `night_start,night_end`：常规为 `21:00/...`，日盘-only 为 `none,none`，该异常日为 `22:30,23:00`。
-- 将仅能表达无夜盘的 authority 资产泛化为按交易所/目标交易日的 `session_exceptions`，使异常开盘时间也必须由机器可核验的权威记录授权。
-- 经验分钟边界与 authority 必须精确匹配，否则 fail-closed；不允许把供应商缺行误判为延迟开盘。
+- 设计：`docs/superpowers/specs/2026-08-17-carry-minute-session-exceptions-design.md`（提交 `320e9dc`）
+- 计划：`docs/superpowers/plans/2026-08-17-carry-minute-session-exceptions.md`（提交 `803b7f7`）
+
+实施提交（Task 1–4）：
+
+| 提交 | 内容 |
+|---|---|
+| `594b2d5` | 会话规则 CSV 增加 `night_start`；`night_label_to_offset` / `night_offset_to_label` / `parse_night_interval` 严格时钟接缝 |
+| `84ebb83` | `NoNightDate` → `SessionException`；精确双向区间授权；资产更名为 `carry_minute_session_exceptions.csv` |
+| `b121707` | 经验边界分类改为返回精确 `(night_start, night_end)` 对（不取整）；例外消费追踪与 `session_exception_unconsumed` |
+| `585a6f1` | 按精确区间对折叠、发布与回放；`_expected_night_interval` 取代 `_expected_night_end` |
+
+已实施的不变量：
+
+- 生成会话 CSV 表头为 `exchange,product,effective_start,effective_end,night_start,night_end,version`：常规为 `21:00/...`，日盘-only 为 `none,none`，异常日可为 `22:30,23:00`。
+- 权威资产已泛化为按交易所/目标交易日的 session exceptions，异常开盘时间必须由机器可核验的权威记录授权；哈希清单键为 `session_exception`。
+- 经验分钟边界与 authority 精确匹配，否则 fail-closed；已加载但未被任何审计产品日消费的 exception 会产出 `session_exception_unconsumed`，因此不允许把供应商缺行误判为延迟开盘。
 - 正式资产尚未发布，因此仍维持 `commodity-v1`，不为未发布格式做迁移。
+
+**schema 就绪不等于权威就绪。** 本次实施没有提交任何 exception 行：
+`config/carry_minute_session_exceptions.csv` 仍是纯表头。正式资产采集仍被两项外部输入阻塞——
+DCE `6202113` 原文与 AL1803 2018-01-02 原始分钟数据。
 
 ## 已钉死的口径
 
 - FU 原油沥青期货于 2004 年上市；不得编造 2016 年之前的特殊回填，也不得设置 FU 例外名单。
 - eligibility 必须复用 `aggregate_product_liquidity` 与默认 `CarryConfig()`；预热固定使用默认 730 个自然日，不得退回采集命令曾用的 30 天覆盖。
 - 分钟审计访问包络为 `P(T) ∨ P(prev(T)) ∨ P(prev²(T))`，并以引擎动态访问日必须属于 `audit_keys` 为运行时不变量。
-- `no_night_dates.csv.trade_date` 表示“夜盘缺失所归属的目标交易日”，不是公告中的前夕自然日。
+- `carry_minute_session_exceptions.csv.trade_date` 表示“该夜盘例外所归属的目标交易日”，不是公告中的前夕自然日。
 - 会话折叠只跨相邻、已审计、同值日期；未审计间隙不得外推。节后首个目标交易日的单日 `none` 区间是预期形态，但必须有权威资产双向授权。
 - `capture_start <= backtest_start - prewarm_calendar_days` 是显式覆盖不变量。
 
@@ -80,7 +99,8 @@
 1. 先读本文件及下列设计/计划，不重新推导已确认口径。
 2. 完成 Task 12 回测器 `minute_query_plan` 质量行与月份计数 fail-closed，并运行 EXPLAIN-only 数据库烟测。
 3. 在获得用户数据授权后回取并审计 AL1803 2018-01-02 原始分钟数据；缺口未解决前不启动全历史正式采集。
-4. 取得用户对 DCE `session_exceptions` / `night_start` schema 的明确批准后再改代码和资产。
+4. ~~取得用户对 DCE `session_exceptions` / `night_start` schema 的明确批准后再改代码和资产。~~
+   已于 2026-08-18 完成，见上节；此步不需重做。
 5. 整理权威 CSV，预期用 2–3 轮全量 ambiguous 清单收敛；随后生成并复读会话资产。
 6. 执行 Task 13 全链路、动态访问覆盖检查、全量测试与最终复核。
 
@@ -92,3 +112,6 @@
 - eligibility v2 计划：`docs/superpowers/plans/2026-08-14-carry-minute-session-eligibility-v2.md`
 - 权威来源登记：`docs/research/2026-08-14-carry-minute-session-authority-sources.md`
 - 采集审计：`docs/research/2026-08-14-carry-minute-session-capture-audit.md`
+- session exception 设计：`docs/superpowers/specs/2026-08-17-carry-minute-session-exceptions-design.md`
+- session exception 计划：`docs/superpowers/plans/2026-08-17-carry-minute-session-exceptions.md`
+- session exception 实施记录：`docs/research/2026-08-17-carry-minute-session-exceptions-implementation.md`
