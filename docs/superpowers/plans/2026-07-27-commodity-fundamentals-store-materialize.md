@@ -37,7 +37,7 @@ checksum.
 |---|---|
 | `migration/add_commodity_research_20260727.sql` | Parameterized research-schema DDL (trimmed) |
 | `migration/drop_commodity_research_20260727.sql` | Explicit rollback DDL |
-| `writer/backend/main.py` | Register the two fundamentals tables in the existing import idiom |
+| `writer/market-monitor/backend/main.py` | Register the two fundamentals tables in the existing import idiom |
 | `commodity_fundamentals/uploader.py` | Recovery-package upload through the Phase 5 client to `/api/data/daily` |
 | `commodity_fundamentals/availability.py` | Conservative vintage selection (extends the Plan 1 module) |
 | `commodity_fundamentals/standardize.py` | Unit conversion, primary selection, spot/basis/inventory |
@@ -350,8 +350,15 @@ Auditability of "which capture run produced this row" is preserved by the
 `run_id` column on every observation plus the Linux-side count verification
 in Task 5; idempotent re-upload comes from `ON CONFLICT ... DO NOTHING`.
 
+> **Writer source lock (2026-07-29):** the authoritative tracked writer is
+> `writer/market-monitor/backend/main.py`, which the live preflight matched to
+> `/home/elfbob/market-monitor/local-server/backend/main.py`. The legacy
+> `writer/backend/main.py` is behind the deployment and must not be edited,
+> tested, or deployed. Re-run the live diff immediately before deployment and
+> stop on drift.
+
 **Files:**
-- Modify: `/home/elfbob/market-monitor/writer/backend/main.py`
+- Modify: `/home/elfbob/market-monitor/writer/market-monitor/backend/main.py`
 - Create: `/home/elfbob/market-monitor/commodity_fundamentals/uploader.py`
 - Create: `/home/elfbob/market-monitor/tests/commodity_fundamentals/test_writer_tables.py`
 - Create: `/home/elfbob/market-monitor/tests/commodity_fundamentals/test_uploader.py`
@@ -363,7 +370,7 @@ in Task 5; idempotent re-upload comes from `ON CONFLICT ... DO NOTHING`.
 scp elfbob@100.65.111.79:/home/elfbob/market-monitor/local-server/backend/main.py \
   /tmp/market-monitor-writer-main.live.py
 diff -u \
-  /home/elfbob/market-monitor/writer/backend/main.py \
+  /home/elfbob/market-monitor/writer/market-monitor/backend/main.py \
   /tmp/market-monitor-writer-main.live.py
 ```
 
@@ -373,7 +380,7 @@ unrelated changes that are absent from Git.
 - [ ] **Step 2: Write failing tests for the two table registrations**
 
 Create `tests/commodity_fundamentals/test_writer_tables.py` (insert
-`writer/backend` into `sys.path` in the module). Assert:
+`writer/market-monitor/backend` into `sys.path` in the module). Assert:
 
 1. `ALLOWED_TABLES` contains `fundamental_ingest_run` and
    `fundamental_observation`;
@@ -407,7 +414,7 @@ Create `tests/commodity_fundamentals/test_uploader.py` with an injected fake
 
 ```bash
 cd /home/elfbob/market-monitor
-PYTHONPATH=.:writer/backend \
+PYTHONPATH=.:writer/market-monitor/backend \
   /home/elfbob/claude-code/futures_strategies/.venv/bin/python \
   -m pytest tests/commodity_fundamentals/test_writer_tables.py \
   tests/commodity_fundamentals/test_uploader.py -q
@@ -417,7 +424,7 @@ Expected: failures for the missing registrations and the missing uploader.
 
 - [ ] **Step 4: Register the tables and implement the uploader**
 
-In `writer/backend/main.py`:
+In `writer/market-monitor/backend/main.py`:
 
 - add both names to `ALLOWED_TABLES`;
 - add `TABLE_FIELDS['fundamental_ingest_run']` =
@@ -479,7 +486,7 @@ automatically.
 
 ```bash
 cd /home/elfbob/market-monitor
-git add writer/backend/main.py \
+git add writer/market-monitor/backend/main.py \
   commodity_fundamentals/uploader.py \
   tests/commodity_fundamentals/test_writer_tables.py \
   tests/commodity_fundamentals/test_uploader.py \
@@ -781,7 +788,7 @@ git commit -m "feat: build validated conservative daily fundamentals"
 ### Task 5: Deploy, smoke, and resumable 2016-onward backfill
 
 **Files:**
-- Deploy: `migration/add_commodity_research_20260727.sql`, `writer/backend/main.py`, `commodity_fundamentals/`
+- Deploy: `migration/add_commodity_research_20260727.sql`, `writer/market-monitor/backend/main.py`, `commodity_fundamentals/`
 - Create: `/home/elfbob/market-monitor/docs/operations/commodity-fundamentals-pipeline.md`
 
 - [ ] **Step 1: Stop and obtain live-mutation approval**
@@ -805,7 +812,7 @@ ssh elfbob@100.65.111.79 \
    -v fundamental_schema=commodity_research \
    -d market_monitor \
    -f /tmp/add_commodity_research_20260727.sql"
-rsync -av writer/backend/main.py \
+rsync -av writer/market-monitor/backend/main.py \
   elfbob@100.65.111.79:/home/elfbob/market-monitor/local-server/backend/
 ssh elfbob@100.65.111.79 \
   "sudo systemctl restart market-monitor-writer \
@@ -910,7 +917,7 @@ intentionally not built.
 
 ```bash
 cd /home/elfbob/market-monitor
-PYTHONPATH=.:writer/backend \
+PYTHONPATH=.:writer/market-monitor/backend \
   /home/elfbob/claude-code/futures_strategies/.venv/bin/python \
   -m pytest tests/commodity_fundamentals -q
 git diff --check

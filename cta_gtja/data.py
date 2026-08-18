@@ -35,13 +35,23 @@ class CTADataSet:
     prices: pd.DataFrame
     fundamentals: pd.DataFrame
     data_quality: pd.DataFrame = field(default_factory=pd.DataFrame)
+    fundamental_quality: pd.DataFrame = field(default_factory=pd.DataFrame)
+    fundamental_metadata: dict[str, object] = field(default_factory=dict)
 
     @classmethod
     def from_dir(cls, data_dir: str | Path) -> "CTADataSet":
         root = Path(data_dir)
         prices = _read_table(root / "prices")
         fundamentals = _read_optional_table(root / "fundamentals")
-        return cls(prices=normalize_prices(prices), fundamentals=normalize_fundamentals(fundamentals))
+        return cls(
+            prices=normalize_prices(prices),
+            fundamentals=normalize_fundamentals(fundamentals),
+            fundamental_quality=pd.DataFrame(),
+            fundamental_metadata={
+                "source": "files-unverified",
+                "materialized_daily": False,
+            },
+        )
 
     @property
     def symbols(self) -> list[str]:
@@ -63,7 +73,21 @@ class CTADataSet:
         quality = self.data_quality.copy()
         if symbols is not None and not quality.empty and "base_symbol" in quality.columns:
             quality = quality[quality["base_symbol"].isin(symbols)].copy()
-        return CTADataSet(prices=prices, fundamentals=fundamentals, data_quality=quality)
+        fundamental_quality = self.fundamental_quality.copy()
+        if not fundamental_quality.empty and {
+            "trade_date",
+            "symbol",
+        }.issubset(fundamental_quality.columns):
+            fundamental_quality = _slice_frame(
+                fundamental_quality, symbols=symbols, start=start, end=end
+            )
+        return CTADataSet(
+            prices=prices,
+            fundamentals=fundamentals,
+            data_quality=quality,
+            fundamental_quality=fundamental_quality,
+            fundamental_metadata=dict(self.fundamental_metadata),
+        )
 
     def price_matrix(self, column: str, *, symbols: list[str] | None = None) -> pd.DataFrame:
         return _matrix(self.prices, column, symbols=symbols)
@@ -80,7 +104,17 @@ def normalize_prices(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["trade_date"] = pd.to_datetime(out["trade_date"]).dt.date
     out["symbol"] = out["symbol"].astype(str)
-    for col in ["open", "close", "volume", "amount", "open_interest"]:
+    for col in [
+        "open",
+        "close",
+        "open_raw",
+        "high_raw",
+        "low_raw",
+        "close_raw",
+        "volume",
+        "amount",
+        "open_interest",
+    ]:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce")
     return out.sort_values(["symbol", "trade_date"]).reset_index(drop=True)
@@ -155,4 +189,3 @@ def _matrix(df: pd.DataFrame, column: str, *, symbols: list[str] | None = None) 
     if symbols is not None:
         mat = mat.reindex(columns=symbols)
     return mat.astype(float)
-

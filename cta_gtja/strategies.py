@@ -6,6 +6,11 @@ from dataclasses import dataclass
 import pandas as pd
 
 from cta_gtja.backtest import CTABacktester, CTABacktestResult, forward_open_returns, portfolio_returns
+from cta_gtja.coverage import (
+    COVERAGE_COLUMNS,
+    evaluate_daily_fundamental_coverage,
+    evaluate_inventory_sides,
+)
 from cta_gtja.data import CTADataSet
 from cta_gtja.factors import CTAFactor, default_cta_factors
 from cta_gtja.portfolio import (
@@ -13,6 +18,7 @@ from cta_gtja.portfolio import (
     combine_factor_weights,
     equal_factor_allocations,
     factor_momentum_allocations,
+    factor_signal,
     factor_weights,
 )
 
@@ -37,6 +43,12 @@ HIGH_COMPOSITE = CTAStrategySpec(
     max_leverage=3.50,
 )
 
+FUNDAMENTAL_METRICS_BY_FACTOR = {
+    "basis": "basis_rate",
+    "inventory": "inventory",
+    "profit": "profit",
+}
+
 
 def run_medium_equal_weight(
     data: CTADataSet,
@@ -44,6 +56,7 @@ def run_medium_equal_weight(
     symbols: list[str] | None = None,
     factors: list[CTAFactor] | None = None,
     cost_bps: float = 1.0,
+    enforce_coverage: bool = True,
 ) -> CTABacktestResult:
     """CTA因子组合（中波等权）.
 
@@ -51,7 +64,12 @@ def run_medium_equal_weight(
     are equal-weighted, then the final portfolio is volatility targeted.
     """
     factors = factors or default_cta_factors()
-    weights_by_factor, factor_returns = build_factor_sleeves(data, factors=factors, symbols=symbols)
+    weights_by_factor, factor_returns, coverage_audit = build_factor_sleeves(
+        data,
+        factors=factors,
+        symbols=symbols,
+        enforce_coverage=enforce_coverage,
+    )
     allocations = equal_factor_allocations(next(iter(weights_by_factor.values())).index, list(weights_by_factor))
     weights = combine_factor_weights(weights_by_factor, allocations)
     return CTABacktester(
@@ -59,7 +77,12 @@ def run_medium_equal_weight(
         cost_bps=cost_bps,
         target_vol=MEDIUM_EQUAL_WEIGHT.target_vol,
         max_leverage=MEDIUM_EQUAL_WEIGHT.max_leverage,
-    ).run(weights, factor_allocations=allocations, factor_returns=factor_returns)
+    ).run(
+        weights,
+        factor_allocations=allocations,
+        factor_returns=factor_returns,
+        fundamental_coverage=coverage_audit,
+    )
 
 
 def run_high_composite(
@@ -72,6 +95,7 @@ def run_high_composite(
     rotation_lookback_days: int = 60,
     rotation_top_n: int = 2,
     max_single_factor_weight: float = 0.50,
+    enforce_coverage: bool = True,
 ) -> CTABacktestResult:
     """CTA因子组合2号（高波复合）.
 
@@ -80,7 +104,12 @@ def run_high_composite(
     caps a single factor at 50%.
     """
     factors = factors or default_cta_factors()
-    weights_by_factor, factor_returns = build_factor_sleeves(data, factors=factors, symbols=symbols)
+    weights_by_factor, factor_returns, coverage_audit = build_factor_sleeves(
+        data,
+        factors=factors,
+        symbols=symbols,
+        enforce_coverage=enforce_coverage,
+    )
     index = next(iter(weights_by_factor.values())).index
     factor_names = list(weights_by_factor)
     smart_beta = equal_factor_allocations(index, factor_names)
@@ -102,7 +131,12 @@ def run_high_composite(
         cost_bps=cost_bps,
         target_vol=HIGH_COMPOSITE.target_vol,
         max_leverage=HIGH_COMPOSITE.max_leverage,
-    ).run(weights, factor_allocations=allocations, factor_returns=factor_returns)
+    ).run(
+        weights,
+        factor_allocations=allocations,
+        factor_returns=factor_returns,
+        fundamental_coverage=coverage_audit,
+    )
 
 
 def build_factor_sleeves(
@@ -110,19 +144,102 @@ def build_factor_sleeves(
     *,
     factors: list[CTAFactor],
     symbols: list[str] | None = None,
-) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
+    enforce_coverage: bool = True,
+) -> tuple[dict[str, pd.DataFrame], pd.DataFrame, pd.DataFrame]:
     symbols = symbols or data.symbols
     if not symbols:
         raise ValueError("CTA strategy needs at least one symbol")
+
+    factor_names = {factor.name for factor in factors}
+    scores_by_factor = {
+        factor.name: factor.compute(data, symbols)
+        for factor in factors
+    }
+    fundamental_matrices = {
+        metric: (
+            scores_by_factor[factor_name]
+            if factor_name == "basis"
+            else data.fundamental_matrix(metric, symbols=symbols)
+        ).reindex(index=data.dates, columns=symbols)
+        for factor_name, metric in FUNDAMENTAL_METRICS_BY_FACTOR.items()
+        if factor_name in factor_names
+    }
+    coverage_frames: list[pd.DataFrame] = []
+    if fundamental_matrices:
+        coverage_frames.append(
+            evaluate_daily_fundamental_coverage(
+                fundamental_matrices,
+                symbols=symbols,
+                required_products=6,
+                enforce=enforce_coverage,
+                # Every fundamental matrix is reindexed onto the price calendar
+                # above, so a slice the build legitimately omitted arrives here
+                # as an all-NaN row and is indistinguishable from an outage.
+                # The build itself says which slices those are.
+                absences=data.fundamental_metadata.get("absence_slices", ()),
+            )
+        )
+
+    if "inventory" in scores_by_factor:
+        inventory_factor = next(
+            factor for factor in factors if factor.name == "inventory"
+        )
+        coverage_frames.append(
+            evaluate_inventory_sides(
+                factor_signal(
+                    inventory_factor,
+                    scores_by_factor["inventory"],
+                ).reindex(
+                    index=data.dates,
+                    columns=symbols,
+                ),
+                required_each=2,
+                enforce=enforce_coverage,
+                on_one_sided="flat",
+            )
+        )
+
+    if coverage_frames:
+        coverage_audit = (
+            pd.concat(coverage_frames, ignore_index=True)
+            .reindex(columns=COVERAGE_COLUMNS)
+            .sort_values(
+                ["trade_date", "check", "metric"],
+                kind="mergesort",
+            )
+            .reset_index(drop=True)
+        )
+    else:
+        coverage_audit = pd.DataFrame(columns=COVERAGE_COLUMNS)
+
     weights_by_factor: dict[str, pd.DataFrame] = {}
     for factor in factors:
-        scores = factor.compute(data, symbols)
+        scores = scores_by_factor[factor.name]
         weights_by_factor[factor.name] = factor_weights(factor, scores).reindex(columns=symbols).fillna(0.0)
+
+    # Stand the inventory sleeve down on days its basket had only one product on
+    # a side. The other sleeves are unaffected.
+    flat_dates = coverage_audit.loc[
+        coverage_audit["check"].eq("inventory_sides")
+        & coverage_audit["status"].eq("flat"),
+        "trade_date",
+    ]
+    if "inventory" in weights_by_factor and not flat_dates.empty:
+        inventory_weights = weights_by_factor["inventory"]
+        # The audit carries Timestamps while a weight index may hold plain
+        # dates, so match on a normalised key rather than on the index objects.
+        wanted = set(pd.DatetimeIndex(flat_dates))
+        stand_down = [
+            label
+            for label in inventory_weights.index
+            if pd.Timestamp(label) in wanted
+        ]
+        if stand_down:
+            inventory_weights.loc[stand_down] = 0.0
 
     asset_returns = forward_open_returns(data, symbols)
     factor_returns = pd.DataFrame({
         name: portfolio_returns(weights, asset_returns)
         for name, weights in weights_by_factor.items()
     })
-    return weights_by_factor, factor_returns
-
+    return weights_by_factor, factor_returns, coverage_audit
