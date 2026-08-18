@@ -238,39 +238,88 @@ def test_2330_night_session_produces_ten_buckets_without_crossing_into_day():
 
 
 @pytest.mark.parametrize(
-    ("night_end", "night_segment"),
+    ("night_start", "night_end", "expected"),
     [
-        ("none", None),
-        ("23:00", SessionSegment(-180, -60)),
-        ("23:30", SessionSegment(-180, -30)),
-        ("01:00", SessionSegment(-180, 60)),
-        ("02:30", SessionSegment(-180, 150)),
+        ("none", "none", None),
+        ("21:00", "23:00", SessionSegment(-180, -60)),
+        ("21:00", "23:30", SessionSegment(-180, -30)),
+        ("21:00", "01:00", SessionSegment(-180, 60)),
+        ("21:00", "02:30", SessionSegment(-180, 150)),
+        ("22:30", "23:00", SessionSegment(-90, -60)),
     ],
 )
-def test_csv_night_end_values_translate_exactly(
-    tmp_path,
-    night_end,
-    night_segment,
+def test_csv_night_intervals_translate_exactly(
+    tmp_path, night_start, night_end, expected
 ):
     path = tmp_path / "sessions.csv"
     path.write_text(
-        "exchange,product,effective_start,effective_end,night_end,version\n"
-        f"SHFE,AU,2020-01-01,,{night_end},commodity-v1\n",
+        "exchange,product,effective_start,effective_end,night_start,night_end,version\n"
+        f"DCE,I,2019-12-26,2019-12-26,{night_start},{night_end},commodity-v1\n",
+        encoding="utf-8",
+    )
+    rule = load_session_rules(path)[0]
+    night = tuple(segment for segment in rule.segments if segment.end_minute <= 150)
+    assert night == (() if expected is None else (expected,))
+
+
+def test_delayed_dce_rule_starts_at_2230_on_the_previous_trade_date(tmp_path):
+    path = tmp_path / "sessions.csv"
+    path.write_text(
+        "exchange,product,effective_start,effective_end,night_start,night_end,version\n"
+        "DCE,I,2019-12-26,2019-12-26,22:30,23:00,commodity-v1\n",
+        encoding="utf-8",
+    )
+    rule = load_session_rules(path)[0]
+    slots = build_trading_slots(date(2019, 12, 26), date(2019, 12, 25), rule)
+    assert slots[0] == _dt(2019, 12, 25, 22, 30)
+    assert slots[29] == _dt(2019, 12, 25, 22, 59)
+    assert _dt(2019, 12, 25, 21, 0) not in slots
+
+
+@pytest.mark.parametrize(
+    ("night_start", "night_end"),
+    [
+        ("none", "23:00"),
+        ("21:00", "none"),
+        ("21:07", "23:00"),
+        ("20:45", "23:00"),
+        ("21:00", "02:45"),
+        ("23:00", "22:30"),
+        ("22:30", "22:30"),
+        ("9:00", "23:00"),
+    ],
+)
+def test_csv_rejects_invalid_night_intervals(tmp_path, night_start, night_end):
+    path = tmp_path / "sessions.csv"
+    path.write_text(
+        "exchange,product,effective_start,effective_end,night_start,night_end,version\n"
+        f"DCE,I,2019-12-26,2019-12-26,{night_start},{night_end},commodity-v1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="session_rule_time"):
+        load_session_rules(path)
+
+
+def test_csv_row_translates_to_the_exact_session_rule(tmp_path):
+    path = tmp_path / "sessions.csv"
+    path.write_text(
+        "exchange,product,effective_start,effective_end,night_start,night_end,version\n"
+        "SHFE,AU,2020-01-01,,21:00,02:30,commodity-v1\n",
         encoding="utf-8",
     )
 
     rules = load_session_rules(path)
 
-    expected_segments = tuple(SessionSegment(*item) for item in DAY_SEGMENTS)
-    if night_segment is not None:
-        expected_segments = (night_segment, *expected_segments)
     assert rules == (
         SessionRule(
             exchange="SHFE",
             product="AU",
             effective_start=date(2020, 1, 1),
             effective_end=None,
-            segments=expected_segments,
+            segments=(
+                SessionSegment(-180, 150),
+                *(SessionSegment(*item) for item in DAY_SEGMENTS),
+            ),
             version=SESSION_RULES_VERSION,
         ),
     )
@@ -279,8 +328,8 @@ def test_csv_night_end_values_translate_exactly(
 def test_csv_header_must_match_the_exact_ordered_schema(tmp_path):
     path = tmp_path / "sessions.csv"
     path.write_text(
-        "product,exchange,effective_start,effective_end,night_end,version\n"
-        "AU,SHFE,2020-01-01,,02:30,commodity-v1\n",
+        "product,exchange,effective_start,effective_end,night_start,night_end,version\n"
+        "AU,SHFE,2020-01-01,,21:00,02:30,commodity-v1\n",
         encoding="utf-8",
     )
 
@@ -721,7 +770,8 @@ def test_equivalent_aware_utc_start_and_slots_compare_by_instant():
 def _write_session_csv(tmp_path, row):
     path = tmp_path / "sessions.csv"
     path.write_text(
-        f"exchange,product,effective_start,effective_end,night_end,version\n{row}\n",
+        "exchange,product,effective_start,effective_end,"
+        f"night_start,night_end,version\n{row}\n",
         encoding="utf-8",
     )
     return path
@@ -730,7 +780,7 @@ def _write_session_csv(tmp_path, row):
 def test_csv_rejects_extra_row_cells_with_row_number(tmp_path):
     path = _write_session_csv(
         tmp_path,
-        "SHFE,AU,2020-01-01,,none,commodity-v1,extra",
+        "SHFE,AU,2020-01-01,,none,none,commodity-v1,extra",
     )
 
     with pytest.raises(ValueError, match="session_rules_csv_row_width: row 2"):
@@ -738,7 +788,7 @@ def test_csv_rejects_extra_row_cells_with_row_number(tmp_path):
 
 
 def test_csv_rejects_missing_row_cells_with_row_number(tmp_path):
-    path = _write_session_csv(tmp_path, "SHFE,AU,2020-01-01,,none")
+    path = _write_session_csv(tmp_path, "SHFE,AU,2020-01-01,,none,none")
 
     with pytest.raises(ValueError, match="session_rules_csv_row_width: row 2"):
         load_session_rules(path)
@@ -746,7 +796,7 @@ def test_csv_rejects_missing_row_cells_with_row_number(tmp_path):
 
 @pytest.mark.parametrize(
     "field",
-    ["exchange", "product", "effective_start", "night_end", "version"],
+    ["exchange", "product", "effective_start", "night_start", "night_end", "version"],
 )
 def test_csv_rejects_empty_required_fields_with_row_and_field(tmp_path, field):
     values = {
@@ -754,6 +804,7 @@ def test_csv_rejects_empty_required_fields_with_row_and_field(tmp_path, field):
         "product": "AU",
         "effective_start": "2020-01-01",
         "effective_end": "",
+        "night_start": "none",
         "night_end": "none",
         "version": SESSION_RULES_VERSION,
     }
@@ -767,6 +818,7 @@ def test_csv_rejects_empty_required_fields_with_row_and_field(tmp_path, field):
                 "product",
                 "effective_start",
                 "effective_end",
+                "night_start",
                 "night_end",
                 "version",
             )
@@ -783,7 +835,7 @@ def test_csv_rejects_empty_required_fields_with_row_and_field(tmp_path, field):
 def test_csv_rejects_an_unsupported_version_with_row_field_and_value(tmp_path):
     path = _write_session_csv(
         tmp_path,
-        "SHFE,AU,2020-01-01,,none,commodity-v2",
+        "SHFE,AU,2020-01-01,,none,none,commodity-v2",
     )
 
     with pytest.raises(
@@ -796,7 +848,7 @@ def test_csv_rejects_an_unsupported_version_with_row_field_and_value(tmp_path):
 def test_csv_rejects_reversed_dates_with_row_field_and_value(tmp_path):
     path = _write_session_csv(
         tmp_path,
-        "SHFE,AU,2020-02-01,2020-01-31,none,commodity-v1",
+        "SHFE,AU,2020-02-01,2020-01-31,none,none,commodity-v1",
     )
 
     with pytest.raises(
@@ -811,8 +863,8 @@ def test_csv_rejects_reversed_dates_with_row_field_and_value(tmp_path):
 @pytest.mark.parametrize(
     ("field", "row"),
     [
-        ("effective_start", "SHFE,AU,not-a-date,,none,commodity-v1"),
-        ("effective_end", "SHFE,AU,2020-01-01,not-a-date,none,commodity-v1"),
+        ("effective_start", "SHFE,AU,not-a-date,,none,none,commodity-v1"),
+        ("effective_end", "SHFE,AU,2020-01-01,not-a-date,none,none,commodity-v1"),
     ],
 )
 def test_csv_wraps_malformed_dates_with_row_field_and_value(tmp_path, field, row):

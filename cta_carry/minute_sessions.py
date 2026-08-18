@@ -19,6 +19,7 @@ _SESSION_RULE_COLUMNS = (
     "product",
     "effective_start",
     "effective_end",
+    "night_start",
     "night_end",
     "version",
 )
@@ -89,13 +90,51 @@ class SessionSegment:
             raise ValueError("session segment is outside the commodity clock")
 
 
-_NIGHT_SEGMENTS = {
-    "none": None,
-    "23:00": SessionSegment(-180, -60),
-    "23:30": SessionSegment(-180, -30),
-    "01:00": SessionSegment(-180, 60),
-    "02:30": SessionSegment(-180, 150),
-}
+def night_label_to_offset(value: str) -> int:
+    """Convert an exact HH:MM night label into a trade-date minute offset."""
+    if type(value) is not str or len(value) != 5 or value[2] != ":":
+        raise ValueError(f"session_rule_time: invalid night label {value!r}")
+    try:
+        hour = int(value[:2])
+        minute = int(value[3:])
+    except ValueError as exc:
+        raise ValueError(f"session_rule_time: invalid night label {value!r}") from exc
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59 or minute % 15:
+        raise ValueError(f"session_rule_time: invalid night label {value!r}")
+    clock_minute = hour * 60 + minute
+    if 21 * 60 <= clock_minute < 24 * 60:
+        return clock_minute - 24 * 60
+    if 0 <= clock_minute <= 150:
+        return clock_minute
+    raise ValueError(
+        f"session_rule_time: night label outside commodity clock {value!r}"
+    )
+
+
+def night_offset_to_label(value: int) -> str:
+    """Convert a trade-date minute offset back into its exact HH:MM label."""
+    if type(value) is not int or value < -180 or value > 150 or value % 15:
+        raise ValueError(f"session_rule_time: invalid night offset {value!r}")
+    clock_minute = value + 24 * 60 if value < 0 else value
+    return f"{clock_minute // 60:02d}:{clock_minute % 60:02d}"
+
+
+def parse_night_interval(
+    night_start: str,
+    night_end: str,
+) -> SessionSegment | None:
+    """Translate an exact night label pair into one segment, or None."""
+    if night_start == night_end == "none":
+        return None
+    if "none" in {night_start, night_end}:
+        raise ValueError(
+            "session_rule_time: night_start and night_end must both be none"
+        )
+    start = night_label_to_offset(night_start)
+    end = night_label_to_offset(night_end)
+    if start >= end:
+        raise ValueError("session_rule_time: night_start must precede night_end")
+    return SessionSegment(start, end)
 
 
 @dataclass(frozen=True)
@@ -159,6 +198,7 @@ _REQUIRED_SESSION_RULE_FIELDS = (
     "exchange",
     "product",
     "effective_start",
+    "night_start",
     "night_end",
     "version",
 )
@@ -206,12 +246,16 @@ def load_session_rules(path: Path) -> tuple[SessionRule, ...]:
                     f"session_rules_csv_version: row {row_number} field version "
                     f"value {version!r}: expected {SESSION_RULES_VERSION!r}"
                 )
+            night_start = row["night_start"]
             night_end = row["night_end"]
-            if night_end not in _NIGHT_SEGMENTS:
+            try:
+                night_segment = parse_night_interval(night_start, night_end)
+            except ValueError as exc:
                 raise ValueError(
-                    f"session_rules_night_end: row {row_number} field night_end "
-                    f"value {night_end!r}: unsupported night_end"
-                )
+                    f"session_rules_night_interval: row {row_number} fields "
+                    f"night_start/night_end values "
+                    f"{night_start!r}/{night_end!r}: {exc}"
+                ) from exc
 
             effective_start = _parse_csv_date(
                 row_number=row_number,
@@ -235,7 +279,6 @@ def load_session_rules(path: Path) -> tuple[SessionRule, ...]:
                     "effective_start must not exceed effective_end"
                 )
 
-            night_segment = _NIGHT_SEGMENTS[night_end]
             segments = day_segments
             if night_segment is not None:
                 segments = (night_segment, *segments)
