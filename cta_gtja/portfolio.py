@@ -12,20 +12,31 @@ from cta_gtja.factors import CTAFactor
 TRADING_DAYS_PER_YEAR = 252
 
 
+def factor_signal(factor: CTAFactor, scores: pd.DataFrame) -> pd.DataFrame:
+    """One factor's position signal, before gross normalization.
+
+    This is the quantity whose sign decides which side a symbol is on, so it is
+    also the quantity any long/short check must look at. A cross-section
+    factor's raw score says nothing about sides: on a day the whole complex
+    destocks, every raw score shares a sign while the demeaned basket is still
+    two-sided.
+
+    Missing scores stay missing here. ``normalize_gross`` fills them with zero,
+    which would make an absent symbol look like a deliberate flat position.
+    """
+    if factor.construction == "time_series":
+        return np.sign(scores).where(scores.notna(), np.nan)
+    if factor.construction == "cross_section":
+        return scores.sub(scores.mean(axis=1, skipna=True), axis=0)
+    raise ValueError(f"unknown CTA factor construction: {factor.construction!r}")
+
+
 def factor_weights(factor: CTAFactor, scores: pd.DataFrame) -> pd.DataFrame:
     """Convert one factor's scores into daily symbol weights.
 
     Returned rows have gross exposure of one where enough data is available.
-    Time-series factors use the sign of each symbol's own signal.  Cross-section
-    factors are demeaned each day and normalized into a long/short basket.
     """
-    if factor.construction == "time_series":
-        raw = np.sign(scores).where(scores.notna(), np.nan)
-        return normalize_gross(raw)
-    if factor.construction == "cross_section":
-        demeaned = scores.sub(scores.mean(axis=1, skipna=True), axis=0)
-        return normalize_gross(demeaned)
-    raise ValueError(f"unknown CTA factor construction: {factor.construction!r}")
+    return normalize_gross(factor_signal(factor, scores))
 
 
 def equal_factor_allocations(index: pd.Index, factor_names: list[str]) -> pd.DataFrame:

@@ -18,6 +18,7 @@ from cta_gtja.portfolio import (
     combine_factor_weights,
     equal_factor_allocations,
     factor_momentum_allocations,
+    factor_signal,
     factor_weights,
 )
 
@@ -180,9 +181,15 @@ def build_factor_sleeves(
         )
 
     if "inventory" in scores_by_factor:
+        inventory_factor = next(
+            factor for factor in factors if factor.name == "inventory"
+        )
         coverage_frames.append(
             evaluate_inventory_sides(
-                scores_by_factor["inventory"].reindex(
+                factor_signal(
+                    inventory_factor,
+                    scores_by_factor["inventory"],
+                ).reindex(
                     index=data.dates,
                     columns=symbols,
                 ),

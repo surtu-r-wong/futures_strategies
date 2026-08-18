@@ -145,6 +145,14 @@ def test_future_fundamentals_cannot_change_past_six_factor_results(
     future = mutated_fundamentals["trade_date"] > cutoff
     columns = ["spot", "basis_rate", "inventory", "profit"]
     mutated_fundamentals.loc[future, columns] *= -1000.0
+    # Scaling alone no longer trips the inventory-side check: that check now
+    # reads the demeaned signal, which stays two-sided however the raw scores
+    # are scaled or flipped. Blank most products' inventory after the cutoff so
+    # the corruption is one the corrected gates actually catch.
+    blackout = future & mutated_fundamentals["symbol"].isin(
+        sorted(PILOT_SYMBOLS)[:7]
+    )
+    mutated_fundamentals.loc[blackout, "inventory"] = float("nan")
     mutated_data = CTADataSet(
         prices=complete_price_frame.copy(),
         fundamentals=mutated_fundamentals,
@@ -155,10 +163,9 @@ def test_future_fundamentals_cannot_change_past_six_factor_results(
         baseline_data,
         symbols=list(PILOT_SYMBOLS),
     )
-    # The sign-flipping corruption intentionally makes the inventory-side
-    # audit fail after the cutoff.  Run both comparison arms without raising,
-    # while the separate baseline above proves the original fixture passes
-    # the enforced gate.
+    # The corruption intentionally makes the fundamental audit fail after the
+    # cutoff.  Run both comparison arms without raising, while the separate
+    # baseline above proves the original fixture passes the enforced gate.
     baseline = run_medium_equal_weight(
         baseline_data,
         symbols=list(PILOT_SYMBOLS),

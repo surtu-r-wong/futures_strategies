@@ -817,3 +817,58 @@ def test_a_waived_slice_is_marked_waived_in_the_coverage_audit():
     waived = coverage_audit[coverage_audit["status"] == "waived"]
     assert len(waived) == 1
     assert waived.iloc[0]["metric"] == "basis_rate"
+
+
+def test_factor_signal_is_the_pre_normalisation_position_signal():
+    from cta_gtja.factors import CTAFactor
+    from cta_gtja.portfolio import factor_signal, factor_weights, normalize_gross
+
+    scores = pd.DataFrame(
+        [[3.0, 1.0, 2.0, np.nan]],
+        index=pd.to_datetime(["2020-01-01"]),
+        columns=list("ABCD"),
+    )
+
+    cross = CTAFactor(name="x", construction="cross_section")
+    signal = factor_signal(cross, scores)
+    # Demeaned over the finite values only, so both sides always exist.
+    assert signal.iloc[0].tolist()[:3] == [1.0, -1.0, 0.0]
+    assert np.isnan(signal.iloc[0]["D"])
+
+    series = CTAFactor(name="y", construction="time_series")
+    assert factor_signal(series, scores).iloc[0].tolist()[:3] == [1.0, 1.0, 1.0]
+
+    for factor in (cross, series):
+        pd.testing.assert_frame_equal(
+            factor_weights(factor, scores),
+            normalize_gross(factor_signal(factor, scores)),
+        )
+
+
+def test_inventory_sides_are_measured_on_the_signal_that_sets_positions():
+    """A whole-complex destock is not a one-sided book.
+
+    InventoryFactor is a cross-section factor, so positions come from the
+    demeaned score. Testing the raw score's sign fails every day the whole
+    complex moves the same way, while the actual basket is two-sided.
+    """
+    data = _sample_cta_data()
+    inventory = InventoryFactor()
+    raw = inventory.compute(data, data.symbols).reindex(
+        index=data.dates, columns=data.symbols
+    )
+    shifted = raw + 1000.0  # every product now scores positive; ranks unchanged
+
+    class _ShiftedInventory(InventoryFactor):
+        def compute(self, data, symbols):
+            return shifted.reindex(columns=symbols)
+
+    _, _, audit = build_factor_sleeves(
+        data,
+        factors=[_ShiftedInventory()],
+        symbols=data.symbols,
+        enforce_coverage=False,
+    )
+    sides = audit[audit["check"] == "inventory_sides"]
+    assert not sides.empty
+    assert not sides["status"].eq("fail").any()
