@@ -634,6 +634,7 @@ def test_write_cta_outputs_includes_fundamental_audit_sheets(tmp_path):
         "build_version",
         "catalog_version",
         "source_recorded_cutoff",
+        "absence_slices",
         "schema",
         "materialized_daily",
     ]
@@ -915,3 +916,65 @@ def test_one_sided_inventory_days_go_flat_without_failing_the_run():
     # The weight index holds plain dates while the audit holds Timestamps.
     kept = sides.loc[sides["status"].eq("pass"), "trade_date"].iloc[-1].date()
     assert weights_by_factor["inventory"].loc[kept].abs().sum() > 0.0
+
+
+def test_excel_export_strips_timezones_and_serialises_containers(tmp_path):
+    from cta_gtja.backtest import _excel_safe
+
+    frame = pd.DataFrame(
+        {
+            "available_at": pd.to_datetime(
+                ["2020-02-07T15:00:00+08:00"]
+            ).tz_convert("Asia/Shanghai"),
+            "boxed_instant": [pd.Timestamp("2020-02-07T07:00:00+00:00")],
+            "lineage": [{"b": 2, "a": 1}],
+            "plain": ["x"],
+        }
+    )
+
+    out = _excel_safe(frame)
+
+    assert out["available_at"].iloc[0] == pd.Timestamp("2020-02-07 15:00:00")
+    assert out["available_at"].dt.tz is None
+    # An instant boxed in an object column must be converted too: Excel rejects
+    # it just the same, and it is the shape the build sheet arrives in.
+    assert out["boxed_instant"].iloc[0] == pd.Timestamp("2020-02-07 15:00:00")
+    assert out["lineage"].iloc[0] == '{"a":1,"b":2}'
+    assert out["plain"].iloc[0] == "x"
+
+
+def test_written_workbook_records_the_builds_waived_slices(tmp_path):
+    from cta_gtja.backtest import FUNDAMENTAL_BUILD_COLUMNS
+
+    assert "absence_slices" in FUNDAMENTAL_BUILD_COLUMNS
+
+    data = _sample_cta_data()
+    data.fundamental_metadata.update(
+        {
+            "source": "standard",
+            "pit_mode": "conservative",
+            "build_version": "b1",
+            "catalog_version": "v1",
+            "source_recorded_cutoff": pd.Timestamp("2026-08-18T13:40:00+08:00"),
+            "schema": "commodity_research",
+            "absence_slices": [
+                {"trade_date": "2020-02-07", "metric": "profit"}
+            ],
+        }
+    )
+    result = run_medium_equal_weight(
+        data,
+        symbols=data.symbols,
+        factors=cta_factors_for_set("price_volume"),
+        enforce_coverage=False,
+    )
+
+    xlsx_path, _ = write_cta_outputs(result, tmp_path / "cta")
+
+    build = pd.read_excel(xlsx_path, sheet_name="fundamental_build")
+    assert build["absence_slices"].iloc[0] == (
+        '[{"metric":"profit","trade_date":"2020-02-07"}]'
+    )
+    assert build["source_recorded_cutoff"].iloc[0] == pd.Timestamp(
+        "2026-08-18 13:40:00"
+    )

@@ -19,9 +19,15 @@ FUNDAMENTAL_BUILD_COLUMNS = [
     "build_version",
     "catalog_version",
     "source_recorded_cutoff",
+    "absence_slices",
     "schema",
     "materialized_daily",
 ]
+
+# Instants are stored with an offset, and Excel refuses tz-aware datetimes.
+# Render them in the timezone the PIT rule itself is written in, so a reader
+# sees the same wall clock the availability cut-off uses.
+EXCEL_TIMEZONE = "Asia/Shanghai"
 
 
 @dataclass
@@ -204,32 +210,51 @@ def write_cta_outputs(result: CTABacktestResult, output_prefix: str | Path) -> t
             for column in FUNDAMENTAL_BUILD_COLUMNS
         }
         build["source"] = metadata.get("source") or "unknown"
-        pd.DataFrame(
-            [build],
-            columns=FUNDAMENTAL_BUILD_COLUMNS,
+        _excel_safe(
+            pd.DataFrame([build], columns=FUNDAMENTAL_BUILD_COLUMNS)
         ).to_excel(writer, sheet_name="fundamental_build", index=False)
 
     _write_equity_png(result, png_path)
     return xlsx_path, png_path
 
 
-def _excel_safe_lineage(lineage: pd.DataFrame) -> pd.DataFrame:
-    out = lineage.copy()
-    for column in out.columns:
-        if not pd.api.types.is_object_dtype(out[column].dtype):
-            continue
-        out[column] = out[column].map(
-            lambda value: json.dumps(
-                value,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            )
-            if isinstance(value, (dict, list))
-            else value
+def _excel_cell(value):
+    if isinstance(value, (dict, list)):
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
         )
+    if isinstance(value, pd.Timestamp) and value.tzinfo is not None:
+        return value.tz_convert(EXCEL_TIMEZONE).tz_localize(None)
+    return value
+
+
+def _excel_safe(frame: pd.DataFrame) -> pd.DataFrame:
+    """Make a frame writable by openpyxl without losing what it says.
+
+    Two shapes reach here that Excel rejects outright: containers, which become
+    canonical JSON, and tz-aware instants, which become wall-clock times in
+    EXCEL_TIMEZONE. An instant can arrive either as a whole datetime64 column or
+    boxed inside an object column, and both must be handled.
+    """
+    out = frame.copy()
+    for column in out.columns:
+        dtype = out[column].dtype
+        if isinstance(dtype, pd.DatetimeTZDtype):
+            out[column] = out[column].dt.tz_convert(
+                EXCEL_TIMEZONE
+            ).dt.tz_localize(None)
+            continue
+        if pd.api.types.is_object_dtype(dtype):
+            out[column] = out[column].map(_excel_cell)
     return out
+
+
+def _excel_safe_lineage(lineage: pd.DataFrame) -> pd.DataFrame:
+    return _excel_safe(lineage)
 
 
 def _write_equity_png(result: CTABacktestResult, png_path: Path) -> None:
