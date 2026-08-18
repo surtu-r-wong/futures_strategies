@@ -52,6 +52,20 @@ Step 1 拿**真实生产库**跑 EXPLAIN-only，四项期望全过：
 - 生效 URL：`http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6202113/index.html`
 - 来源登记状态 `pending_manual_fetch` → **`reviewed_direct`**
 
+## ⚠️ 当晚实证推翻了两处原判断
+
+详见 `docs/research/2026-08-18-carry-minute-empirical-findings.md`。摘要：
+
+1. **批次 A 不能直接写入。** 2019-12-25 夜的真实数据里，21:00–22:28 是补齐空 K 线，
+   22:29 是集合竞价撮合，22:30 才是连续交易。经验边界不滤 volume 得 `21:00`、
+   滤了得 `22:29`，**两条都拿不到权威所写的 `22:30`**。现在写入会让该日每个 DCE
+   产品日 fail-closed。需先在四个方向里拍板一个。
+2. **缺分钟不是孤例。** 有界采集 round 1 fail-closed 于**第二个**缺口
+   （2019-01-02 `CU1903.SHF`）。扫描历年元旦后首日发现：**每年有 0–3 个整品种
+   从供应商归档消失**（2018 AL、2019 CU/PM/RU、2020 AL/FU、2016 B/BB/RI、
+   2022 RI、2023 JR/ZC；2017/2021/2024 无）。多数是非流动品种。
+   这把阻塞从"无限期"变成一张**四五个 contract-day 的采购清单**。
+
 ## 现在只剩一个外部阻塞
 
 原来两个闸门，现在剩一个：
@@ -69,7 +83,7 @@ AL1803 已核实穷尽：库内目标窗口 0 行；`market_data_minute` 只从 
 
 ## 正在跑 / 产物位置 ⚠️
 
-**一次有界采集**（PID 1185936，`setsid` 脱离，2026-08-18 约 18:5x 启动）：
+**一次有界采集**（PID 1185936，已于 2026-08-18 约 19:1x **fail-closed 结束**，未产出文件）：
 
 ```bash
 python -m scripts.carry.capture_minute_sessions \
@@ -84,7 +98,10 @@ python -m scripts.carry.capture_minute_sessions \
 （DCE 延迟开盘那天）。输出全部落临时目录，**绝不碰正式资产**
 （`validate_capture_request` 只在写正式路径且起点非 2011-01-01 时才拒绝，故合法）。
 
-⚠️ **产物在会话 scratchpad，明天新对话看不到该路径**：
+**结果**：在 2019-01-02 `CU1903.SHF` 上 `session_representative_missing_minutes` 失败，
+未写出任何产物。失败前的覆盖统计与完整结论已抄进实证发现文档，无需重跑即可继续。
+
+⚠️ 原始日志在会话 scratchpad，明天新对话看不到该路径：
 `/tmp/claude-1000/-home-elfbob-claude-code-futures-strategies/696d83d0-7ba6-4cef-8527-aed09824d41f/scratchpad/`
 若本会话未来得及转存，明天**直接重跑上面的命令**即可（约 20–40 分钟），
 或去 `output/`（gitignored）看是否已转存。
@@ -100,15 +117,13 @@ python -m scripts.carry.capture_minute_sessions \
 
 ## 明天的推荐顺序
 
-1. **写入批次 A**（若你同意）：一行进 `config/carry_minute_session_exceptions.csv`，
-   跑 `tests/test_carry_session_authority.py` 确认仓库契约回归仍绿
-   —— 注意该测试断言资产是**纯表头**，写入后需同步更新该断言。
-2. **读采集产物**（或重跑）：`round1_inventory.csv` 的 ambiguity 分布，
-   特别看 **2019-12-26 DCE** 是否以延迟开盘的特征出现，
-   这是我今天写的 session-exception 机制第一次接触真实数据。
-3. **验证集合竞价 K 线**：原文给出集合竞价 22:25—22:30。若供应商为集合竞价成交
-   单独打一根 22:25–22:29 的 K 线，`night_first` 就不是 22:30，经验分类会 fail-closed。
-   这不是缺陷，是必须先确认的事实。用一条 symbol+时间字面量界定的查询即可确认。
+1. **先拍板 22:29 竞价 K 线的处理方向**（四选一，见实证发现文档第二节）。
+   这是当前最关键的一个决定：它决定权威行写 `22:30` 还是 `22:29`，
+   也会改变**所有**夜盘的经验口径。未拍板前批次 A 不写入。
+2. **收敛采购清单**：跑一次"只判定在池与否、不取分钟"的检查，确认
+   2019-01-02 RU、2020-01-02 AL/FU 是否进流动性池，把待补数据收敛成最小清单，
+   再一次性去 MyQuant / Wind 取齐（而不是撞一个买一个）。
+3. **补完数据后重跑有界采集**，才能拿到第一份真实 ambiguity 清单。
 4. **批次 B 三方交叉**：官方来源 × 日历映射 × 经验清单，三者一致才进批次。
 5. Task 12 Step 2（五品种真实烟测）**仍被 `config/carry_minute_sessions.csv` 阻塞**
    （`cta_carry/__main__.py:294` 硬加载），而该资产需全历史 `ambiguous=0`，
