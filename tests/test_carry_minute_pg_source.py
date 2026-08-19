@@ -51,19 +51,31 @@ def test_batch_query_keeps_minute_symbol_bare_and_has_literal_bounds():
     assert "ORDER BY m.bar_time, m.symbol" in query
 
 
-def test_session_boundary_query_is_grouped_bounded_and_keeps_symbol_bare():
+def test_session_boundary_query_is_bounded_and_keeps_symbol_bare():
     lower = datetime(2024, 1, 1, 20, 0, tzinfo=SHANGHAI)
     upper = datetime(2024, 2, 1, 15, 1, tzinfo=SHANGHAI)
 
     query = build_session_boundary_query(lower=lower, upper=upper).as_string(None)
 
-    assert "LEFT JOIN public.futures_minute m" in query
+    assert "FROM public.futures_minute m" in query
     assert "m.symbol = c.minute_symbol" in query
-    assert "GROUP BY c.trade_date, c.product, c.daily_contract" in query
     assert "min(m.bar_time)" in query.lower()
     assert "max(m.bar_time)" in query.lower()
     assert "'2024-01-01T20:00:00+08:00'" in query
     assert "'2024-02-01T15:01:00+08:00'" in query
+
+
+def test_session_boundary_query_seeks_once_per_candidate():
+    """One indexed seek per candidate, not one decompression of the whole month."""
+    lower = datetime(2024, 1, 1, 20, 0, tzinfo=SHANGHAI)
+    upper = datetime(2024, 2, 1, 15, 1, tzinfo=SHANGHAI)
+
+    query = build_session_boundary_query(lower=lower, upper=upper).as_string(None)
+
+    assert "LEFT JOIN LATERAL" in query
+    # a per-candidate aggregate subquery needs no outer grouping
+    assert "GROUP BY" not in query
+    assert "LEFT JOIN public.futures_minute" not in query
 
 
 def test_session_boundary_query_exposes_traded_night_columns():
@@ -470,7 +482,7 @@ class FakeCursor:
         normalized = " ".join(text.split())
         if normalized.startswith("EXPLAIN (FORMAT JSON)"):
             self.mode = "plan"
-        elif normalized.startswith("SELECT c.trade_date") and "GROUP BY" in normalized:
+        elif normalized.startswith("SELECT c.trade_date") and "LATERAL" in normalized:
             self.mode = "boundary"
         elif normalized.startswith("SELECT c.trade_date"):
             self.mode = "stream"

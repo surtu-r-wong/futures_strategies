@@ -462,10 +462,37 @@ def build_minute_batch_query(*, lower: datetime, upper: datetime) -> sql.SQL:
 
 
 def build_session_boundary_query(*, lower: datetime, upper: datetime) -> sql.SQL:
-    """Build one grouped session-boundary row per minute candidate."""
+    """Build one grouped session-boundary row per minute candidate.
+
+    The aggregate sits in a LATERAL subquery so the planner seeks the minute
+    table once per candidate on the bare symbol. A plain LEFT JOIN made it
+    decompress every contract in the month and filter afterwards, which at 2025
+    pool sizes cost 356 s per month against a 300 s statement timeout; the
+    per-candidate shape returns identical rows in 0.7 s.
+    """
     lower, upper = _validated_bounds(lower, upper)
     lower_literal = lower.isoformat()
     upper_literal = upper.isoformat()
+    night = (
+        "m.bar_time < (c.trade_date::timestamp + TIME '09:00')"
+        " AT TIME ZONE 'Asia/Shanghai'"
+    )
+    night_traded = f"m.volume > 0 AND {night}"
+
+    def segment(name: str, opening: str, closing: str) -> str:
+        window = (
+            f"m.bar_time >= (c.trade_date::timestamp + TIME '{opening}')"
+            " AT TIME ZONE 'Asia/Shanghai'"
+            f" AND m.bar_time < (c.trade_date::timestamp + TIME '{closing}')"
+            " AT TIME ZONE 'Asia/Shanghai'"
+        )
+        return (
+            f"                min(m.bar_time) FILTER (WHERE {window})"
+            f" AS {name}_first,\n"
+            f"                max(m.bar_time) FILTER (WHERE {window})"
+            f" AS {name}_last,"
+        )
+
     return sql.SQL(
         f"""
         SELECT
@@ -476,97 +503,42 @@ def build_session_boundary_query(*, lower: datetime, upper: datetime) -> sql.SQL
             c.exchange,
             c.window_start,
             c.window_end,
-            min(m.bar_time) FILTER (
-                WHERE m.bar_time < (
-                    c.trade_date::timestamp + TIME '09:00'
-                ) AT TIME ZONE 'Asia/Shanghai'
-            ) AS night_first,
-            max(m.bar_time) FILTER (
-                WHERE m.bar_time < (
-                    c.trade_date::timestamp + TIME '09:00'
-                ) AT TIME ZONE 'Asia/Shanghai'
-            ) AS night_last,
-            min(m.bar_time) FILTER (
-                WHERE m.bar_time >= (
-                    c.trade_date::timestamp + TIME '09:00'
-                ) AT TIME ZONE 'Asia/Shanghai'
-                  AND m.bar_time < (
-                    c.trade_date::timestamp + TIME '10:15'
-                ) AT TIME ZONE 'Asia/Shanghai'
-            ) AS day_1_first,
-            max(m.bar_time) FILTER (
-                WHERE m.bar_time >= (
-                    c.trade_date::timestamp + TIME '09:00'
-                ) AT TIME ZONE 'Asia/Shanghai'
-                  AND m.bar_time < (
-                    c.trade_date::timestamp + TIME '10:15'
-                ) AT TIME ZONE 'Asia/Shanghai'
-            ) AS day_1_last,
-            min(m.bar_time) FILTER (
-                WHERE m.bar_time >= (
-                    c.trade_date::timestamp + TIME '10:30'
-                ) AT TIME ZONE 'Asia/Shanghai'
-                  AND m.bar_time < (
-                    c.trade_date::timestamp + TIME '11:30'
-                ) AT TIME ZONE 'Asia/Shanghai'
-            ) AS day_2_first,
-            max(m.bar_time) FILTER (
-                WHERE m.bar_time >= (
-                    c.trade_date::timestamp + TIME '10:30'
-                ) AT TIME ZONE 'Asia/Shanghai'
-                  AND m.bar_time < (
-                    c.trade_date::timestamp + TIME '11:30'
-                ) AT TIME ZONE 'Asia/Shanghai'
-            ) AS day_2_last,
-            min(m.bar_time) FILTER (
-                WHERE m.bar_time >= (
-                    c.trade_date::timestamp + TIME '13:30'
-                ) AT TIME ZONE 'Asia/Shanghai'
-                  AND m.bar_time < (
-                    c.trade_date::timestamp + TIME '15:00'
-                ) AT TIME ZONE 'Asia/Shanghai'
-            ) AS day_3_first,
-            max(m.bar_time) FILTER (
-                WHERE m.bar_time >= (
-                    c.trade_date::timestamp + TIME '13:30'
-                ) AT TIME ZONE 'Asia/Shanghai'
-                  AND m.bar_time < (
-                    c.trade_date::timestamp + TIME '15:00'
-                ) AT TIME ZONE 'Asia/Shanghai'
-            ) AS day_3_last,
-            count(m.bar_time) AS observed_rows,
-            (array_agg(m.bar_time ORDER BY m.bar_time) FILTER (
-                WHERE m.volume > 0
-                  AND m.bar_time < (
-                    c.trade_date::timestamp + TIME '09:00'
-                  ) AT TIME ZONE 'Asia/Shanghai'
-            ))[1] AS night_traded_first,
-            (array_agg(m.bar_time ORDER BY m.bar_time) FILTER (
-                WHERE m.volume > 0
-                  AND m.bar_time < (
-                    c.trade_date::timestamp + TIME '09:00'
-                  ) AT TIME ZONE 'Asia/Shanghai'
-            ))[2] AS night_traded_second,
-            (array_agg(m.high ORDER BY m.bar_time) FILTER (
-                WHERE m.volume > 0
-                  AND m.bar_time < (
-                    c.trade_date::timestamp + TIME '09:00'
-                  ) AT TIME ZONE 'Asia/Shanghai'
-            ))[1] = (array_agg(m.low ORDER BY m.bar_time) FILTER (
-                WHERE m.volume > 0
-                  AND m.bar_time < (
-                    c.trade_date::timestamp + TIME '09:00'
-                  ) AT TIME ZONE 'Asia/Shanghai'
-            ))[1] AS night_traded_first_flat
+            b.night_first,
+            b.night_last,
+            b.day_1_first,
+            b.day_1_last,
+            b.day_2_first,
+            b.day_2_last,
+            b.day_3_first,
+            b.day_3_last,
+            b.observed_rows,
+            b.night_traded_first,
+            b.night_traded_second,
+            b.night_traded_first_flat
         FROM _carry_minute_candidates c
-        LEFT JOIN public.futures_minute m
-          ON m.symbol = c.minute_symbol
-         AND m.bar_time >= c.window_start
-         AND m.bar_time < c.window_end
-         AND m.bar_time >= '{lower_literal}'::TIMESTAMPTZ
-         AND m.bar_time < '{upper_literal}'::TIMESTAMPTZ
-        GROUP BY c.trade_date, c.product, c.daily_contract,
-                 c.minute_symbol, c.exchange, c.window_start, c.window_end
+        LEFT JOIN LATERAL (
+            SELECT
+                min(m.bar_time) FILTER (WHERE {night}) AS night_first,
+                max(m.bar_time) FILTER (WHERE {night}) AS night_last,
+{segment("day_1", "09:00", "10:15")}
+{segment("day_2", "10:30", "11:30")}
+{segment("day_3", "13:30", "15:00")}
+                count(m.bar_time) AS observed_rows,
+                (array_agg(m.bar_time ORDER BY m.bar_time)
+                    FILTER (WHERE {night_traded}))[1] AS night_traded_first,
+                (array_agg(m.bar_time ORDER BY m.bar_time)
+                    FILTER (WHERE {night_traded}))[2] AS night_traded_second,
+                (array_agg(m.high ORDER BY m.bar_time)
+                    FILTER (WHERE {night_traded}))[1]
+                  = (array_agg(m.low ORDER BY m.bar_time)
+                    FILTER (WHERE {night_traded}))[1] AS night_traded_first_flat
+            FROM public.futures_minute m
+            WHERE m.symbol = c.minute_symbol
+              AND m.bar_time >= c.window_start
+              AND m.bar_time < c.window_end
+              AND m.bar_time >= '{lower_literal}'::TIMESTAMPTZ
+              AND m.bar_time < '{upper_literal}'::TIMESTAMPTZ
+        ) b ON TRUE
         ORDER BY c.trade_date, c.product, c.daily_contract
         """
     )
