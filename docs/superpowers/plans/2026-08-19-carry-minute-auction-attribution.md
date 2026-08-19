@@ -653,10 +653,10 @@ git commit -m "docs(carry): close the auction-bar decision in the pending batch 
 
 ## 完成判据
 
-- [ ] 三个新列在查询、帧校验与分类器上端到端可用
-- [ ] 七个分类器用例全绿，且既有 6 处调用点已迁移
-- [ ] 归位与补齐两类事件出现在采集审计报告
-- [ ] 全量测试除既有 `config/carry_minute_sessions.csv` 闸门外 0 failed
-- [ ] 真实 2019-12-26 五个 DCE 主力经验边界 == `("22:30","23:00")`，正常夜未受影响
-- [ ] `EXPLAIN` 三条硬规复验通过
-- [ ] **未写入任何 `config/*.csv` 权威资产**（批次 A 仍待用户逐行过目）
+- [x] 三个新列在查询、帧校验与分类器上端到端可用（`de6d1f7` / `52156ab`）
+- [x] 七个分类器用例全绿，既有调用点已迁移（分类器 3 处 + `classify_authorized_boundaries` 6 处）
+- [x] 归位与补齐两类事件出现在采集审计报告（经 `log_lines` 进 `--audit-report`）
+- [x] 全量测试 `1 failed, 848 passed`，唯一失败＝既有 `config/carry_minute_sessions.csv` 闸门
+- [x] 真实 2019-12-26 五个 DCE 主力经验边界 == `("22:30","23:00")`，正常夜未受影响
+- [x] `EXPLAIN` 复验通过，且与改动前逐项相同（2 chunk / 4,470,401 行 / 无 hypertable 顺扫）
+- [x] **未写入任何 `config/*.csv` 权威资产**（批次 A 仍待用户逐行过目）

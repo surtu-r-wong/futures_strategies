@@ -113,7 +113,7 @@ python -m scripts.carry.capture_minute_sessions \
 
 `docs/research/2026-08-18-carry-minute-session-exception-pending-batch.md`
 
-- **批次 A**：DCE 2019-12-26 延迟开盘，七个字段全部由原文坐实，但 ⚠️ **现在写入会让采集永久 fail-closed**（22:29 竞价 K 线问题，须先拍板）
+- **批次 A**：DCE 2019-12-26 延迟开盘，七个字段全部由原文坐实；技术阻塞已于 2026-08-19 解除（竞价归位已实施并验证），**只等用户逐行过目**
 - **批次 B**：窗口内 45 条已复核节前 `none,none` 候选，缺 `trade_date` 日历映射与经验清单交叉验证
 - 文档里标了**提取器的三个已知缺口**，人工复核时必看（尤其 DCE 2020-01-23 因
   `2020-01-23→修订后 02-03` 的写法未被正则抓到）
