@@ -16,7 +16,7 @@ exchange,version,trade_date,night_start,night_end,reason,source_url
 
 ---
 
-## 批次 A：DCE 2019-12-26 延迟开盘（字段齐全，但 ⚠️ **当前写入会让采集永久 fail-closed**）
+## 批次 A：DCE 2019-12-26 延迟开盘（字段齐全；技术阻塞已于 2026-08-19 解除，仍待用户逐行过目）
 
 ### 提议行
 
@@ -63,30 +63,22 @@ DCE,commodity-v1,2019-12-26,22:30,23:00,delayed night open per 大商所发[2019
    因此 `SessionException` 的 `(version, exchange, trade_date)` 唯一键（**无 product 列**）
    足以表达该事实，2026-08-17 实施的 schema **不需要返工**。
 
-### 定稿前仍需解决
+### 技术阻塞已解除（2026-08-19）
 
-所有 CSV 字段均已由原文坐实。**但 2026-08-18 晚的实证检查推翻了"可以直接写入"的判断。**
+所有 CSV 字段均已由原文坐实。2026-08-18 晚曾判定「写入会让采集永久 fail-closed」——
+因为经验边界不滤 volume 得 `21:00`、滤了得 `22:29`，两条都拿不到权威的 `22:30`。
 
-真实分钟数据（`I2005` / `J2005` / `M2005` / `P2005` / `Y2005`，2019-12-25 夜）显示：
+**该阻塞已解除。** 用户 2026-08-19 拍板「夜盘起点滤 `volume > 0` + 竞价归位」，
+已实施（`de6d1f7` / `52156ab`）并在真实生产库上验证：2019-12-26 的五个 DCE 主力
+（`I/J/M/P/Y2005`）经验边界全部为 `("22:30", "23:00")`，与本行提议值一致；
+对照的 2019-12-25 正常夜仍为 `("21:00", "23:00")`、规则未触发。
 
-- 21:00–22:28 是**补齐的空 K 线**（四价合一、`volume=0`、`open_interest` 不动，带前收结转价）
-- **22:29** 是集合竞价撮合（四价合一 638.0、`volume=11,436`、OI 跳变）
-- 22:30 起才是连续交易
+- 设计：`docs/superpowers/specs/2026-08-19-carry-minute-auction-attribution-design.md`
+- 证据：`docs/research/2026-08-19-carry-minute-auction-attribution-verification.md`
 
-于是经验边界**两条口径都拿不到 `22:30`**：
-
-| 口径 | 经验 `night_first` | 与权威 `22:30` |
-|---|---|---|
-| 现状（`build_session_boundary_query` 不滤 volume） | `21:00` | ❌ `night_authority_conflict` |
-| 滤 `volume > 0` | `22:29` | ❌ 不在 15 分钟网格 → `session_rule_time` 非法 |
-
-**因此现在写入这一行，会让 2019-12-26 的每个 DCE 产品日 fail-closed，采集永远过不去。**
-必须先在四个方向里拍板一个（详见
-`docs/research/2026-08-18-carry-minute-empirical-findings.md` 第二节）：
-边界查询滤 `volume>0` 并把权威改 `22:29`／滤 `volume>0` 且排除竞价 K 线保持 `22:30`／
-放宽 15 分钟网格／授权层开一分钟容差。
-
-**在拍板前，批次 A 不写入。**
+**仍未解除的是审批本身**：本行**仍需用户逐行过目后**才允许写入
+`config/carry_minute_session_exceptions.csv`（用户 2026-08-18 口径，未变）。
+该资产目前仍是零数据行的纯表头。
 
 ---
 
@@ -142,7 +134,8 @@ DCE,commodity-v1,2019-12-26,22:30,23:00,delayed night open per 大商所发[2019
 
 ## 明天定稿的推荐顺序
 
-1. **先拍板 22:29 竞价 K 线的处理方向**（四选一，见实证发现文档第二节）。未拍板前批次 A 不写入 —— 写了采集必然 fail-closed。
+1. ~~先拍板 22:29 竞价 K 线的处理方向~~ **已于 2026-08-19 拍板并落地**（滤 volume + 竞价归位）。
+   批次 A 的技术阻塞解除，只等用户逐行过目。
 2. 读有界采集产物：`round1_inventory.csv`（ambiguity 清单）与 `round1_audit.txt`。
 3. 用采集的全局交易日历把批次 B 的 45 条 + DCE 2020-01-23 映射成 `trade_date`。
 4. 三方交叉（官方来源 × 日历映射 × 经验清单），只有三者一致的行才进批次。
