@@ -167,8 +167,8 @@ SHA-256，延续现有防 TOCTOU 行为。
 
 对每个 `(exchange, product, trade_date)`：
 
-1. 若命中唯一产品级 day-only regime，经验值必须为 `none,none`，且不得同时命中
-   session exception。
+1. 若命中唯一产品级 day-only regime，经验值必须为 `none,none`；**同时命中 session
+   exception 时 day-only 优先**，该行不消费例外。
 2. 若命中唯一 session exception，经验起止必须与异常行精确相等。
 3. 若没有任何 authority，只有从 21:00 开始且结束于正常已支持终点的完整夜盘才通过。
 4. 经验值为 `none,none`、开始时间不是 21:00，或其他异常区间时，缺少 exception 必须
@@ -177,8 +177,27 @@ SHA-256，延续现有防 TOCTOU 行为。
 6. 加载日历内存在但未被任何经验键消费的 session exception 必须报告为额外 authority，
    阻止最终发布。
 
-异常按交易所/目标交易日授权，并应用于该交易所当天所有被审计产品。若同一交易所当天
+异常按交易所/目标交易日授权，并应用于该交易所当天**有夜盘的**被审计产品。若同一交易所当天
 不同产品产生不同经验边界，不能用一条 exception 掩盖，必须报告数据冲突。
+
+### 6.1 规则 1 的优先级为什么是这样（2026-08-19 修订）
+
+原规则 1 要求 day-only 命中时**不得同时命中** session exception。实测该要求与例外的
+交易所级作用域结构性冲突：节前「当晚无夜盘」必须按所登记（否则该所有夜盘的品种全炸），
+一登记就必然罩住同所的日盘品种，于是两个权威都说「当晚没有夜盘」时代码反而 fail-closed。
+碰撞次数 = 日盘品种数 × 节前日数，2020-07→2026-01 窗口实测 **216 条**，
+导致 `ambiguous=0` 结构上不可达、正式资产永远发不出来。
+
+改为 day-only 优先的依据：session exception 描述的是**该所当晚的夜盘时段**，
+而日盘品种根本不参与夜盘，不在这句话的射程内。两者在 `none,none` 上是同一事实的两种说法。
+
+**闸门没有放宽**：观测仍必须是 `none,none`。若某品种被错误登记成 day-only 而当晚
+其实交易了，观测就是一个真实区间，规则 1 照样 fail-closed
+（`tests/test_carry_session_authority.py` 的
+`test_day_only_product_that_traded_at_night_still_fails_closed` 直接钉住这条）。
+day-only 行不消费例外，故规则 6 的未消费检查仍然有效。
+
+证据与替代方案的比较见 `docs/research/2026-08-19-batch-cd-replay-verification.md`。
 
 ## 7. 折叠、复读与原子发布
 
@@ -248,7 +267,8 @@ SHA-256。`commodity-v1` 保持不变；若旧正式资产已对外发布的事�
 3. 一端 `none`、非 15 分钟网格、越界、倒序和零长度区间拒绝。
 4. DCE 2019-12-26 经验 `22:30/23:00` 在有精确 exception 时通过，无 exception、
    时间不同或额外 exception 时失败。
-5. 产品 day-only 与 session exception 同时命中时失败。
+5. 产品 day-only 与 session exception 同时命中且观测为 `none,none` 时**放行**且不消费例外
+   （无论例外写的是 `none,none` 还是具体夜盘时段）；同一情形下观测为真实区间时仍失败。
 6. 同交易所同日不同产品边界冲突失败。
 7. 相邻同值折叠；起点或终点不同即断开；未审计日间隙不得折叠。
 8. loader replay、反向键相等、哈希变化、临时文件清理与原子发布回滚。

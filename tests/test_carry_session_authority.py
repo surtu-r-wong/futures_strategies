@@ -544,27 +544,63 @@ def test_delayed_open_requires_an_exact_exception():
         )
 
 
-def test_day_only_and_session_exception_cannot_both_authorize_one_product_day():
+def _day_only_jd(**overrides) -> EffectiveAuthorityRange:
+    values = {
+        "exchange": "DCE",
+        "product": "JD",
+        "effective_start": date(2013, 11, 8),
+        "effective_end": None,
+        "reason": "day-only product: JD never received a night session",
+        "source_url": "https://www.dce.com.cn/notice/night-launch",
+    }
+    values.update(overrides)
+    return _range_row(**values)
+
+
+@pytest.mark.parametrize(
+    ("night_start", "night_end"),
+    [("none", "none"), ("22:30", "23:00")],
+)
+def test_day_only_regime_outranks_an_exchange_wide_exception(night_start, night_end):
+    """An exchange-wide night rule cannot speak for a product with no night.
+
+    A pre-holiday halt and a delayed open are both statements about the
+    exchange's night session. A day-only product does not have one, so the two
+    authorities agree rather than conflict.
+    """
+    exception = _session_exception(night_start=night_start, night_end=night_end)
+
+    consumed = authorize_night_observation(
+        _authority(
+            session_exceptions=(exception,),
+            day_only_regimes=(_day_only_jd(),),
+        ),
+        exchange="DCE",
+        product="JD",
+        trade_date=date(2019, 12, 26),
+        observed_night_start="none",
+        observed_night_end="none",
+    )
+
+    assert consumed is None
+
+
+@pytest.mark.parametrize("with_exception", [False, True])
+def test_day_only_product_that_traded_at_night_still_fails_closed(with_exception):
+    """The gate day-only precedence leans on: the observation must be none."""
+    exceptions = (_session_exception(),) if with_exception else ()
+
     with pytest.raises(SessionAuthorityError, match="night_authority_conflict"):
         authorize_night_observation(
             _authority(
-                session_exceptions=(
-                    _session_exception(night_start="none", night_end="none"),
-                ),
-                day_only_regimes=(
-                    _range_row(
-                        exchange="DCE",
-                        product="I",
-                        effective_start=date(2019, 12, 26),
-                        effective_end=date(2019, 12, 26),
-                    ),
-                ),
+                session_exceptions=exceptions,
+                day_only_regimes=(_day_only_jd(),),
             ),
             exchange="DCE",
-            product="I",
+            product="JD",
             trade_date=date(2019, 12, 26),
-            observed_night_start="none",
-            observed_night_end="none",
+            observed_night_start="22:30",
+            observed_night_end="23:00",
         )
 
 

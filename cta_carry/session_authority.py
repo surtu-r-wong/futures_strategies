@@ -701,7 +701,11 @@ def authorize_night_observation(
     )
     observed = (observed_night_start, observed_night_end)
     if regimes:
-        if observed == ("none", "none") and not exceptions:
+        # A session exception describes the exchange's night session, which a
+        # day-only product does not take part in, so the two never conflict.
+        # The observation still has to be none: a product that traded at night
+        # is not day-only, whatever the regime claims.
+        if observed == ("none", "none"):
             return None
     elif exceptions:
         expected = (exceptions[0].night_start, exceptions[0].night_end)
