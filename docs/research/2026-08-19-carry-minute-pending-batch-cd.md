@@ -4,6 +4,13 @@
 > `config/carry_minute_session_exceptions.csv` 仍是零数据行的纯表头。
 > 本文是**提请复核的候选行**，每行须经用户逐行过目才允许写入。
 
+> 🔴 **2026-08-19 下午更正：下文「只剩 2 条残余」是错的，实测 217 条。**
+> 离线重放（把这两批当权威、逐条重放 11,861 条清单）发现批次 C 与批次 D 在授权层
+> 互相否决：日盘品种撞上本所节前例外时，两个权威都说「没有夜盘」，代码却 fail-closed。
+> 216 条由此而来，第 217 条才是已知的 SHFE.NI。**这是设计缺陷，需拍板**，
+> 详见 `docs/research/2026-08-19-batch-cd-replay-verification.md`。
+> 批次行本身的内容不受影响，逐行过目照常可做。
+
 来源：`full2_inventory.csv`（2020-07-01 → 2026-04-29 采集，11,861 条），
 窗口右端取 **2026-01-31**，以甩掉 `futures_daily` 2026-03 空洞造成的 119 条噪声
 （见 `docs/research/2026-08-19-carry-minute-multiyear-inventory.md`）。
@@ -207,7 +214,7 @@ INE,commodity-v1,2026-01-05,none,none,no night session before the post-holiday s
 SHFE,commodity-v1,2026-01-05,none,none,no night session before the post-holiday session notice_evening=2025-12-31,https://www.shfe.com.cn/services/calenderandholidays/holiday/
 ```
 
-批次 D 行数：140；涉及 36 个目标交易日
+批次 D 行数：140；涉及 **35** 个目标交易日（140 ÷ 4 个交易所；原记 36 有误）
 
 ### ⚠️ 无法映射到任何已登记前夕的日期（须人工处理）
 

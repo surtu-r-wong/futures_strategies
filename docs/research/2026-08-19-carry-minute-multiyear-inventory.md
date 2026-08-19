@@ -87,7 +87,15 @@ products=63 rules=0 checked_days=70734 ambiguous=11861   publication_status=bloc
 ## 归位规则在 70,734 个产品日上的表现
 
 `night_auction_attributed` 与 `night_untraded_padding` **各 0 次**。
-本窗口不含 2019-12-26，规则不应触发，实测也确实一次没触发。
+本窗口不含 2019-12-26，归位规则不应触发，实测也确实一次没触发。
+
+> 🔴 **2026-08-19 下午更正：`night_untraded_padding` 的 0 次是假象。**
+> SHFE NI 2022-03-09 那一夜就落在本窗口内、且确实「有 K 无量」，本应计数。
+> 零计数源于审计管线缺陷：note 的收集写在授权调用**之后**，授权一抛异常
+> （该行成为 ambiguity）note 就丢了 —— 而这类行恰恰总是授权失败的。
+> 已于 `f2eaf78` 修复。**真实计数需重跑采集才能拿到，本节数字暂不可引用。**
+> `night_auction_attributed` 的 0 次不受影响（该规则只在授权成功路径上计数，
+> 且本窗口本就不该触发）。
 
 ## 三方交叉
 
