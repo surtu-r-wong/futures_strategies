@@ -365,10 +365,15 @@ def _build_representative_index(
         normalized_products.append(product)
     ranking["exchange"] = exchanges
     ranking["product"] = normalized_products
+    # A contract halted for the day keeps its open interest, so ranking on that
+    # alone can hand the audit a contract that never traded and therefore
+    # cannot say whether the session opened. Prefer one that did trade; when a
+    # whole product is halted none did, and the boundary gate fires as before.
+    ranking["traded"] = ranking["volume"].fillna(0) > 0
     representatives = (
         ranking.sort_values(
-            ["exchange", "product", "trade_date", "oi", "volume", "contract"],
-            ascending=[True, True, True, False, False, True],
+            ["exchange", "product", "trade_date", "traded", "oi", "volume", "contract"],
+            ascending=[True, True, True, False, False, False, True],
             kind="mergesort",
         )
         .drop_duplicates(["exchange", "product", "trade_date"], keep="first")

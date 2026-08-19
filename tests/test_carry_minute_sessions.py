@@ -1273,6 +1273,54 @@ def _audit_price(
     }
 
 
+def test_session_representative_skips_a_contract_that_did_not_trade():
+    """The real 2022-03-10 nickel day: SHFE halted the seven front contracts.
+
+    Open interest survives a halt, so ranking on it alone hands the audit a
+    contract with nothing to say about whether the session opened.
+    """
+    day = date(2022, 3, 10)
+    prices = pd.DataFrame(
+        [
+            _audit_price(
+                day, product="NI", contract="NI2204.SHF", oi=114596.0, volume=0.0
+            ),
+            _audit_price(
+                day, product="NI", contract="NI2205.SHF", oi=52084.0, volume=0.0
+            ),
+            _audit_price(
+                day, product="NI", contract="NI2203.SHF", oi=3906.0, volume=1506.0
+            ),
+            _audit_price(
+                day, product="NI", contract="NI2208.SHF", oi=1998.0, volume=2509.0
+            ),
+        ]
+    )
+
+    index = capture_module._build_representative_index(prices)
+
+    assert index[("SHFE", "NI", day)].daily_contract == "NI2203.SHF"
+
+
+def test_session_representative_falls_back_when_nothing_traded():
+    """A product-wide halt has no traded contract, so the gate must still fire."""
+    day = date(2022, 3, 10)
+    prices = pd.DataFrame(
+        [
+            _audit_price(
+                day, product="NI", contract="NI2205.SHF", oi=52084.0, volume=0.0
+            ),
+            _audit_price(
+                day, product="NI", contract="NI2204.SHF", oi=114596.0, volume=0.0
+            ),
+        ]
+    )
+
+    index = capture_module._build_representative_index(prices)
+
+    assert index[("SHFE", "NI", day)].daily_contract == "NI2204.SHF"
+
+
 def test_audit_envelope_emits_across_the_requested_start_boundary():
     calendar = [date(2023, 12, 28), date(2023, 12, 29), date(2024, 1, 2)]
     pool = {_audit_key(date(2023, 12, 28))}
