@@ -240,6 +240,14 @@ night_untraded_padding=2022-03-10 SHFE NI                ← 原为 0 次，现�
    （`SHFE.al1803` 2018-01-02、`SHFE.cu1903` 与 `ru1905` 2019-01-02、
    `SHFE.al2002` 与 `fu2005` 2020-01-02，建议连次主力一并取）；
    取上期所镍暂停通知正文；顺手看一眼停掉的 `FuturesDataBackfill` 计划任务。
+
+   **浏览器还要顺手办两件**（批次 E 需要，见
+   `docs/research/2026-08-19-carry-minute-pending-batch-e.md`）：
+   ① 确认上期所 2026 年度休市公告
+   `https://www.shfe.com.cn/publicnotice/notice/202512/t20251217_829805.html`
+   （检索所得、id 与 INE 同日相邻，符合历年规律，但全站 WAF 我读不到正文）；
+   ② 从大商所「放假安排」`http://www.dce.com.cn/dalianshangpin/ywfw/fjap/index.html`
+   取 2026 年度公告 URL —— 这一份同时补 2026-01-05 / 02-24 / 04-07 三行。
 2. **NI 2022-03-10 的 schema** —— 建议**先拿到公告正文再定**。
    搜索显示该通知点的是 `NI2204/2205/2206/2207/2209/2212/2301` 七个**合约**而非品种，
    若确为合约级，`SessionException` 加 product 列未必够用。
