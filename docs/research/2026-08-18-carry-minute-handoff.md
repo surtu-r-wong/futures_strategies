@@ -209,6 +209,24 @@ CZCE/DCE/INE 的九个日盘品种无一幸免。
 **用改后的真实代码重放同一份 11,861 行清单**：`resolved=11,124 residual=1 unconsumed=0`，
 与事前模拟逐位吻合，残余就是 SHFE NI 2022-03-10。
 
+### 真实库重跑确认了 `f2eaf78`
+
+同参数重跑采集（2020-07-01→2026-04-29，backtest-start 2022-07-01，约 5 分钟，峰值 RSS 2.0 GB）：
+
+```text
+products=63 rules=0 checked_days=70734 ambiguous=11861   ← 与 8-19 上午逐位相同
+night_untraded_padding=2022-03-10 SHFE NI                ← 原为 0 次，现为 1 次
+```
+
+11,861 行歧义清单**逐条完全相同**，即修复只补回丢失的观测事实、没有改动任何判定。
+产物在会话 scratchpad `capture/rerun_{inventory.csv,audit.txt}`。
+
+⚠️ 在工作树里跑采集必须显式传
+`--settings /home/elfbob/claude-code/futures_strategies/config/settings.yaml`
+—— `settings.yaml` 是 gitignored 的，工作树里没有，否则 PG 认证失败。
+另外脚本 stdout 是块缓冲，长跑期间日志文件会一直是 0 字节，别据此判定它挂了；
+判活用 `ps -p <pid> -o etimes=,rss=`。
+
 ### 验证状态
 
 全量 `854 tests: 853 passed, 1 failed`（3 分 28 秒）。唯一失败是

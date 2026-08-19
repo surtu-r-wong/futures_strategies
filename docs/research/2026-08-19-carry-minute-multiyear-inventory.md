@@ -89,13 +89,22 @@ products=63 rules=0 checked_days=70734 ambiguous=11861   publication_status=bloc
 `night_auction_attributed` 与 `night_untraded_padding` **各 0 次**。
 本窗口不含 2019-12-26，归位规则不应触发，实测也确实一次没触发。
 
-> 🔴 **2026-08-19 下午更正：`night_untraded_padding` 的 0 次是假象。**
+> 🔴 **2026-08-19 下午更正：`night_untraded_padding` 的 0 次是假象，真实值为 1。**
 > SHFE NI 2022-03-09 那一夜就落在本窗口内、且确实「有 K 无量」，本应计数。
 > 零计数源于审计管线缺陷：note 的收集写在授权调用**之后**，授权一抛异常
 > （该行成为 ambiguity）note 就丢了 —— 而这类行恰恰总是授权失败的。
-> 已于 `f2eaf78` 修复。**真实计数需重跑采集才能拿到，本节数字暂不可引用。**
-> `night_auction_attributed` 的 0 次不受影响（该规则只在授权成功路径上计数，
-> 且本窗口本就不该触发）。
+> 已于 `f2eaf78` 修复。
+>
+> **同参数重跑已确认**（2026-08-19 14:27–14:32，约 5 分钟，峰值 RSS 2.0 GB）：
+>
+> ```text
+> products=63 rules=0 checked_days=70734 ambiguous=11861   ← 与本文原值逐位相同
+> night_untraded_padding=2022-03-10 SHFE NI                ← 原为 0 次，现为 1 次
+> ```
+>
+> 11,861 行歧义清单**逐条完全相同**（按 exchange/product/trade_date/check 比对），
+> 说明修复只补回了丢失的观测事实，没有改动任何判定。
+> `night_auction_attributed` 仍为 0 次，符合预期（本窗口不含 2019-12-26）。
 
 ## 三方交叉
 
