@@ -2097,6 +2097,28 @@ def test_untraded_padding_is_counted_when_authority_declares_day_only():
     assert notes == ("night_untraded_padding=2024-01-08 DCE JD",)
 
 
+def test_untraded_padding_is_counted_even_when_authorization_fails():
+    """The real 2022-03-10 SHFE NI night: full padding, zero trades, no authority."""
+    day = date(2022, 3, 10)
+    previous = date(2022, 3, 9)
+    row = _observation(day, previous, night_end="01:00", exchange="SHFE", product="NI")
+    row["night_traded_first"] = None
+    row["night_traded_second"] = None
+    row["night_traded_first_flat"] = None
+
+    classified, ambiguities, notes = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([row]),
+        _authority(),
+        global_calendar=(day,),
+    )
+
+    assert classified.empty
+    assert [(item.exchange, item.product, item.check) for item in ambiguities] == [
+        ("SHFE", "NI", "night_authority_conflict")
+    ]
+    assert notes == ("night_untraded_padding=2022-03-10 SHFE NI",)
+
+
 def test_loaded_but_unconsumed_exception_blocks_capture():
     day = date(2019, 12, 26)
     classified, ambiguities, _ = capture_module.classify_authorized_boundaries(

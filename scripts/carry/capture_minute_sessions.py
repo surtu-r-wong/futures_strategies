@@ -902,8 +902,27 @@ def classify_authorized_boundaries(
     for row in ordered.to_dict("records"):
         try:
             observation = classify_session_boundary(row)
-            night_start = observation.night_start
-            night_end = observation.night_end
+        except (SessionCaptureError, SessionAuthorityError) as exc:
+            ambiguous.append(
+                AmbiguityRecord(
+                    trade_date=row["trade_date"],
+                    exchange=row["exchange"],
+                    product=row["product"],
+                    check=getattr(exc, "check", "empirical_boundary"),
+                    reason=str(exc),
+                )
+            )
+            continue
+        # The note records an observed fact, so it must survive an
+        # authorization failure that turns the row into an ambiguity.
+        if observation.note is not None:
+            notes.append(
+                f"{observation.note}={row['trade_date'].isoformat()} "
+                f"{row['exchange']} {row['product']}"
+            )
+        night_start = observation.night_start
+        night_end = observation.night_end
+        try:
             consumed = authorize_night_observation(
                 authority,
                 exchange=row["exchange"],
@@ -925,11 +944,6 @@ def classify_authorized_boundaries(
             continue
         if consumed is not None:
             consumed_exception_keys.add((consumed.exchange, consumed.trade_date))
-        if observation.note is not None:
-            notes.append(
-                f"{observation.note}={row['trade_date'].isoformat()} "
-                f"{row['exchange']} {row['product']}"
-            )
         classified.append(
             {
                 "exchange": row["exchange"],
