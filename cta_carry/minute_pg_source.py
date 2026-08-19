@@ -82,7 +82,13 @@ _BOUNDARY_COLUMNS = (
     "day_3_first",
     "day_3_last",
     "observed_rows",
+    "night_traded_first",
+    "night_traded_second",
+    "night_traded_first_flat",
 )
+_TRADED_FIRST_INDEX = _BOUNDARY_COLUMNS.index("night_traded_first")
+_TRADED_SECOND_INDEX = _BOUNDARY_COLUMNS.index("night_traded_second")
+_TRADED_FLAT_INDEX = _BOUNDARY_COLUMNS.index("night_traded_first_flat")
 _TRANSACTION_SETTINGS = (
     "SET LOCAL max_parallel_workers_per_gather = 0;",
     "SET LOCAL work_mem = '32MB';",
@@ -528,7 +534,30 @@ def build_session_boundary_query(*, lower: datetime, upper: datetime) -> sql.SQL
                     c.trade_date::timestamp + TIME '15:00'
                 ) AT TIME ZONE 'Asia/Shanghai'
             ) AS day_3_last,
-            count(m.bar_time) AS observed_rows
+            count(m.bar_time) AS observed_rows,
+            (array_agg(m.bar_time ORDER BY m.bar_time) FILTER (
+                WHERE m.volume > 0
+                  AND m.bar_time < (
+                    c.trade_date::timestamp + TIME '09:00'
+                  ) AT TIME ZONE 'Asia/Shanghai'
+            ))[1] AS night_traded_first,
+            (array_agg(m.bar_time ORDER BY m.bar_time) FILTER (
+                WHERE m.volume > 0
+                  AND m.bar_time < (
+                    c.trade_date::timestamp + TIME '09:00'
+                  ) AT TIME ZONE 'Asia/Shanghai'
+            ))[2] AS night_traded_second,
+            (array_agg(m.high ORDER BY m.bar_time) FILTER (
+                WHERE m.volume > 0
+                  AND m.bar_time < (
+                    c.trade_date::timestamp + TIME '09:00'
+                  ) AT TIME ZONE 'Asia/Shanghai'
+            ))[1] = (array_agg(m.low ORDER BY m.bar_time) FILTER (
+                WHERE m.volume > 0
+                  AND m.bar_time < (
+                    c.trade_date::timestamp + TIME '09:00'
+                  ) AT TIME ZONE 'Asia/Shanghai'
+            ))[1] AS night_traded_first_flat
         FROM _carry_minute_candidates c
         LEFT JOIN public.futures_minute m
           ON m.symbol = c.minute_symbol
@@ -1190,6 +1219,30 @@ def _validate_boundary_frame(
                         "column": _BOUNDARY_COLUMNS[column_index],
                     },
                 )
+        for column_index in (_TRADED_FIRST_INDEX, _TRADED_SECOND_INDEX):
+            value = row[column_index]
+            if value is not None and not _is_aware(value):
+                raise MinuteDataError(
+                    trade_date=identity[0],
+                    product=identity[1],
+                    contract=identity[2],
+                    check="session_boundaries",
+                    reason="observed session boundaries must be aware datetimes",
+                    context={
+                        "row": row_number,
+                        "column": _BOUNDARY_COLUMNS[column_index],
+                    },
+                )
+        flat = row[_TRADED_FLAT_INDEX]
+        if flat is not None and not isinstance(flat, bool):
+            raise MinuteDataError(
+                trade_date=identity[0],
+                product=identity[1],
+                contract=identity[2],
+                check="session_boundaries",
+                reason="night_traded_first_flat must be boolean or null",
+                context={"row": row_number, "value": repr(flat)},
+            )
         observed_rows = row[15]
         candidate = candidate_by_identity.get(identity)
         if (
@@ -1214,7 +1267,15 @@ def _validate_boundary_frame(
                 context={"row": row_number, "observed_rows": observed_rows},
             )
         identities.append(identity)
-        normalized_rows.append((*row[:15], int(observed_rows)))
+        normalized_rows.append(
+            (
+                *row[:15],
+                int(observed_rows),
+                row[_TRADED_FIRST_INDEX],
+                row[_TRADED_SECOND_INDEX],
+                flat,
+            )
+        )
 
     if len(identities) != len(set(identities)):
         raise MinuteDataError(

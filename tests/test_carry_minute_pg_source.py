@@ -10,6 +10,7 @@ import pytest
 
 from cta_carry.minute_bars import MinuteDataError
 from cta_carry.minute_pg_source import (
+    _BOUNDARY_COLUMNS,
     MinuteCandidate,
     MinuteSourceAudit,
     PublicMinuteSource,
@@ -20,6 +21,7 @@ from cta_carry.minute_pg_source import (
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+_UNSET = object()
 
 
 def test_czce_three_digit_month_maps_on_the_small_side():
@@ -62,6 +64,30 @@ def test_session_boundary_query_is_grouped_bounded_and_keeps_symbol_bare():
     assert "max(m.bar_time)" in query.lower()
     assert "'2024-01-01T20:00:00+08:00'" in query
     assert "'2024-02-01T15:01:00+08:00'" in query
+
+
+def test_session_boundary_query_exposes_traded_night_columns():
+    lower = datetime(2024, 1, 1, 20, 0, tzinfo=SHANGHAI)
+    upper = datetime(2024, 2, 1, 15, 1, tzinfo=SHANGHAI)
+
+    query = build_session_boundary_query(lower=lower, upper=upper).as_string(None)
+
+    assert "AS night_traded_first" in query
+    assert "AS night_traded_second" in query
+    assert "AS night_traded_first_flat" in query
+    assert "m.volume > 0" in query
+    assert "m.symbol = c.minute_symbol" in query
+    assert "regexp_replace(m.symbol" not in query
+    assert "'2024-01-01T20:00:00+08:00'" in query
+
+
+def test_boundary_columns_append_traded_columns_after_observed_rows():
+    assert _BOUNDARY_COLUMNS[15] == "observed_rows"
+    assert _BOUNDARY_COLUMNS[16:] == (
+        "night_traded_first",
+        "night_traded_second",
+        "night_traded_first_flat",
+    )
 
 
 @pytest.mark.parametrize(
@@ -335,6 +361,9 @@ BOUNDARY_COLUMNS = [
     "day_3_first",
     "day_3_last",
     "observed_rows",
+    "night_traded_first",
+    "night_traded_second",
+    "night_traded_first_flat",
 ]
 SETTINGS = [
     "SET LOCAL max_parallel_workers_per_gather = 0;",
@@ -1651,7 +1680,14 @@ def test_session_representative_role_is_canonicalized_without_touching_future_ro
     assert future_role.candidate_role == "Signal_Main"
 
 
-def _boundary_row(candidate, *, observed_rows=345):
+def _boundary_row(
+    candidate,
+    *,
+    observed_rows=345,
+    traded_first=_UNSET,
+    traded_second=_UNSET,
+    traded_flat=False,
+):
     previous = candidate.trade_date - timedelta(days=1)
     identity = (
         candidate.trade_date,
@@ -1663,7 +1699,7 @@ def _boundary_row(candidate, *, observed_rows=345):
         candidate.window_end,
     )
     if observed_rows == 0:
-        return (*identity, *(None for _ in range(8)), observed_rows)
+        return (*identity, *(None for _ in range(8)), observed_rows, None, None, None)
     return (
         *identity,
         datetime(
@@ -1729,7 +1765,77 @@ def _boundary_row(candidate, *, observed_rows=345):
             tzinfo=SHANGHAI,
         ),
         observed_rows,
+        _night_at(previous, 21, 0) if traded_first is _UNSET else traded_first,
+        _night_at(previous, 21, 1) if traded_second is _UNSET else traded_second,
+        traded_flat,
     )
+
+
+def _night_at(previous, hour, minute):
+    return datetime(
+        previous.year,
+        previous.month,
+        previous.day,
+        hour,
+        minute,
+        tzinfo=SHANGHAI,
+    )
+
+
+def test_boundary_frame_keeps_the_traded_night_columns(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    candidate = _session_candidate(date(2024, 1, 8))
+    connection = FakeConnection(
+        boundary_rows=[_boundary_row(candidate, traded_flat=True)]
+    )
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    frame = _source(connection).iter_session_boundaries(
+        [candidate],
+        lower=datetime(2024, 1, 1, 0, 0, tzinfo=SHANGHAI),
+        upper=datetime(2024, 2, 1, 0, 0, tzinfo=SHANGHAI),
+    )
+
+    assert frame.loc[0, "night_traded_first"] == _night_at(date(2024, 1, 7), 21, 0)
+    assert frame.loc[0, "night_traded_second"] == _night_at(date(2024, 1, 7), 21, 1)
+    assert bool(frame.loc[0, "night_traded_first_flat"]) is True
+
+
+def test_boundary_frame_rejects_a_naive_traded_night_timestamp(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    candidate = _session_candidate(date(2024, 1, 8))
+    connection = FakeConnection(
+        boundary_rows=[
+            _boundary_row(candidate, traded_first=datetime(2024, 1, 7, 21, 0))
+        ]
+    )
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    with pytest.raises(MinuteDataError, match="aware datetimes"):
+        _source(connection).iter_session_boundaries(
+            [candidate],
+            lower=datetime(2024, 1, 1, 0, 0, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, 0, 0, tzinfo=SHANGHAI),
+        )
+
+
+def test_boundary_frame_rejects_a_non_boolean_auction_flag(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    candidate = _session_candidate(date(2024, 1, 8))
+    connection = FakeConnection(
+        boundary_rows=[_boundary_row(candidate, traded_flat="yes")]
+    )
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    with pytest.raises(MinuteDataError, match="night_traded_first_flat"):
+        _source(connection).iter_session_boundaries(
+            [candidate],
+            lower=datetime(2024, 1, 1, 0, 0, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, 0, 0, tzinfo=SHANGHAI),
+        )
 
 
 def test_iter_session_boundaries_returns_one_ordered_row_per_candidate(monkeypatch):
