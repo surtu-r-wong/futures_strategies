@@ -8,50 +8,58 @@
 窗口右端取 **2026-01-31**，以甩掉 `futures_daily` 2026-03 空洞造成的 119 条噪声
 （见 `docs/research/2026-08-19-carry-minute-multiyear-inventory.md`）。
 
-## ⚠️ 定稿前必须修正的三处（我已发现，尚未修）
+## ⚠️ 定稿前必须修正的三处（2026-08-19 下午已修前两处）
 
-1. **批次 C 的 `effective_start` 取的是「入池首日」，不是品种上市日。** 例如 CZCE.AP 写成
-   2020-07-01（采集窗口左端）。日盘制度自品种上市即成立，全历史采集会漏。
-   定稿前应改为该品种在 `futures_daily` 的首个交易日。
-2. **批次 C 中 DCE 的 `source_url` 在生成时被截断。** 正确 URL 是
-   `https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf`
-   （下方 CSV 里仍是截断值，需替换）。
-3. **`SHFE.NI 2022-03-10` 尚无经核实的官方来源。** 网络搜索给出的
-   `https://www.shfe.com.cn/news/notice/911341410.html` 实测 **HTTP 404**，不可采用。
-   上期所站点本身可机读（首页 200），需要一个能打开的真实公告 URL。
+1. ✅ **已修**：批次 C 的 `effective_start` 原取「入池首日」（采集窗口左端），已改为该品种在
+   `futures_daily` 的实测首个交易日（2026-08-19 查询
+   `min(trade_date) GROUP BY substring(symbol from '^[A-Z]+')`，12 个品种各只有一个交易所
+   后缀、无前缀冲突，且全部与官方上市日一致）。注意三个品种的上市日早于采集窗口左端
+   2020-07-01（JD 2013-11-08、SF/SM 2014-08-08），EC 的上市日 2023-08-18 也早于其入池日
+   2024-02-21——正是原缺陷会漏掉的区间。
+2. ✅ **已修**：批次 C 中 DCE 的 `source_url` 截断值已替换为完整 URL
+   `https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf`。
+3. **`SHFE.NI 2022-03-10` 仍缺公告正文存证** —— 但原因不是原先记的「URL 是 404」。
+   2026-08-19 下午复测：`https://www.shfe.com.cn/news/notice/911341410.html` 返回 **200**，
+   内容是瑞数 WAF 人机校验页，与上期所首页、以及**批次 D 中已采纳的两条 SHFE 公告 URL
+   表现完全一致**。全站不可机读，故「URL 能否打开」这把尺子会连带否掉已采纳的行，不能用作
+   取舍标准。缺的是**正文存证**（暂停哪些合约、哪一天、是否含夜盘），需用户在浏览器核对。
+   五个交易所域名的逐一实测见 `docs/research/2026-08-19-authority-url-reachability.md`。
 
 ## 批次 C：日盘 only 品种（写 config/carry_minute_day_only_regimes.csv）
 
 ```csv
 version,exchange,product,effective_start,effective_end,reason,source_url
-commodity-v1,CZCE,AP,2020-07-01,,day-only product: AP 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
-commodity-v1,CZCE,CJ,2021-08-19,,day-only product: CJ 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
-commodity-v1,CZCE,PK,2022-02-18,,day-only product: PK 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
-commodity-v1,CZCE,SF,2021-01-14,,day-only product: SF 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
-commodity-v1,CZCE,SM,2020-07-01,,day-only product: SM 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
-commodity-v1,CZCE,UR,2021-04-12,,day-only product: UR 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
-commodity-v1,DCE,JD,2020-07-01,,day-only product: JD 不在大商所夜盘通知逐批列明获得夜盘的品种（2014-07-04 P/J；2014-12-26 A/B/M/Y/JM/I；2019-03-29 新增 L/V/PP/EG/C/CS）,https://www.dce.com.cn/dalianshangpin/resource/cms/2016/07/
-commodity-v1,DCE,LH,2021-07-09,,day-only product: LH 不在大商所夜盘通知逐批列明获得夜盘的品种（2014-07-04 P/J；2014-12-26 A/B/M/Y/JM/I；2019-03-29 新增 L/V/PP/EG/C/CS）,https://www.dce.com.cn/dalianshangpin/resource/cms/2016/07/
-commodity-v1,GFEX,LC,2024-01-16,,day-only product: 上市通知列明三个日盘小节,https://www.gfex.com.cn/gfex/tzts/202307/33f2a342d80f4ee69966df4a554c26a4.shtml
-commodity-v1,GFEX,PS,2025-06-30,,day-only product: 上市通知列明三个日盘小节,https://www.gfex.com.cn/gfex/tzts/202412/34bc2f9dbfc34b4b81e1a043ff526589.shtml
-commodity-v1,GFEX,SI,2023-06-26,,day-only product: 上市通知列明三个日盘小节,https://www.gfex.com.cn/gfex/tzts/202212/44ccfcb613e442658c8ac94861e0de18.shtml
-commodity-v1,INE,EC,2024-02-21,,day-only product: 上市通知完整枚举 09:00-10:15、10:30-11:30、13:30-15:00 三个日盘小节,https://www.ine.cn/publicnotice/notice/202308/t20230811_814262.html
+commodity-v1,CZCE,AP,2017-12-22,,day-only product: AP 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,CZCE,CJ,2019-04-30,,day-only product: CJ 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,CZCE,PK,2021-02-01,,day-only product: PK 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,CZCE,SF,2014-08-08,,day-only product: SF 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,CZCE,SM,2014-08-08,,day-only product: SM 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,CZCE,UR,2019-08-09,,day-only product: UR 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,DCE,JD,2013-11-08,,day-only product: JD 不在大商所夜盘通知逐批列明获得夜盘的品种（2014-07-04 P/J；2014-12-26 A/B/M/Y/JM/I；2019-03-29 新增 L/V/PP/EG/C/CS）,https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf
+commodity-v1,DCE,LH,2021-01-08,,day-only product: LH 不在大商所夜盘通知逐批列明获得夜盘的品种（2014-07-04 P/J；2014-12-26 A/B/M/Y/JM/I；2019-03-29 新增 L/V/PP/EG/C/CS）,https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf
+commodity-v1,GFEX,LC,2023-07-21,,day-only product: 上市通知列明三个日盘小节,https://www.gfex.com.cn/gfex/tzts/202307/33f2a342d80f4ee69966df4a554c26a4.shtml
+commodity-v1,GFEX,PS,2024-12-26,,day-only product: 上市通知列明三个日盘小节,https://www.gfex.com.cn/gfex/tzts/202412/34bc2f9dbfc34b4b81e1a043ff526589.shtml
+commodity-v1,GFEX,SI,2022-12-22,,day-only product: 上市通知列明三个日盘小节,https://www.gfex.com.cn/gfex/tzts/202212/44ccfcb613e442658c8ac94861e0de18.shtml
+commodity-v1,INE,EC,2023-08-18,,day-only product: 上市通知完整枚举 09:00-10:15、10:30-11:30、13:30-15:00 三个日盘小节,https://www.ine.cn/publicnotice/notice/202308/t20230811_814262.html
 ```
 
-| 交易所 | 品种 | 冲突天数 | 首日 | 末日 | 证据强度 |
-|---|---|---:|---|---|---|
-| CZCE | AP | 1358 | 2020-07-01 | 2026-01-30 | 🟠 缺席证据（不在夜盘名单） |
-| CZCE | CJ | 293 | 2021-08-19 | 2026-01-30 | 🟠 缺席证据（不在夜盘名单） |
-| CZCE | PK | 551 | 2022-02-18 | 2026-01-30 | 🟠 缺席证据（不在夜盘名单） |
-| CZCE | SF | 1143 | 2021-01-14 | 2026-01-30 | 🟠 缺席证据（不在夜盘名单） |
-| CZCE | SM | 1358 | 2020-07-01 | 2026-01-30 | 🟠 缺席证据（不在夜盘名单） |
-| CZCE | UR | 1058 | 2021-04-12 | 2026-01-30 | 🟠 缺席证据（不在夜盘名单） |
-| DCE | JD | 1074 | 2020-07-01 | 2026-01-30 | 🟠 缺席证据（不在夜盘名单） |
-| DCE | LH | 1076 | 2021-07-09 | 2026-01-30 | 🟠 缺席证据（不在夜盘名单） |
-| GFEX | LC | 495 | 2024-01-16 | 2026-01-30 | 🟡 上市通知列明日盘小节 |
-| GFEX | PS | 147 | 2025-06-30 | 2026-01-30 | 🟡 上市通知列明日盘小节 |
-| GFEX | SI | 634 | 2023-06-26 | 2026-01-30 | 🟡 上市通知列明日盘小节 |
-| INE | EC | 427 | 2024-02-21 | 2025-11-21 | ✅ 已登记正面证据 |
+「冲突首日/末日」是采集窗口（2020-07-01 起）内的观测值；`effective_start` 取
+`futures_daily` 实测上市日（2026-08-19 查询，与官方上市日逐一核对一致），两者不同属正常。
+
+| 交易所 | 品种 | 冲突天数 | 冲突首日 | 冲突末日 | effective_start（上市日） | 证据强度 |
+|---|---|---:|---|---|---|---|
+| CZCE | AP | 1358 | 2020-07-01 | 2026-01-30 | 2017-12-22 | 🟠 缺席证据（不在夜盘名单） |
+| CZCE | CJ | 293 | 2021-08-19 | 2026-01-30 | 2019-04-30 | 🟠 缺席证据（不在夜盘名单） |
+| CZCE | PK | 551 | 2022-02-18 | 2026-01-30 | 2021-02-01 | 🟠 缺席证据（不在夜盘名单） |
+| CZCE | SF | 1143 | 2021-01-14 | 2026-01-30 | 2014-08-08 | 🟠 缺席证据（不在夜盘名单） |
+| CZCE | SM | 1358 | 2020-07-01 | 2026-01-30 | 2014-08-08 | 🟠 缺席证据（不在夜盘名单） |
+| CZCE | UR | 1058 | 2021-04-12 | 2026-01-30 | 2019-08-09 | 🟠 缺席证据（不在夜盘名单） |
+| DCE | JD | 1074 | 2020-07-01 | 2026-01-30 | 2013-11-08 | 🟠 缺席证据（不在夜盘名单） |
+| DCE | LH | 1076 | 2021-07-09 | 2026-01-30 | 2021-01-08 | 🟠 缺席证据（不在夜盘名单） |
+| GFEX | LC | 495 | 2024-01-16 | 2026-01-30 | 2023-07-21 | 🟡 上市通知列明日盘小节 |
+| GFEX | PS | 147 | 2025-06-30 | 2026-01-30 | 2024-12-26 | 🟡 上市通知列明日盘小节 |
+| GFEX | SI | 634 | 2023-06-26 | 2026-01-30 | 2022-12-22 | 🟡 上市通知列明日盘小节 |
+| INE | EC | 427 | 2024-02-21 | 2025-11-21 | 2023-08-18 | ✅ 已登记正面证据 |
 
 ## 批次 D：节前无夜盘（写 config/carry_minute_session_exceptions.csv）
 
