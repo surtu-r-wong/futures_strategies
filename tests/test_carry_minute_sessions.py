@@ -941,7 +941,18 @@ def _night_instant(previous, label):
     )
 
 
-def _captured_boundary(*, night_end, night_start="21:00"):
+def _interval(observation):
+    return (observation.night_start, observation.night_end)
+
+
+def _captured_boundary(
+    *,
+    night_end,
+    night_start="21:00",
+    traded_first=None,
+    traded_second=None,
+    traded_flat=False,
+):
     trade_date = date(2024, 1, 8)
     previous = date(2024, 1, 5)
     values = {
@@ -958,33 +969,45 @@ def _captured_boundary(*, night_end, night_start="21:00"):
         "day_3_last": _dt(2024, 1, 8, 14, 59),
     }
     if night_end == "none":
-        values.update(night_first=None, night_last=None)
-    else:
         values.update(
-            night_first=_night_instant(previous, night_start),
+            night_first=None,
+            night_last=None,
+            night_traded_first=None,
+            night_traded_second=None,
+            night_traded_first_flat=None,
+        )
+    else:
+        first = _night_instant(previous, night_start)
+        values.update(
+            night_first=first,
             night_last=_night_instant(previous, night_end) - timedelta(minutes=1),
+            night_traded_first=first if traded_first is None else traded_first,
+            night_traded_second=(
+                first + timedelta(minutes=1) if traded_second is None else traded_second
+            ),
+            night_traded_first_flat=traded_flat,
         )
     return values
 
 
 def test_capture_classifies_dce_delayed_open_as_an_exact_pair():
     row = _captured_boundary(night_start="22:30", night_end="23:00")
-    assert classify_session_boundary(row) == ("22:30", "23:00")
+    assert _interval(classify_session_boundary(row)) == ("22:30", "23:00")
 
 
 def test_capture_rejects_a_non_grid_night_start():
     row = _captured_boundary(night_start="22:30", night_end="23:00")
-    row["night_first"] = row["night_first"] + timedelta(minutes=1)
-    with pytest.raises(SessionCaptureError, match="night_first"):
+    row["night_traded_first"] = row["night_traded_first"] + timedelta(minutes=1)
+    with pytest.raises(SessionCaptureError, match="night_traded_first"):
         classify_session_boundary(row)
 
 
 @pytest.mark.parametrize("night_end", ["none", "23:00", "23:30", "01:00", "02:30"])
 def test_capture_classifies_only_supported_exact_session_boundaries(night_end):
     expected = ("none", "none") if night_end == "none" else ("21:00", night_end)
-    assert classify_session_boundary(_captured_boundary(night_end=night_end)) == (
-        expected
-    )
+    observation = classify_session_boundary(_captured_boundary(night_end=night_end))
+
+    assert _interval(observation) == expected
 
 
 def test_capture_reverse_maps_2330_session_segment():
@@ -1008,7 +1031,80 @@ def test_capture_treats_pandas_nat_as_an_absent_night_session():
     row["night_first"] = pd.NaT
     row["night_last"] = pd.NaT
 
-    assert classify_session_boundary(row) == ("none", "none")
+    assert _interval(classify_session_boundary(row)) == ("none", "none")
+
+
+def test_night_start_ignores_padded_empty_bars():
+    """Padded empty bars drag night_first to 21:00; the auction print sets 22:30."""
+    previous = date(2024, 1, 5)
+    row = _captured_boundary(night_start="21:00", night_end="23:00")
+    row["night_traded_first"] = _night_instant(previous, "22:29")
+    row["night_traded_second"] = _night_instant(previous, "22:30")
+    row["night_traded_first_flat"] = True
+
+    observation = classify_session_boundary(row)
+
+    assert _interval(observation) == ("22:30", "23:00")
+    assert observation.note == "night_auction_attributed"
+
+
+def test_normal_night_does_not_trigger_attribution():
+    observation = classify_session_boundary(_captured_boundary(night_end="23:00"))
+
+    assert _interval(observation) == ("21:00", "23:00")
+    assert observation.note is None
+
+
+def test_attribution_requires_the_next_minute_to_trade():
+    previous = date(2024, 1, 5)
+    row = _captured_boundary(night_start="21:00", night_end="23:00")
+    row["night_traded_first"] = _night_instant(previous, "22:29")
+    row["night_traded_second"] = _night_instant(previous, "22:31")
+    row["night_traded_first_flat"] = True
+
+    with pytest.raises(SessionCaptureError, match="session_rule_time"):
+        classify_session_boundary(row)
+
+
+def test_attribution_requires_the_shifted_minute_on_the_grid():
+    previous = date(2024, 1, 5)
+    row = _captured_boundary(night_start="21:00", night_end="23:00")
+    row["night_traded_first"] = _night_instant(previous, "21:05")
+    row["night_traded_second"] = _night_instant(previous, "21:06")
+    row["night_traded_first_flat"] = True
+
+    with pytest.raises(SessionCaptureError, match="session_rule_time"):
+        classify_session_boundary(row)
+
+
+def test_attribution_requires_the_auction_signature():
+    previous = date(2024, 1, 5)
+    row = _captured_boundary(night_start="21:00", night_end="23:00")
+    row["night_traded_first"] = _night_instant(previous, "22:29")
+    row["night_traded_second"] = _night_instant(previous, "22:30")
+    row["night_traded_first_flat"] = False
+
+    with pytest.raises(SessionCaptureError, match="session_rule_time"):
+        classify_session_boundary(row)
+
+
+def test_padded_night_without_any_trade_is_classified_as_no_night():
+    row = _captured_boundary(night_end="23:00")
+    row["night_traded_first"] = None
+    row["night_traded_second"] = None
+    row["night_traded_first_flat"] = None
+
+    observation = classify_session_boundary(row)
+
+    assert _interval(observation) == ("none", "none")
+    assert observation.note == "night_untraded_padding"
+
+
+def test_absent_night_bars_remain_no_night_without_a_note():
+    observation = classify_session_boundary(_captured_boundary(night_end="none"))
+
+    assert _interval(observation) == ("none", "none")
+    assert observation.note is None
 
 
 def test_capture_rejects_a_missing_standard_day_segment():
@@ -1762,7 +1858,16 @@ def _authority(
 
 
 def _observation(
-    day, previous, *, night_end, night_start="21:00", exchange="SHFE", product="AU"
+    day,
+    previous,
+    *,
+    night_end,
+    night_start="21:00",
+    exchange="SHFE",
+    product="AU",
+    traded_first=None,
+    traded_second=None,
+    traded_flat=False,
 ):
     row = {
         "trade_date": day,
@@ -1778,11 +1883,23 @@ def _observation(
         "day_3_last": _at_for_test(day, 14, 59),
     }
     if night_end == "none":
-        row.update(night_first=None, night_last=None)
+        row.update(
+            night_first=None,
+            night_last=None,
+            night_traded_first=None,
+            night_traded_second=None,
+            night_traded_first_flat=None,
+        )
         return row
+    first = _night_instant(previous, night_start)
     row.update(
-        night_first=_night_instant(previous, night_start),
+        night_first=first,
         night_last=_night_instant(previous, night_end) - timedelta(minutes=1),
+        night_traded_first=first if traded_first is None else traded_first,
+        night_traded_second=(
+            first + timedelta(minutes=1) if traded_second is None else traded_second
+        ),
+        night_traded_first_flat=traded_flat,
     )
     return row
 
@@ -1810,7 +1927,7 @@ def _at_for_test(day, hour, minute):
 def test_authority_rejects_weekend_shaped_none_without_authority():
     friday = date(2024, 1, 5)
     monday = date(2024, 1, 8)
-    rows, ambiguities = capture_module.classify_authorized_boundaries(
+    rows, ambiguities, _ = capture_module.classify_authorized_boundaries(
         pd.DataFrame([_observation(monday, friday, night_end="none")]),
         _authority(),
         global_calendar=(friday, monday),
@@ -1851,7 +1968,7 @@ def test_authority_accepts_declared_none(authority_kind):
             ),
         )
 
-    rows, ambiguities = capture_module.classify_authorized_boundaries(
+    rows, ambiguities, _ = capture_module.classify_authorized_boundaries(
         pd.DataFrame([_observation(monday, friday, night_end="none")]),
         _authority(session_exceptions=session_exceptions, day_only=day_only),
         global_calendar=(friday, monday),
@@ -1871,7 +1988,7 @@ def test_authority_accepts_declared_none(authority_kind):
 
 def test_authority_collects_every_unauthorized_continuous_none():
     days = [date(2024, 1, day) for day in (8, 9, 10)]
-    rows, ambiguities = capture_module.classify_authorized_boundaries(
+    rows, ambiguities, _ = capture_module.classify_authorized_boundaries(
         pd.DataFrame(
             [
                 _observation(day, day - timedelta(days=1), night_end="none")
@@ -1900,7 +2017,7 @@ def test_authority_rejects_observed_night_inside_declared_none():
         source_url="https://www.shfe.com.cn/example",
     )
 
-    rows, ambiguities = capture_module.classify_authorized_boundaries(
+    rows, ambiguities, _ = capture_module.classify_authorized_boundaries(
         pd.DataFrame([_observation(monday, friday, night_end="23:00")]),
         _authority(session_exceptions=(declared,)),
         global_calendar=(friday, monday),
@@ -1914,6 +2031,7 @@ def test_authority_rejects_observed_night_inside_declared_none():
 
 
 def test_authorized_delayed_open_is_classified_for_every_dce_product():
+    """The real 2019-12-25 night: padding starts 21:00, the auction prints 22:29."""
     day = date(2019, 12, 26)
     previous = date(2019, 12, 25)
     exception = _session_exception()
@@ -1922,22 +2040,18 @@ def test_authorized_delayed_open_is_classified_for_every_dce_product():
             _observation(
                 day,
                 previous,
-                night_start="22:30",
+                night_start="21:00",
                 night_end="23:00",
                 exchange="DCE",
-                product="I",
-            ),
-            _observation(
-                day,
-                previous,
-                night_start="22:30",
-                night_end="23:00",
-                exchange="DCE",
-                product="J",
-            ),
+                product=product,
+                traded_first=_night_instant(previous, "22:29"),
+                traded_second=_night_instant(previous, "22:30"),
+                traded_flat=True,
+            )
+            for product in ("I", "J")
         ]
     )
-    classified, ambiguities = capture_module.classify_authorized_boundaries(
+    classified, ambiguities, notes = capture_module.classify_authorized_boundaries(
         boundaries,
         _authority(session_exceptions=(exception,)),
         global_calendar=(day,),
@@ -1945,11 +2059,47 @@ def test_authorized_delayed_open_is_classified_for_every_dce_product():
     assert ambiguities == ()
     assert set(classified["night_start"]) == {"22:30"}
     assert set(classified["night_end"]) == {"23:00"}
+    assert notes == (
+        "night_auction_attributed=2019-12-26 DCE I",
+        "night_auction_attributed=2019-12-26 DCE J",
+    )
+
+
+def test_untraded_padding_is_counted_when_authority_declares_day_only():
+    day = date(2024, 1, 8)
+    previous = date(2024, 1, 5)
+    row = _observation(day, previous, night_end="23:00", exchange="DCE", product="JD")
+    row["night_traded_first"] = None
+    row["night_traded_second"] = None
+    row["night_traded_first_flat"] = None
+
+    classified, ambiguities, notes = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([row]),
+        _authority(
+            day_only=(
+                EffectiveAuthorityRange(
+                    version=SESSION_RULES_VERSION,
+                    exchange="DCE",
+                    product="JD",
+                    effective_start=day,
+                    effective_end=day,
+                    reason="documented day-only regime",
+                    source_url="https://www.dce.com.cn/example",
+                ),
+            )
+        ),
+        global_calendar=(day,),
+    )
+
+    assert ambiguities == ()
+    assert set(classified["night_start"]) == {"none"}
+    assert set(classified["night_end"]) == {"none"}
+    assert notes == ("night_untraded_padding=2024-01-08 DCE JD",)
 
 
 def test_loaded_but_unconsumed_exception_blocks_capture():
     day = date(2019, 12, 26)
-    classified, ambiguities = capture_module.classify_authorized_boundaries(
+    classified, ambiguities, _ = capture_module.classify_authorized_boundaries(
         pd.DataFrame(
             [
                 _observation(

@@ -134,6 +134,15 @@ class SessionCaptureError(ValueError):
     """Raised when empirical boundaries cannot define one exact session rule."""
 
 
+@dataclass(frozen=True)
+class NightObservation:
+    """One classified night interval plus the audit note it earned, if any."""
+
+    night_start: str
+    night_end: str
+    note: str | None = None
+
+
 @dataclass(frozen=True, order=True)
 class AmbiguityRecord:
     trade_date: date
@@ -777,7 +786,7 @@ def _night_boundary_error(row: Any, field: str, reason: str) -> None:
     )
 
 
-def classify_session_boundary(row: Any) -> tuple[str, str]:
+def classify_session_boundary(row: Any) -> NightObservation:
     """Classify one exact empirical row into its authoritative night interval."""
     trade_date = row["trade_date"]
     previous_trade_date = row["previous_trade_date"]
@@ -796,34 +805,57 @@ def classify_session_boundary(row: Any) -> tuple[str, str]:
 
     night_first = row["night_first"]
     night_last = row["night_last"]
+    traded_first = row["night_traded_first"]
+    traded_second = row["night_traded_second"]
+    traded_flat = row["night_traded_first_flat"]
     if _missing_boundary(night_first) and _missing_boundary(night_last):
-        return ("none", "none")
+        return NightObservation("none", "none")
     if _missing_boundary(night_first) or _missing_boundary(night_last):
         _boundary_error(
             row,
             "night_first" if _missing_boundary(night_first) else "night_last",
             None,
         )
+    if _missing_boundary(traded_first):
+        # Bars exist but nothing traded. A padded day-only product and a night
+        # nobody traded are indistinguishable here, so hand the call to the
+        # authority layer and leave a counted trace either way.
+        return NightObservation("none", "none", "night_untraded_padding")
     for field, value in (
-        ("night_first", night_first),
+        ("night_traded_first", traded_first),
         ("night_last", night_last),
     ):
         if not isinstance(value, datetime) or value.tzinfo is None:
             _night_boundary_error(row, field, "requires an aware datetime")
     try:
-        start = night_first.astimezone(SHANGHAI)
+        start = traded_first.astimezone(SHANGHAI)
         end = night_last.astimezone(SHANGHAI) + timedelta(minutes=1)
     except (TypeError, ValueError, OverflowError):
         _night_boundary_error(
-            row, "night_first", "could not be converted to the exchange clock"
+            row, "night_traded_first", "could not be converted to the exchange clock"
         )
+    note = None
+    if (
+        start.minute % 15
+        and traded_flat is True
+        and not _missing_boundary(traded_second)
+    ):
+        if not isinstance(traded_second, datetime) or traded_second.tzinfo is None:
+            _night_boundary_error(
+                row, "night_traded_second", "requires an aware datetime"
+            )
+        shifted = traded_second.astimezone(SHANGHAI)
+        if shifted == start + timedelta(minutes=1) and shifted.minute % 15 == 0:
+            # The auction match printed one minute before the session it opened.
+            start = shifted
+            note = "night_auction_attributed"
     after_midnight = previous_trade_date.fromordinal(
         previous_trade_date.toordinal() + 1
     )
     if start.date() != previous_trade_date:
         _night_boundary_error(
             row,
-            "night_first",
+            "night_traded_first",
             f"expected the previous trade date {previous_trade_date}; "
             f"got {start.date()}",
         )
@@ -834,7 +866,7 @@ def classify_session_boundary(row: Any) -> tuple[str, str]:
             f"ends after the 02:30 commodity clock bound; got {end}",
         )
     labels = (f"{start:%H:%M}", f"{end:%H:%M}")
-    for field, label in (("night_first", labels[0]), ("night_last", labels[1])):
+    for field, label in (("night_traded_first", labels[0]), ("night_last", labels[1])):
         try:
             night_label_to_offset(label)
         except ValueError as exc:
@@ -842,8 +874,8 @@ def classify_session_boundary(row: Any) -> tuple[str, str]:
     try:
         parse_night_interval(*labels)
     except ValueError as exc:
-        _night_boundary_error(row, "night_first/night_last", str(exc))
-    return labels
+        _night_boundary_error(row, "night_traded_first/night_last", str(exc))
+    return NightObservation(labels[0], labels[1], note)
 
 
 def classify_authorized_boundaries(
@@ -851,7 +883,7 @@ def classify_authorized_boundaries(
     authority: SessionAuthority,
     *,
     global_calendar: Sequence[date],
-) -> tuple[pd.DataFrame, tuple[AmbiguityRecord, ...]]:
+) -> tuple[pd.DataFrame, tuple[AmbiguityRecord, ...], tuple[str, ...]]:
     """Classify every boundary and reconcile each result with authority."""
     identity_columns = {"exchange", "product", "trade_date"}
     missing = sorted(identity_columns.difference(boundaries.columns))
@@ -861,6 +893,7 @@ def classify_authorized_boundaries(
 
     classified: list[dict[str, Any]] = []
     ambiguous: list[AmbiguityRecord] = []
+    notes: list[str] = []
     consumed_exception_keys: set[tuple[str, date]] = set()
     ordered = boundaries.sort_values(
         ["trade_date", "exchange", "product", "daily_contract"],
@@ -868,7 +901,9 @@ def classify_authorized_boundaries(
     )
     for row in ordered.to_dict("records"):
         try:
-            night_start, night_end = classify_session_boundary(row)
+            observation = classify_session_boundary(row)
+            night_start = observation.night_start
+            night_end = observation.night_end
             consumed = authorize_night_observation(
                 authority,
                 exchange=row["exchange"],
@@ -890,6 +925,11 @@ def classify_authorized_boundaries(
             continue
         if consumed is not None:
             consumed_exception_keys.add((consumed.exchange, consumed.trade_date))
+        if observation.note is not None:
+            notes.append(
+                f"{observation.note}={row['trade_date'].isoformat()} "
+                f"{row['exchange']} {row['product']}"
+            )
         classified.append(
             {
                 "exchange": row["exchange"],
@@ -933,6 +973,7 @@ def classify_authorized_boundaries(
             ],
         ),
         tuple(sorted(ambiguous)),
+        tuple(notes),
     )
 
 
@@ -1382,7 +1423,8 @@ def validate_audited_boundaries(
             row["trade_date"],
         )
         expected_interval = _expected_night_interval(rule)
-        actual_interval = classify_session_boundary(row)
+        observation = classify_session_boundary(row)
+        actual_interval = (observation.night_start, observation.night_end)
         if expected_interval != actual_interval:
             raise SessionCaptureError(
                 f"session_rule_replay: {row['trade_date']} {row['product']}: "
@@ -1648,9 +1690,10 @@ def _capture_and_publish_outcome(
         raise SessionCaptureError(
             "checked_days_mismatch: boundary and yearly audited totals differ"
         )
-    classified, ambiguities = classify_authorized_boundaries(
+    classified, ambiguities, attribution_notes = classify_authorized_boundaries(
         boundaries, authority, global_calendar=audit.global_calendar
     )
+    log_lines = (*log_lines, *attribution_notes)
     if ambiguities:
         for item in ambiguities:
             print(
