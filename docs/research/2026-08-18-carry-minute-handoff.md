@@ -4,6 +4,11 @@
 > 上一份检查点是 `docs/research/2026-08-14-carry-minute-execution-handoff.md`，
 > 其中「DCE 异常会话」与「下次恢复顺序」两节已被本文更新，其余仍然有效。
 
+> ⏩ **2026-08-19 下午追加，见文末「2026-08-19 下午」一节。**
+> 一句话：批次 C/D 的三处待修缺陷已修两处、第三处前提被推翻；
+> 离线重放发现**这两批合起来仍留 217 条歧义（不是 2 条）**，
+> 且成因是两批在授权层互相否决 —— **这是本条线现在唯一等你拍板的事**。
+
 ## 工作位置
 
 - 分支：`feature/carry-minute-execution`
@@ -140,3 +145,69 @@ python -m scripts.carry.capture_minute_sessions \
   **以前能机读的 DCE URL 现在也不能再机读复核了**。需要正文一律走浏览器人工取。
 - `ruff format` 漂移在 `803b7f7` 就已存在于四个文件，与本次改动无关；
   用户口径是单独开 style 提交（已记入记忆 `formatting-goes-in-its-own-commit`）。
+
+---
+
+## 2026-08-19 下午（追加）
+
+提交：`f2eaf78` → `e6541da` → `e19048f`。分支仍未合并未推送。
+
+### 待修的四处，处理结果
+
+| # | 内容 | 结果 |
+|---|---|---|
+| 4 | `night_untraded_padding` 计数恒为 0 | ✅ **已修** `f2eaf78`（TDD：先用真实的 NI 2022-03-09 写红测） |
+| 1 | 批次 C 的 `effective_start` 取采集窗口左端而非上市日 | ✅ **已修** `e6541da`，12 个品种改为 `futures_daily` 实测首日 |
+| 2 | 批次 C 中 DCE 的 `source_url` 被截断 | ✅ **已修** `e6541da` |
+| 3 | SHFE.NI 来源「URL 是 404」 | ⚠️ **前提被推翻**，见下 |
+
+第 3 条：该 URL 复测返回 **200 + 瑞数 WAF 校验页**，与上期所首页、以及批次 D 里**已被采纳的
+两条 SHFE URL 表现完全一致**。五个交易所域名逐一实测，**今天只有 CZCE 的 PDF 直链可机读**。
+所以「URL 我能不能打开」不能当取舍标准（会连带否掉已采纳的行），代码层也从不校验可达性。
+缺的是**公告正文存证**，仍需你在浏览器取。详见
+`docs/research/2026-08-19-authority-url-reachability.md`。
+
+### 🔴 新发现：批次 C/D 合起来仍留 217 条歧义
+
+把两批当权威、对 11,861 条清单离线重放（不重跑数据库，清单 `reason` 里带着观测区间）：
+
+```text
+窗口内(≤2026-01-31)  解决 10,908   残余 217        ← 提案文档称残余 2
+窗口外(>2026-01-31)  616（批次刻意止步于此，非缺陷）
+empirical_boundary   120（不是授权问题）
+未被消费的例外行      0（批次 D 的 140 行没有一条多余）
+```
+
+216 条同一个成因：**批次 C 与批次 D 在授权层互相否决**。日盘品种撞上本所节前例外时，
+两个权威都说「当晚没有夜盘」，`authorize_night_observation` 却因规则
+「day-only 不得同时命中 session exception」而 fail-closed。
+
+对照组很干净：**GFEX 是唯一「在批次 C、不在批次 D」的交易所，其三个日盘品种残余为 0**；
+CZCE/DCE/INE 的九个日盘品种无一幸免。
+
+**这是设计缺陷不是编码错误**：代码忠实实现了会话例外设计第 170 行的规则 1，
+且 `tests/test_carry_session_authority.py:547` 专门钉住该行为。因为
+`SessionException` 按交易所授权（无 product 列），只要一所同时有日盘品种和夜盘品种，
+碰撞就必然发生 —— **按现行规则 `ambiguous=0` 结构上不可达，正式资产永远发不出来**。
+
+建议解法与安全性论证见 `docs/research/2026-08-19-batch-cd-replay-verification.md`。
+一句话：让 day-only 优先，观测仍必须是 `none,none`（误登记照样拦下），
+例外消费追踪照旧。**代价是要改设计 + 改那条测试，所以我一处没动，等你拍板。**
+
+采纳后能买到什么，已在脚本里模拟（仓库代码一行未改）：**残余 217 → 1**，
+且只剩 SHFE NI 2022-03-10 —— 恰好是本就要单独裁决的那条，没有顺带放行任何别的东西。
+
+### 验证状态
+
+全量 `851 tests: 850 passed, 1 failed`（3 分 03 秒）。唯一失败是
+`test_repository_session_rules_are_nonoverlapping_and_cover_fixture_products`
+缺 `config/carry_minute_sessions.csv` —— 计划起点即红、master 上同样红，与本次改动无关
+（已用 `git stash` 复核）。`ruff check` / `ruff format --check` 均通过。
+
+### 现在等你的三件事（按依赖排序）
+
+1. **day-only 与 session exception 的优先级**（新增，阻塞整条发布链）
+2. **NI 2022-03-10 用哪种 schema 表达**（原有，与第 1 条相容但仍是独立决定）
+3. 批次 A/C/D 逐行过目；批次 B 三方交叉；5 个 product-day 的外部分钟数据采购
+
+外部阻塞仍是元旦后首日的整品种归档缺口（5 个 product-day，全在上期所）。

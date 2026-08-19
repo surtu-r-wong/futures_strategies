@@ -99,6 +99,21 @@ session exception 与之相撞」。碰撞假说不需要更多证据。
 并改写 `tests/test_carry_session_authority.py:547` 那条测试（它现在钉的是相反行为）。
 我没有动其中任何一处。
 
+### 采纳后能买到什么：217 → 1
+
+同一份清单、同一批权威行，把上述优先级在**脚本里**模拟一遍（仓库代码一行未改）：
+
+```text
+current semantics            resolved= 10,908   residual=217
+proposed: day-only wins      resolved= 11,124   residual=  1
+                                                        └─ SHFE NI 2022-03-10
+```
+
+216 条一次清空，且**只清这 216 条** —— 残余精确落回那一条本就需要单独裁决的
+单品种停盘。没有顺带放行任何别的东西，这也是「优先级修改不会误伤」的直接证据。
+
+脚本：会话 scratchpad `verify_proposed.py`（一次性验证工具，未入库）。
+
 ### 与 SHFE.NI 那条的关系
 
 提案文档建议用 `day_only_regimes` 表达 NI 2022-03-10 的单日停盘。若采纳上面的优先级修改，
