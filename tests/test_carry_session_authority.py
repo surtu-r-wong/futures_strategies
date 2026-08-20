@@ -633,18 +633,31 @@ def test_authorization_rejects_unknown_observations_and_keeps_error_context():
 def test_repository_uses_only_the_session_exception_authority_contract():
     repository = Path(__file__).resolve().parents[1]
     exception_path = repository / "config/carry_minute_session_exceptions.csv"
+    day_only_path = repository / "config/carry_minute_day_only_regimes.csv"
+    history_path = repository / "config/carry_liquidity_history_exceptions.csv"
     old_path = repository / "config/carry_minute_no_night_dates.csv"
 
-    assert exception_path.read_text(encoding="utf-8") == (
-        "exchange,version,trade_date,night_start,night_end,reason,source_url\n"
+    assert (
+        exception_path.read_text(encoding="utf-8").splitlines(keepends=True)[0]
+        == SESSION_EXCEPTION_HEADER
     )
     assert not old_path.exists()
-    assert (repository / "config/carry_minute_day_only_regimes.csv").read_text(
-        encoding="utf-8"
-    ) == RANGE_HEADER
-    assert (repository / "config/carry_liquidity_history_exceptions.csv").read_text(
-        encoding="utf-8"
-    ) == RANGE_HEADER
+    assert (
+        day_only_path.read_text(encoding="utf-8").splitlines(keepends=True)[0]
+        == RANGE_HEADER
+    )
+    assert history_path.read_text(encoding="utf-8") == RANGE_HEADER
+
+    # The reviewed batches A/C/D/E were written on 2026-08-20; the liquidity
+    # history asset stays empty because it authorizes a different kind of gap.
+    authority = load_session_authority(
+        session_exception_path=exception_path,
+        day_only_path=day_only_path,
+        history_exception_path=history_path,
+    )
+    assert len(authority.session_exceptions) == 149
+    assert len(authority.day_only_regimes) == 12
+    assert authority.liquidity_history_exceptions == ()
 
     import cta_carry.session_authority as module
 

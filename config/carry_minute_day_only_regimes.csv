@@ -1,1 +1,13 @@
 version,exchange,product,effective_start,effective_end,reason,source_url
+commodity-v1,CZCE,AP,2017-12-22,,day-only product: AP 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,CZCE,CJ,2019-04-30,,day-only product: CJ 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,CZCE,PK,2021-02-01,,day-only product: PK 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,CZCE,SF,2014-08-08,,day-only product: SF 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,CZCE,SM,2014-08-08,,day-only product: SM 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,CZCE,UR,2019-08-09,,day-only product: UR 不在郑商所夜盘上线通知逐批列明获得夜盘的品种（2014-12-12 SR/CF/RM/MA/TA；2015-06-12 OI/FG/ZC；CY；SA；PF；SH/PX；PR）,https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf
+commodity-v1,DCE,JD,2013-11-08,,day-only product: JD 不在大商所夜盘通知逐批列明获得夜盘的品种（2014-07-04 P/J；2014-12-26 A/B/M/Y/JM/I；2019-03-29 新增 L/V/PP/EG/C/CS）,https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf
+commodity-v1,DCE,LH,2021-01-08,,day-only product: LH 不在大商所夜盘通知逐批列明获得夜盘的品种（2014-07-04 P/J；2014-12-26 A/B/M/Y/JM/I；2019-03-29 新增 L/V/PP/EG/C/CS）,https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf
+commodity-v1,GFEX,LC,2023-07-21,,day-only product: 上市通知列明三个日盘小节,https://www.gfex.com.cn/gfex/tzts/202307/33f2a342d80f4ee69966df4a554c26a4.shtml
+commodity-v1,GFEX,PS,2024-12-26,,day-only product: 上市通知列明三个日盘小节,https://www.gfex.com.cn/gfex/tzts/202412/34bc2f9dbfc34b4b81e1a043ff526589.shtml
+commodity-v1,GFEX,SI,2022-12-22,,day-only product: 上市通知列明三个日盘小节,https://www.gfex.com.cn/gfex/tzts/202212/44ccfcb613e442658c8ac94861e0de18.shtml
+commodity-v1,INE,EC,2023-08-18,,day-only product: 上市通知完整枚举 09:00-10:15、10:30-11:30、13:30-15:00 三个日盘小节,https://www.ine.cn/publicnotice/notice/202308/t20230811_814262.html

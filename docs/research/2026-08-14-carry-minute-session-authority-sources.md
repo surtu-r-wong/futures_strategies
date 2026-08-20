@@ -4,6 +4,12 @@
 覆盖目标：2011-01-01 至 2026-04-29
 资产版本：`commodity-v1`
 
+> **2026-08-20 变更**：用户逐块过目通过批次 A/C/D/E 后，本表有三处改动 —— 补登 DCE
+> `notice_evening=2025-12-31`（8-19 提供 URL 时漏做登记）；GFEX SI/LC/PS 由
+> `reviewed_direct_launch_but_blocked_history` 升为 `reviewed_launch_plus_empirical`；
+> INE 2025 那行补写六个前夕日期。依据与核对见
+> `docs/research/2026-08-20-carry-minute-authority-batch-approval.md`。
+
 本文只登记交易所官方域名上的材料。`rows_derived` 是来源层可派生的候选行数，
 不是已经批准写入 CSV 的行数。所有节前停夜盘材料先保留公告中的自然日
 `notice_evening`；只有用完整全局交易日历映射后，才会生成
@@ -68,7 +74,7 @@
 | INE | holiday_no_night | 《上海国际能源交易中心关于2022年休市安排的公告》（〔2021〕62号，2021-12-17）；`E→R`：2021-12-31→2022-01-04、2022-01-28→02-07、04-01→04-06、04-29→05-05、06-02→06-06、09-09→09-13、09-30→10-10 | https://www.ine.cn/publicnotice/notice/202112/t20211217_813157.html | 7 | `reviewed_direct` |
 | INE | holiday_no_night | 《上海国际能源交易中心关于2023年休市安排的公告》（〔2022〕47号，2022-12-27）；`E→R`：2022-12-30→2023-01-03、2023-01-20→01-30、04-04→04-06、04-28→05-04、06-21→06-26、09-28→10-09 | https://www.ine.cn/publicnotice/notice/202212/t20221227_813855.html | 6 | `reviewed_direct`：中秋节、国庆节合并为一个前夕 |
 | INE | holiday_no_night | 《上海国际能源交易中心关于2024年休市安排的公告》（〔2023〕74号，2023-12-26）；`E→R`：2023-12-29→2024-01-02、2024-02-08→02-19、04-03→04-08、04-30→05-06、06-07→06-11、09-13→09-18、09-30→10-08 | https://www.ine.cn/publicnotice/notice/202312/t20231226_814527.html | 7 | `reviewed_direct`：官方年度公告覆盖全部七个前夕 |
-| INE | holiday_no_night | 2025 年 6 个公告前夕，与 SHFE 2025 年安排一致 | https://www.ine.cn/publicnotice/notice/202412/t20241223_824108.html | 6 | `reviewed_direct` |
+| INE | holiday_no_night | 2025 年 6 个公告前夕：2024-12-31、2025-01-27、04-03、04-30、05-30、09-30（与 SHFE 2025 年安排逐一相同；2026-08-20 补写日期，此前只写“与 SHFE 一致”致机器核不到覆盖） | https://www.ine.cn/publicnotice/notice/202412/t20241223_824108.html | 6 | `reviewed_direct` |
 | INE | holiday_no_night | 截止日内 2026 年 3 个公告前夕：2025-12-31、2026-02-13、04-03 | https://www.ine.cn/publicnotice/notice/202512/t20251217_829804.html | 3 | `reviewed_direct` |
 | INE | holiday_no_night_corroborative | `notice_evening=2024-04-03` | https://www.ine.cn/eng/circularnews/circular/202403/t20240329_823079.html | 0 | `reviewed_direct_corroborative`：已由 2024 年度公告 canonical 覆盖，不重复派生 candidate |
 | DCE | session_launch_and_clock_change | P/J 2014-07-04 首批；A/B/M/Y/JM/I 2014-12-26 加入，初始 02:30；2019-03-29 统一至 23:00 并新增 L/V/PP/EG/C/CS | https://www.dce.com.cn/dalianshangpin/resource/cms/2019/04/2019042612023697006.pdf | 22 | `reviewed_direct`：官方回顾材料直接列明产品、日期与时段 |
@@ -93,6 +99,7 @@
 | DCE | holiday_no_night | 2023 年年度安排；`E→R`：2022-12-30→2023-01-03、2023-01-20→01-30、04-04→04-06、04-28→05-04、06-21→06-26、09-28→10-09 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/8526813/index.html | 6 | `reviewed_direct`：中秋节、国庆节合并为一个前夕 |
 | DCE | holiday_no_night | 2024 年年度安排；`E→R`：2023-12-29→2024-01-02、2024-02-08→02-19、04-03→04-08、04-30→05-06、06-07→06-11、09-13→09-18、09-30→10-08 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/8589323/index.html | 7 | `reviewed_direct` |
 | DCE | holiday_no_night | 2025 年年度安排；`E→R`：2024-12-31→2025-01-02、2025-01-27→02-05、04-03→04-07、04-30→05-06、05-30→06-03、09-30→10-09 | http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/8626934/index.html | 6 | `reviewed_direct` |
+| DCE | holiday_no_night | `notice_evening=2025-12-31`（2026 年元旦安排） | http://www.dce.com.cn/dce/content/2025/ywggytz/18625821.html | 1 | `reviewed_direct`：用户 2026-08-19 于浏览器取回正文并于 2026-08-20 确认写明 12 月 31 日晚不进行夜盘（本机 412 取不到，与大商所发[2019]553号同样按人工取回登记）。本行补登于 2026-08-20 —— 8-19 提供 URL 时漏做登记动作，致 `2026-01-05` 候选行一度挂着未登记来源 |
 | DCE | holiday_no_night | `notice_evening=2026-02-13` | http://www.dce.com.cn/dce/content/2026/ywggytz/18627505.html | 1 | `reviewed_direct` |
 | DCE | holiday_no_night | `notice_evening=2026-04-03` | http://www.dce.com.cn/dce/content/2026/ywggytz/18628241.html | 1 | `reviewed_direct` |
 | CZCE | session_launch | SR、CF、RM、ME/MA、TA 自 2014-12-12 开展夜盘；需与下一条 23:30 时段材料配对 | https://www.czce.com.cn/cn/rootfiles/2014/12/05/1415698821329524-1415698821331547.pdf | 5 | `reviewed_pair_required` |
@@ -108,9 +115,9 @@
 | CZCE | holiday_no_night | `notice_evening=2018-12-28`；2019-01-02 晚恢复夜盘 | https://www.czce.com.cn/cn/rootfiles/2018/12/24/1545632831296256-1545632831311552.pdf | 1 | `reviewed_direct`：只保存公告前夕，目标日由全局日历计算 |
 | CZCE | night_suspension | 自 2020-02-03 晚起暂停夜盘；首个疫情暂停目标日为 2020-02-04 | http://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2020/02/1572884629536892.htm | 0 | `official_url_manual_fetch`：官方旧页当前 412；与恢复边界及全局日历合用派生 63 行，2020-02-03 另按节后规则归因 |
 | CZCE | night_resumption | 2020-05-06 晚恢复商品期货、期权夜盘；首个恢复夜盘目标日为 2020-05-07 | http://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2020/04/1584386593065063.htm | 0 | `official_url_manual_fetch`：郑商函〔2020〕153号；闭合暂停区间，不重复计行 |
-| GFEX | session_launch_schedule | SI 于 2022-12-22 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202212/44ccfcb613e442658c8ac94861e0de18.shtml | 0 | `reviewed_direct_launch_but_blocked_history`：证明上市日与日盘安排，不足以授权连续 day-only 区间 |
-| GFEX | session_launch_schedule | LC 于 2023-07-21 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202307/33f2a342d80f4ee69966df4a554c26a4.shtml | 0 | `reviewed_direct_launch_but_blocked_history`：同上 |
-| GFEX | session_launch_schedule | PS 于 2024-12-26 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202412/34bc2f9dbfc34b4b81e1a043ff526589.shtml | 0 | `reviewed_direct_launch_but_blocked_history`：同上 |
+| GFEX | session_launch_schedule | SI 于 2022-12-22 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202212/44ccfcb613e442658c8ac94861e0de18.shtml | 1 | `reviewed_launch_plus_empirical`（2026-08-20 用户裁决）：上市通知给制度（三个日盘小节），经验数据给连续覆盖 —— 与 CZCE 逐年日历那次同一手法。广期所无夜盘品种，故不存在节前例外行与之相撞。判据：SI 682/684 个区间交易日观测为 `none,none`，零反例（`rerun_inventory.csv`，2020-07-01 → 2026-04-29）。|
+| GFEX | session_launch_schedule | LC 于 2023-07-21 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202307/33f2a342d80f4ee69966df4a554c26a4.shtml | 1 | `reviewed_launch_plus_empirical`（2026-08-20 用户裁决）：上市通知给制度（三个日盘小节），经验数据给连续覆盖 —— 与 CZCE 逐年日历那次同一手法。广期所无夜盘品种，故不存在节前例外行与之相撞。判据：LC 543/545 个区间交易日观测为 `none,none`，零反例（`rerun_inventory.csv`，2020-07-01 → 2026-04-29）。|
+| GFEX | session_launch_schedule | PS 于 2024-12-26 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202412/34bc2f9dbfc34b4b81e1a043ff526589.shtml | 1 | `reviewed_launch_plus_empirical`（2026-08-20 用户裁决）：上市通知给制度（三个日盘小节），经验数据给连续覆盖 —— 与 CZCE 逐年日历那次同一手法。广期所无夜盘品种，故不存在节前例外行与之相撞。判据：PS 191/197 个区间交易日观测为 `none,none`，零反例（`rerun_inventory.csv`，2020-07-01 → 2026-04-29）。|
 | GFEX | session_launch_schedule | PT 于 2025-11-27 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202508/4d8af56888c84490b525d5d8fdd729f6.shtml | 0 | `reviewed_direct_launch_but_blocked_history`：页面发文日为 2025-11-14，不得按 URL 的 202508 目录推断日期 |
 | GFEX | session_launch_schedule | PD 于 2025-11-27 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202508/5ff7c8717a4a44708e650a08b198254f.shtml | 0 | `reviewed_direct_launch_but_blocked_history`：页面发文日为 2025-11-14，不得按 URL 的 202508 目录推断日期 |
 | GFEX | current_day_schedule | SI 合约列明日盘三节；库内首日为 2022-12-22 | https://www.gfex.com.cn/gfex/llbb/202402/73cd6f4cc26b4dd5b3d127b5462b59a7/files/%E5%B9%BF%E5%B7%9E%E6%9C%9F%E8%B4%A7%E4%BA%A4%E6%98%93%E6%89%80%E5%B7%A5%E4%B8%9A%E7%A1%85%E6%9C%9F%E8%B4%A7%E5%90%88%E7%BA%A6%EF%BC%882022%E5%B9%B412%E6%9C%8812%E6%97%A5%E7%89%88%EF%BC%89.pdf | 0 | `review_blocked_history`：“及交易所规定的其他时间”不能证明自上市以来持续日盘 |
@@ -164,10 +171,10 @@ ORDER BY exchange_suffix, product;
 
 | counter | current_value | publication_gate |
 |---|---:|---|
-| official source-register entries | 96 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源；包含 1 条待人工取回正文的 DCE 官方旧页 |
-| accepted exact `none,none` evening candidates | 219 | 上轮 143 加 DCE 2014–2025 的 76 个 canonical 候选；必须逐行映射到下一全局 `trade_date` 后才能写 session exception CSV |
-| DCE `none,none` working candidates | 78 | DCE 2014–2025 的 76 个唯一 `notice_evening`，加现有 2026-02-13、04-03 两项；不含尚待 inventory 与官方来源闭合的 2025-12-31 |
-| known irregular-session candidates | 1 | DCE 目标交易日 2019-12-26；不是 `none`，不计入 219 或 DCE 78。承载它的 schema 已于 2026-08-18 实施，同日原文经用户人工取回并复核完毕（大商所发[2019]553号，全所口径 22:30—23:00）。字段齐全的候选行见 2026-08-18 待审批次，**仍未写入资产** |
+| official source-register entries | 97 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源；包含 1 条待人工取回正文的 DCE 官方旧页。2026-08-20 补登 DCE `notice_evening=2025-12-31` 一行，96 → 97 |
+| accepted exact `none,none` evening candidates | 220 | 上轮 143 加 DCE 2014–2025 的 76 个 canonical 候选；必须逐行映射到下一全局 `trade_date` 后才能写 session exception CSV |
+| DCE `none,none` working candidates | 79 | DCE 2014–2025 的 76 个唯一 `notice_evening`，加 2025-12-31、2026-02-13、04-03 三项；2025-12-31 的来源已于 2026-08-20 闭合并登记 |
+| known irregular-session candidates | 1 | DCE 目标交易日 2019-12-26；不是 `none`，不计入 219 或 DCE 78。承载它的 schema 已于 2026-08-18 实施，同日原文经用户人工取回并复核完毕（大商所发[2019]553号，全所口径 22:30—23:00）。字段齐全的候选行见 2026-08-18 待审批次；用户 2026-08-20 逐块过目通过后**已写入 `config/carry_minute_session_exceptions.csv`** |
 | holiday `none,none` rows working estimate | 300–450 | 只估四所节前日期，不含 2020 暂停期；以 inventory 为准 |
 | 2020 suspension expanded rows | 252 | SHFE、INE、DCE、CZCE 各 63 个目标日（2020-02-04 至 2020-05-06）；不含另按节后规则归因的 2020-02-03 |
 | expected total `none,none` exception rows | not measured | 节前日期与 2020 展开去重后的并集 |
