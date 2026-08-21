@@ -1683,8 +1683,11 @@ def _expected_night_interval(rule: SessionRule) -> tuple[str, str]:
 def validate_audited_boundaries(
     boundaries: pd.DataFrame,
     rules: Sequence[SessionRule],
+    *,
+    absent_product_days: Sequence[AbsentProductDay] = (),
 ) -> None:
     """Require every empirical boundary to occupy exactly one authoritative slot."""
+    registered = tuple(absent_product_days)
     for row in boundaries.to_dict("records"):
         rule = resolve_session_rule(
             rules,
@@ -1693,7 +1696,12 @@ def validate_audited_boundaries(
             row["trade_date"],
         )
         expected_interval = _expected_night_interval(rule)
-        observation = classify_session_boundary(row)
+        absent = matching_absent_product_day(
+            registered, row["exchange"], row["product"], row["trade_date"]
+        )
+        observation = classify_session_boundary(
+            row, day_session_absent=absent is not None
+        )
         actual_interval = (observation.night_start, observation.night_end)
         if expected_interval != actual_interval:
             raise SessionCaptureError(
@@ -1706,7 +1714,20 @@ def validate_audited_boundaries(
             row["previous_trade_date"],
             rule,
         )
-        for column in BOUNDARY_COLUMNS:
+        # night_first is the first bar present, not a session boundary. The
+        # archive writes bars on the exchange's normal schedule, so on a night
+        # that was delayed or did not run at all it holds flat bars from the
+        # usual open. The classifier reads the session start off
+        # night_traded_first for exactly that reason, and the replay checks the
+        # boundaries the classifier actually used.
+        columns = tuple(c for c in BOUNDARY_COLUMNS if c != "night_first")
+        if actual_interval == ("none", "none"):
+            columns = tuple(c for c in columns if not c.startswith("night_"))
+        if absent is not None:
+            # The day session was never observed, so there is no day timestamp
+            # for the published rule to account for.
+            columns = tuple(c for c in columns if not c.startswith("day_"))
+        for column in columns:
             timestamp = row[column]
             if _missing_boundary(timestamp):
                 continue
@@ -1735,7 +1756,11 @@ def publish_session_rules(
     temporary = _stage_session_rules(Path(output), rule_rows)
     try:
         loaded_rules = tuple(load_session_rules(temporary))
-        validate_audited_boundaries(boundaries, loaded_rules)
+        validate_audited_boundaries(
+            boundaries,
+            loaded_rules,
+            absent_product_days=authority.absent_product_days,
+        )
         reverse_keys = expand_rule_keys(
             loaded_rules,
             global_calendar=global_calendar,

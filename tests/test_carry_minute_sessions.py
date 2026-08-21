@@ -2391,6 +2391,156 @@ def test_sibling_candidates_cover_only_unsettled_days_and_skip_the_representativ
     assert selected[0].previous_trade_date == previous
 
 
+def _day_only_rule(product="A"):
+    return SessionRule.day_only("DCE", product, version=SESSION_RULES_VERSION)
+
+
+def _padded_no_night_row():
+    # 2017-03-31 shape: the exchange ran no night session, but the archive still
+    # wrote a full set of flat bars for the evening before.
+    trade_date = date(2017, 3, 31)
+    previous = date(2017, 3, 30)
+    row = _captured_boundary(night_end="none")
+    row.update(
+        trade_date=trade_date,
+        previous_trade_date=previous,
+        exchange="DCE",
+        product="A",
+        daily_contract="A1709.DCE",
+        day_1_first=_dt(2017, 3, 31, 9, 0),
+        day_1_last=_dt(2017, 3, 31, 10, 14),
+        day_2_first=_dt(2017, 3, 31, 10, 30),
+        day_2_last=_dt(2017, 3, 31, 11, 29),
+        day_3_first=_dt(2017, 3, 31, 13, 30),
+        day_3_last=_dt(2017, 3, 31, 14, 59),
+        night_first=_night_instant(previous, "21:00"),
+        night_last=_night_instant(previous, "23:30") - timedelta(minutes=1),
+        night_traded_first=None,
+        night_traded_second=None,
+        night_traded_first_flat=None,
+    )
+    return row
+
+
+def test_replay_ignores_padded_night_bars_on_a_night_that_did_not_run():
+    frame = pd.DataFrame([_padded_no_night_row()])
+
+    capture_module.validate_audited_boundaries(frame, (_day_only_rule(),))
+
+
+def test_replay_ignores_bars_padded_before_a_delayed_open():
+    # 2019-12-26 shape: the session opened 22:30, but the archive writes bars on
+    # the normal schedule, so the first bar present sits at 21:00.
+    trade_date = date(2019, 12, 26)
+    previous = date(2019, 12, 25)
+    row = _captured_boundary(night_start="22:30", night_end="23:00")
+    row.update(
+        trade_date=trade_date,
+        previous_trade_date=previous,
+        exchange="DCE",
+        product="A",
+        daily_contract="A2005.DCE",
+        day_1_first=_dt(2019, 12, 26, 9, 0),
+        day_1_last=_dt(2019, 12, 26, 10, 14),
+        day_2_first=_dt(2019, 12, 26, 10, 30),
+        day_2_last=_dt(2019, 12, 26, 11, 29),
+        day_3_first=_dt(2019, 12, 26, 13, 30),
+        day_3_last=_dt(2019, 12, 26, 14, 59),
+        night_first=_night_instant(previous, "21:00"),
+        night_last=_night_instant(previous, "23:00") - timedelta(minutes=1),
+        night_traded_first=_night_instant(previous, "22:30"),
+        night_traded_second=_night_instant(previous, "22:30") + timedelta(minutes=1),
+        night_traded_first_flat=False,
+    )
+    rule = SessionRule(
+        exchange="DCE",
+        product="A",
+        effective_start=trade_date,
+        effective_end=trade_date,
+        segments=(
+            SessionSegment(-90, -60),
+            *(SessionSegment(*item) for item in DAY_SEGMENTS),
+        ),
+        version=SESSION_RULES_VERSION,
+    )
+
+    capture_module.validate_audited_boundaries(pd.DataFrame([row]), (rule,))
+
+
+def test_replay_still_checks_the_night_close_against_the_published_slots():
+    row = _captured_boundary(night_end="23:00")
+    row["night_last"] = row["night_last"] + timedelta(minutes=7)
+
+    rule = SessionRule(
+        exchange="SHFE",
+        product="AU",
+        effective_start=date(2024, 1, 8),
+        effective_end=date(2024, 1, 8),
+        segments=(
+            SessionSegment(-180, -60),
+            *(SessionSegment(*item) for item in DAY_SEGMENTS),
+        ),
+        version=SESSION_RULES_VERSION,
+    )
+
+    with pytest.raises(SessionCaptureError, match="night_last"):
+        capture_module.validate_audited_boundaries(pd.DataFrame([row]), (rule,))
+
+
+def test_replay_honours_a_registered_absent_day_session():
+    row = _padded_no_night_row()
+    for field in (
+        "day_1_first",
+        "day_1_last",
+        "day_2_first",
+        "day_2_last",
+        "day_3_first",
+        "day_3_last",
+    ):
+        row[field] = None
+    registered = (
+        AbsentProductDay(
+            version=SESSION_RULES_VERSION,
+            exchange="DCE",
+            product="A",
+            trade_date=date(2017, 3, 31),
+            absent_segment="day",
+            reason="archive holds no day session",
+            source_url="docs/research/x.md",
+        ),
+    )
+
+    capture_module.validate_audited_boundaries(
+        pd.DataFrame([row]), (_day_only_rule(),), absent_product_days=registered
+    )
+
+
+def test_replay_still_rejects_an_unregistered_missing_day_session():
+    row = _padded_no_night_row()
+    row["day_2_first"] = None
+
+    with pytest.raises(SessionCaptureError, match="day_2_first"):
+        capture_module.validate_audited_boundaries(
+            pd.DataFrame([row]), (_day_only_rule(),)
+        )
+
+
+def test_replay_still_rejects_a_night_bar_the_published_rule_cannot_explain():
+    row = _padded_no_night_row()
+    # A traded night makes the observation a real session, which a day-only rule
+    # must not be allowed to publish.
+    row["night_traded_first"] = _night_instant(date(2017, 3, 30), "21:00")
+    row["night_traded_second"] = _night_instant(date(2017, 3, 30), "21:00") + timedelta(
+        minutes=1
+    )
+    row["night_traded_first_flat"] = False
+
+    with pytest.raises(SessionCaptureError, match="session_rule_replay"):
+        capture_module.validate_audited_boundaries(
+            pd.DataFrame([row]), (_day_only_rule(),)
+        )
+
+
 def test_night_start_takes_the_earliest_trade_across_the_products_contracts():
     rep = _dt(2020, 5, 18, 21, 1)
     sibling = _dt(2020, 5, 18, 21, 0)
