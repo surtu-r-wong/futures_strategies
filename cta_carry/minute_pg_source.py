@@ -1148,6 +1148,7 @@ def _validate_boundary_frame(
     candidates: Sequence[MinuteCandidate],
     *,
     absent_identities: frozenset[tuple[date, str, str]] = frozenset(),
+    tolerate_empty: bool = False,
 ) -> pd.DataFrame:
     # Keyed by (trade_date, exchange, product): an absence is registered for a
     # product-day, and which contract happened to represent it is incidental.
@@ -1233,8 +1234,11 @@ def _validate_boundary_frame(
         authorized_absent = (
             candidate is not None
             and empty_observation
-            and (candidate.trade_date, candidate.exchange, candidate.product)
-            in absent_identities
+            and (
+                tolerate_empty
+                or (candidate.trade_date, candidate.exchange, candidate.product)
+                in absent_identities
+            )
         )
         if candidate is not None and empty_observation and not authorized_absent:
             raise _missing_candidate_minutes(candidate)
@@ -1554,8 +1558,14 @@ class PublicMinuteSource:
         lower: datetime,
         upper: datetime,
         absent_identities: frozenset[tuple[date, str, str]] = frozenset(),
+        tolerate_empty: bool = False,
     ) -> pd.DataFrame:
-        """Return one validated grouped boundary row per candidate."""
+        """Return one validated grouped boundary row per candidate.
+
+        `tolerate_empty` is for a supplementary look at a product's other
+        contracts, where a contract with no rows that night is ordinary rather
+        than a defect. It must never be set for the audited representative.
+        """
         candidates = _canonical_candidates(
             candidate_frame,
             lower=lower,
@@ -1584,6 +1594,7 @@ class PublicMinuteSource:
                     cursor.fetchall(),
                     candidates,
                     absent_identities=absent_identities,
+                    tolerate_empty=tolerate_empty,
                 )
             finally:
                 _close_cursor_preserving(cursor)

@@ -2319,6 +2319,98 @@ def test_capture_calendar_validation_keeps_in_range_off_by_one_fail_closed():
         )
 
 
+def _sibling_boundary_frame(rows):
+    return pd.DataFrame(
+        [
+            {
+                "trade_date": trade_date,
+                "exchange": exchange,
+                "product": product,
+                "daily_contract": contract,
+                "night_traded_first": traded_first,
+            }
+            for trade_date, exchange, product, contract, traded_first in rows
+        ]
+    )
+
+
+def test_earliest_sibling_night_start_keeps_the_minimum_and_drops_the_silent():
+    day = date(2019, 12, 23)
+    frame = _sibling_boundary_frame(
+        [
+            (day, "SHFE", "AL", "AL2001.SHF", _dt(2019, 12, 20, 21, 4)),
+            (day, "SHFE", "AL", "AL2003.SHF", _dt(2019, 12, 20, 21, 0)),
+            (day, "SHFE", "AL", "AL2010.SHF", None),
+            (day, "SHFE", "CU", "CU2002.SHF", _dt(2019, 12, 20, 21, 7)),
+        ]
+    )
+
+    assert capture_module.earliest_sibling_night_starts(frame) == {
+        (day, "SHFE", "AL"): _dt(2019, 12, 20, 21, 0),
+        (day, "SHFE", "CU"): _dt(2019, 12, 20, 21, 7),
+    }
+
+
+def test_sibling_candidates_cover_only_unsettled_days_and_skip_the_representative():
+    day = date(2019, 12, 23)
+    previous = date(2019, 12, 20)
+
+    def _row(product, contract):
+        return {
+            "trade_date": day,
+            "exchange": "SHFE",
+            "product": product,
+            "daily_contract": contract,
+            "window_start": _dt(2019, 12, 20, 21, 0),
+            "window_end": _dt(2019, 12, 23, 15, 1),
+            "previous_trade_date": previous,
+        }
+
+    boundaries = pd.DataFrame([_row("AL", "AL2002.SHF"), _row("CU", "CU2002.SHF")])
+    ambiguities = (
+        capture_module.AmbiguityRecord(
+            trade_date=day,
+            exchange="SHFE",
+            product="AL",
+            check="night_authority_conflict",
+            reason="unsettled",
+        ),
+    )
+    prices = pd.DataFrame(
+        [
+            {"trade_date": day, "contract": "AL2002.SHF"},
+            {"trade_date": day, "contract": "AL2003.SHF"},
+            {"trade_date": day, "contract": "CU2002.SHF"},
+            {"trade_date": day, "contract": "CU2003.SHF"},
+        ]
+    )
+
+    selected = capture_module.sibling_night_candidates(boundaries, ambiguities, prices)
+
+    assert [item.candidate.daily_contract for item in selected] == ["AL2003.SHF"]
+    assert selected[0].previous_trade_date == previous
+
+
+def test_night_start_takes_the_earliest_trade_across_the_products_contracts():
+    rep = _dt(2020, 5, 18, 21, 1)
+    sibling = _dt(2020, 5, 18, 21, 0)
+
+    assert capture_module.widened_night_traded_first(rep, sibling) == sibling
+    assert capture_module.widened_night_traded_first(sibling, rep) == sibling
+
+
+def test_night_start_uses_a_sibling_when_the_representative_never_traded():
+    sibling = _dt(2019, 12, 20, 21, 0)
+
+    assert capture_module.widened_night_traded_first(None, sibling) == sibling
+
+
+def test_night_start_stays_absent_when_no_contract_traded():
+    # Fail-closed is preserved: a night nobody traded still reaches the
+    # padding gate rather than being handed a start it never had.
+    assert capture_module.widened_night_traded_first(None, None) is None
+
+
 def test_consumed_absent_day_sessions_reads_the_frame_not_the_registry():
     frame = pd.DataFrame(
         [
@@ -3186,7 +3278,15 @@ def _install_capture_flow(
     monkeypatch.setattr(
         capture_module,
         "load_public_carry_data",
-        lambda **kwargs: CarryDataSet(prices=object(), data_quality=quality),
+        # The night-start widening reads the daily contracts of an unsettled
+        # product-day, so prices is a real frame here. It holds only the
+        # representative, which leaves this harness with no sibling to widen to.
+        lambda **kwargs: CarryDataSet(
+            prices=pd.DataFrame(
+                [{"trade_date": day, "contract": "AU2406.SHF"} for day in days]
+            ),
+            data_quality=quality,
+        ),
     )
     monkeypatch.setattr(
         capture_module,

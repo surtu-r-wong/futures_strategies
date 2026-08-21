@@ -730,6 +730,7 @@ def capture_session_boundaries(
     selected: Sequence[CapturedCandidate],
     *,
     absent_identities: frozenset[tuple[date, str, str]] = frozenset(),
+    tolerate_empty: bool = False,
 ) -> pd.DataFrame:
     """Query grouped boundary observations in target-trade-date calendar months."""
     if not selected:
@@ -750,6 +751,7 @@ def capture_session_boundaries(
             lower=lower,
             upper=upper,
             absent_identities=absent_identities,
+            tolerate_empty=tolerate_empty,
         )
         lag_by_identity = {
             (
@@ -1049,6 +1051,134 @@ def validate_capture_session_exception_calendar(
     loaded_dates = frozenset(calendar)
     relevant = tuple(row for row in rows if row.trade_date in loaded_dates)
     validate_session_exception_calendar(relevant, calendar)
+
+
+def _as_builtin_datetime(value: Any) -> datetime:
+    """Coerce a captured boundary value to a concrete built-in datetime.
+
+    `to_dict("records")` hands back pandas Timestamps whenever the column
+    happens to be datetime64, and MinuteCandidate checks the exact type, so the
+    conversion has to be explicit rather than left to whichever dtype pandas
+    chose for that frame.
+    """
+    if type(value) is datetime:
+        return value
+    converted = getattr(value, "to_pydatetime", None)
+    if converted is not None:
+        result = converted()
+        if type(result) is datetime:
+            return result
+    raise SessionCaptureError(
+        f"sibling_window_datetime: expected a datetime; got {type(value).__name__}"
+    )
+
+
+def sibling_night_candidates(
+    boundaries: pd.DataFrame,
+    ambiguities: Sequence[AmbiguityRecord],
+    prices: pd.DataFrame,
+) -> tuple[CapturedCandidate, ...]:
+    """Build a supplementary look at the other contracts of an unsettled product-day.
+
+    Only product-days the first classification pass could not settle are widened,
+    so a run that already agreed with authority cannot change. Everything needed
+    comes off the captured frame, which already carries each candidate's window.
+    """
+    unsettled = {
+        (item.trade_date, item.exchange, item.product)
+        for item in ambiguities
+        if item.product != "*"
+    }
+    if not unsettled:
+        return ()
+    anchor_by_key: dict[tuple[date, str, str], Mapping[str, Any]] = {}
+    for row in boundaries.to_dict("records"):
+        key = (row["trade_date"], row["exchange"], row["product"])
+        if key in unsettled:
+            anchor_by_key.setdefault(key, row)
+    selected: list[CapturedCandidate] = []
+    seen: set[tuple[date, str]] = set()
+    for row in prices.loc[:, ["trade_date", "contract"]].itertuples(index=False):
+        trade_date, contract = row.trade_date, row.contract
+        try:
+            product, minute_symbol, exchange = minute_contract_identity(
+                contract, trade_date
+            )
+        except (SessionCaptureError, ValueError, TypeError):
+            continue
+        key = (trade_date, exchange, product)
+        anchor = anchor_by_key.get(key)
+        if anchor is None or contract == anchor["daily_contract"]:
+            continue
+        if (trade_date, contract) in seen:
+            continue
+        seen.add((trade_date, contract))
+        selected.append(
+            CapturedCandidate(
+                candidate=MinuteCandidate(
+                    trade_date=trade_date,
+                    product=product,
+                    daily_contract=contract,
+                    minute_symbol=minute_symbol,
+                    exchange=exchange,
+                    window_start=_as_builtin_datetime(anchor["window_start"]),
+                    window_end=_as_builtin_datetime(anchor["window_end"]),
+                    candidate_role="session_representative",
+                    causal_in_pool_date=trade_date,
+                    selection_source="night_start_widening",
+                ),
+                previous_trade_date=anchor["previous_trade_date"],
+                causal_in_pool_date=trade_date,
+                selection_source="night_start_widening",
+            )
+        )
+    return tuple(
+        sorted(
+            selected,
+            key=lambda item: (
+                item.candidate.trade_date,
+                item.candidate.product,
+                item.candidate.daily_contract,
+            ),
+        )
+    )
+
+
+def earliest_sibling_night_starts(
+    sibling_boundaries: pd.DataFrame,
+) -> dict[tuple[date, str, str], datetime]:
+    """Reduce the supplementary rows to one earliest night trade per product-day."""
+    earliest: dict[tuple[date, str, str], datetime] = {}
+    for row in sibling_boundaries.to_dict("records"):
+        value = row["night_traded_first"]
+        if _missing_boundary(value):
+            continue
+        key = (row["trade_date"], row["exchange"], row["product"])
+        current = earliest.get(key)
+        if current is None or value < current:
+            earliest[key] = value
+    return earliest
+
+
+def widened_night_traded_first(
+    representative: datetime | None,
+    sibling_earliest: datetime | None,
+) -> datetime | None:
+    """Take the earliest night trade across one product's contracts.
+
+    A session is a fact about the product, not about whichever contract was
+    picked to represent it. The representative can miss the opening minute, or
+    sit out the night entirely, while its siblings trade from the open; the
+    session still started when the earliest of them traded.
+
+    Returning None when nobody traded keeps the fail-closed property: that night
+    still reaches the padding gate instead of being handed a start it never had.
+    """
+    if _missing_boundary(representative):
+        return None if _missing_boundary(sibling_earliest) else sibling_earliest
+    if _missing_boundary(sibling_earliest):
+        return representative
+    return min(representative, sibling_earliest)
 
 
 _DAY_BOUNDARY_COLUMNS = (
@@ -1843,6 +1973,50 @@ def _capture_and_publish_outcome(
     classified, ambiguities, attribution_notes = classify_authorized_boundaries(
         boundaries, authority, global_calendar=audit.global_calendar
     )
+    # Second look: a session is a fact about the product, so a product-day the
+    # first pass could not settle gets to hear from the product's other
+    # contracts before it is called ambiguous. Only unsettled rows are touched,
+    # so a run that already agreed with authority cannot change.
+    siblings = sibling_night_candidates(boundaries, ambiguities, data.prices)
+    if siblings:
+        sibling_frame = capture_session_boundaries(
+            source, siblings, tolerate_empty=True
+        )
+        earliest = earliest_sibling_night_starts(sibling_frame)
+        widened_lines: list[str] = []
+        if earliest:
+            unsettled = {
+                (item.trade_date, item.exchange, item.product)
+                for item in ambiguities
+                if item.product != "*"
+            }
+            starts = list(boundaries["night_traded_first"])
+            for position, row in enumerate(boundaries.to_dict("records")):
+                key = (row["trade_date"], row["exchange"], row["product"])
+                if key not in unsettled or key not in earliest:
+                    continue
+                widened = widened_night_traded_first(
+                    row["night_traded_first"], earliest[key]
+                )
+                if widened is not row["night_traded_first"]:
+                    starts[position] = widened
+                    widened_lines.append(
+                        f"night_start_widened={key[0].isoformat()} {key[1]} {key[2]} "
+                        f"representative={row['daily_contract']} "
+                        f"observed={row['night_traded_first']} widened={widened}"
+                    )
+            if widened_lines:
+                boundaries = boundaries.assign(night_traded_first=starts)
+                for line in widened_lines:
+                    print(line)
+                log_lines = (*log_lines, *widened_lines)
+                classified, ambiguities, attribution_notes = (
+                    classify_authorized_boundaries(
+                        boundaries,
+                        authority,
+                        global_calendar=audit.global_calendar,
+                    )
+                )
     log_lines = (*log_lines, *attribution_notes)
     if ambiguities:
         for item in ambiguities:
