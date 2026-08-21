@@ -17,6 +17,16 @@ from .minute_sessions import SESSION_RULES_VERSION, parse_night_interval
 AUTHORITY_VERSION = SESSION_RULES_VERSION
 NOTICE_EVENING = re.compile(r"\bnotice_evening=(\d{4}-\d{2}-\d{2})\b")
 
+_ABSENT_PRODUCT_DAY_COLUMNS = (
+    "version",
+    "exchange",
+    "product",
+    "trade_date",
+    "absent_segment",
+    "reason",
+    "source_url",
+)
+_SUPPORTED_ABSENT_SEGMENTS = frozenset({"day"})
 _SESSION_EXCEPTION_COLUMNS = (
     "exchange",
     "version",
@@ -225,15 +235,76 @@ class EffectiveAuthorityRange:
 
 
 @dataclass(frozen=True)
+class AbsentProductDay:
+    """One product-day whose minute archive holds no day session at all.
+
+    This authorises the capture to skip a boundary it cannot observe. It never
+    asserts what the missing session contained, and the product-day stays out
+    of the tradable universe for as long as the row exists.
+    """
+
+    version: str
+    exchange: str
+    product: str
+    trade_date: date
+    absent_segment: str
+    reason: str
+    source_url: str
+
+    def __post_init__(self) -> None:
+        identity = {
+            "version": self.version,
+            "exchange": self.exchange,
+            "product": self.product,
+            "trade_date": self.trade_date.isoformat()
+            if type(self.trade_date) is date
+            else self.trade_date,
+        }
+        if self.version != AUTHORITY_VERSION:
+            raise SessionAuthorityError(
+                check="authority_record_version",
+                reason=f"expected {AUTHORITY_VERSION!r}",
+                row_identity=identity,
+                context={"actual": self.version},
+            )
+        for field in ("exchange", "product", "reason", "source_url"):
+            _validate_required_record_text(
+                record_kind="absent product day",
+                field=field,
+                value=getattr(self, field),
+                identity=identity,
+            )
+        if type(self.trade_date) is not date:
+            raise SessionAuthorityError(
+                check="authority_record_date",
+                reason="absent product day trade_date must be an actual date",
+                row_identity=identity,
+                context={"field": "trade_date", "type": type(self.trade_date).__name__},
+            )
+        if self.absent_segment not in _SUPPORTED_ABSENT_SEGMENTS:
+            raise SessionAuthorityError(
+                check="authority_absent_segment",
+                reason=(
+                    "absent_segment must be one of "
+                    f"{sorted(_SUPPORTED_ABSENT_SEGMENTS)}"
+                ),
+                row_identity=identity,
+                context={"actual": self.absent_segment},
+            )
+
+
+@dataclass(frozen=True)
 class SessionAuthority:
     session_exceptions: tuple[SessionException, ...]
     day_only_regimes: tuple[EffectiveAuthorityRange, ...]
     liquidity_history_exceptions: tuple[EffectiveAuthorityRange, ...]
     sha256_by_asset: Mapping[str, str]
+    absent_product_days: tuple[AbsentProductDay, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "session_exceptions", tuple(self.session_exceptions))
         object.__setattr__(self, "day_only_regimes", tuple(self.day_only_regimes))
+        object.__setattr__(self, "absent_product_days", tuple(self.absent_product_days))
         object.__setattr__(
             self,
             "liquidity_history_exceptions",
@@ -508,12 +579,14 @@ def load_session_authority(
     session_exception_path: Path,
     day_only_path: Path,
     history_exception_path: Path,
+    absent_product_day_path: Path,
 ) -> SessionAuthority:
     """Load all authority assets and bind their exact bytes to content hashes."""
     paths = {
         "session_exception": session_exception_path,
         "day_only": day_only_path,
         "history_exception": history_exception_path,
+        "absent_product_day": absent_product_day_path,
     }
     payloads = {name: _read_asset_bytes(path) for name, path in paths.items()}
     return SessionAuthority(
@@ -525,6 +598,9 @@ def load_session_authority(
         ),
         liquidity_history_exceptions=_load_authority_ranges_payload(
             history_exception_path, payloads["history_exception"]
+        ),
+        absent_product_days=_load_absent_product_days_payload(
+            absent_product_day_path, payloads["absent_product_day"]
         ),
         sha256_by_asset={
             name: hashlib.sha256(payload).hexdigest()
@@ -601,6 +677,73 @@ def _validate_match_query(
             },
             context={"type": type(trade_date).__name__},
         )
+
+
+def _load_absent_product_days_payload(
+    path: Path, payload: bytes
+) -> tuple[AbsentProductDay, ...]:
+    parsed: list[AbsentProductDay] = []
+    seen: set[tuple[str, str, str, date]] = set()
+    for row_number, row in _read_csv_rows(
+        path, payload, columns=_ABSENT_PRODUCT_DAY_COLUMNS
+    ):
+        trade_date = _parse_csv_date(
+            path=path, row_number=row_number, row=row, field="trade_date"
+        )
+        key = (row["version"], row["exchange"], row["product"], trade_date)
+        if key in seen:
+            raise SessionAuthorityError(
+                check="authority_duplicate_key",
+                reason="duplicate absent product day authority key",
+                row_identity={
+                    "version": key[0],
+                    "exchange": key[1],
+                    "product": key[2],
+                    "trade_date": key[3].isoformat(),
+                },
+                context={"path": str(path), "row_number": row_number},
+            )
+        seen.add(key)
+        parsed.append(
+            AbsentProductDay(
+                version=row["version"],
+                exchange=row["exchange"],
+                product=row["product"],
+                trade_date=trade_date,
+                absent_segment=row["absent_segment"],
+                reason=row["reason"],
+                source_url=row["source_url"],
+            )
+        )
+    return tuple(
+        sorted(
+            parsed,
+            key=lambda item: (item.trade_date, item.exchange, item.product),
+        )
+    )
+
+
+def load_absent_product_days(path: Path) -> tuple[AbsentProductDay, ...]:
+    """Load product-days whose minute archive holds no day session."""
+    return _load_absent_product_days_payload(path, _read_asset_bytes(path))
+
+
+def matching_absent_product_day(
+    rows: Iterable[AbsentProductDay],
+    exchange: str,
+    product: str,
+    trade_date: date,
+) -> AbsentProductDay | None:
+    """Return the registered absence for one product-day, or None."""
+    _validate_match_query(exchange=exchange, product=product, trade_date=trade_date)
+    for row in rows:
+        if (
+            row.exchange == exchange
+            and row.product == product
+            and row.trade_date == trade_date
+        ):
+            return row
+    return None
 
 
 def matching_ranges(

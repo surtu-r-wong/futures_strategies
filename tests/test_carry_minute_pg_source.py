@@ -1997,6 +1997,52 @@ def test_boundary_cardinality_mismatch_structures_unhashable_identity(monkeypatc
     assert connection.commits == 0
 
 
+def test_iter_session_boundaries_keeps_an_authorized_absent_candidate(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    candidate = _session_candidate(date(2024, 1, 8))
+    connection = FakeConnection(
+        boundary_rows=[_boundary_row(candidate, observed_rows=0)]
+    )
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    frame = _source(connection).iter_session_boundaries(
+        [candidate],
+        lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+        upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+        absent_identities=frozenset(
+            {(candidate.trade_date, candidate.exchange, candidate.product)}
+        ),
+    )
+
+    assert len(frame) == 1
+    for column in ("night_first", "night_last", "day_1_first", "day_3_last"):
+        assert frame[column].isna().all()
+
+
+def test_iter_session_boundaries_still_rejects_an_unregistered_absence(monkeypatch):
+    from cta_carry import minute_pg_source
+
+    candidate = _session_candidate(date(2024, 1, 8))
+    other = _session_candidate(date(2024, 1, 9))
+    connection = FakeConnection(
+        boundary_rows=[_boundary_row(candidate, observed_rows=0)]
+    )
+    monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).iter_session_boundaries(
+            [candidate],
+            lower=datetime(2024, 1, 1, tzinfo=SHANGHAI),
+            upper=datetime(2024, 2, 1, tzinfo=SHANGHAI),
+            absent_identities=frozenset(
+                {(other.trade_date, other.exchange, "ZZ")}
+            ),
+        )
+
+    assert exc_info.value.check == "session_representative_missing_minutes"
+
+
 @pytest.mark.parametrize(
     ("failure", "expected_check"),
     [

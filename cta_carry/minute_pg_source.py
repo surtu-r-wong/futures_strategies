@@ -1146,7 +1146,11 @@ def _returned_boundary_identity(
 def _validate_boundary_frame(
     rows: Sequence[Sequence[Any]],
     candidates: Sequence[MinuteCandidate],
+    *,
+    absent_identities: frozenset[tuple[date, str, str]] = frozenset(),
 ) -> pd.DataFrame:
+    # Keyed by (trade_date, exchange, product): an absence is registered for a
+    # product-day, and which contract happened to represent it is incidental.
     candidate_by_identity = {
         _candidate_boundary_identity(candidate): candidate for candidate in candidates
     }
@@ -1217,15 +1221,24 @@ def _validate_boundary_frame(
             )
         observed_rows = row[15]
         candidate = candidate_by_identity.get(identity)
-        if (
-            candidate is not None
-            and isinstance(observed_rows, Integral)
+        empty_observation = (
+            isinstance(observed_rows, Integral)
             and not isinstance(observed_rows, bool)
             and int(observed_rows) == 0
             and all(value is None for value in row[7:15])
-        ):
+        )
+        # A registered absence says this product-day's archive is known to hold
+        # nothing here. The row is kept with every boundary missing so the
+        # classifier can see the absence rather than a fabricated session.
+        authorized_absent = (
+            candidate is not None
+            and empty_observation
+            and (candidate.trade_date, candidate.exchange, candidate.product)
+            in absent_identities
+        )
+        if candidate is not None and empty_observation and not authorized_absent:
             raise _missing_candidate_minutes(candidate)
-        if (
+        if not authorized_absent and (
             isinstance(observed_rows, bool)
             or not isinstance(observed_rows, Integral)
             or int(observed_rows) <= 0
@@ -1540,6 +1553,7 @@ class PublicMinuteSource:
         candidate_frame: pd.DataFrame | Sequence[MinuteCandidate],
         lower: datetime,
         upper: datetime,
+        absent_identities: frozenset[tuple[date, str, str]] = frozenset(),
     ) -> pd.DataFrame:
         """Return one validated grouped boundary row per candidate."""
         candidates = _canonical_candidates(
@@ -1566,7 +1580,11 @@ class PublicMinuteSource:
                 cursor.execute(explain_text)
                 _validate_plan(cursor.fetchone())
                 cursor.execute(select_text)
-                frame = _validate_boundary_frame(cursor.fetchall(), candidates)
+                frame = _validate_boundary_frame(
+                    cursor.fetchall(),
+                    candidates,
+                    absent_identities=absent_identities,
+                )
             finally:
                 _close_cursor_preserving(cursor)
         return frame

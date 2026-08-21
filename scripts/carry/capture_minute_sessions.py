@@ -43,7 +43,9 @@ from cta_carry.pg_source import (
     load_public_product_history_starts,
 )
 from cta_carry.session_authority import (
+    AbsentProductDay,
     EffectiveAuthorityRange,
+    matching_absent_product_day,
     SessionAuthority,
     SessionAuthorityError,
     SessionException,
@@ -97,6 +99,9 @@ SESSION_EXCEPTIONS_PATH = (
     REPOSITORY_ROOT / "config" / "carry_minute_session_exceptions.csv"
 )
 DAY_ONLY_PATH = REPOSITORY_ROOT / "config" / "carry_minute_day_only_regimes.csv"
+ABSENT_PRODUCT_DAYS_PATH = (
+    REPOSITORY_ROOT / "config" / "carry_minute_absent_product_days.csv"
+)
 SESSION_RULES_PATH = REPOSITORY_ROOT / "config" / "carry_minute_sessions.csv"
 
 
@@ -723,6 +728,8 @@ def select_session_candidates(
 def capture_session_boundaries(
     source: PublicMinuteSource,
     selected: Sequence[CapturedCandidate],
+    *,
+    absent_identities: frozenset[tuple[date, str, str]] = frozenset(),
 ) -> pd.DataFrame:
     """Query grouped boundary observations in target-trade-date calendar months."""
     if not selected:
@@ -738,7 +745,12 @@ def capture_session_boundaries(
         candidates = [item.candidate for item in batch]
         lower = min(item.window_start for item in candidates)
         upper = max(item.window_end for item in candidates)
-        frame = source.iter_session_boundaries(candidates, lower=lower, upper=upper)
+        frame = source.iter_session_boundaries(
+            candidates,
+            lower=lower,
+            upper=upper,
+            absent_identities=absent_identities,
+        )
         lag_by_identity = {
             (
                 item.candidate.trade_date,
@@ -784,6 +796,13 @@ def _require_boundary(row: Any, field: str, expected: datetime) -> None:
         _boundary_error(row, field, expected)
 
 
+def _boundary_error_reason(row: Any, check: str, reason: str) -> None:
+    raise SessionCaptureError(
+        f"{row['trade_date']} {row['exchange']} {row['product']} "
+        f"{row['daily_contract']} {check}: {reason}"
+    )
+
+
 def _night_boundary_error(row: Any, field: str, reason: str) -> None:
     raise SessionCaptureError(
         f"{row['trade_date']} {row['exchange']} {row['product']} "
@@ -791,7 +810,9 @@ def _night_boundary_error(row: Any, field: str, reason: str) -> None:
     )
 
 
-def classify_session_boundary(row: Any) -> NightObservation:
+def classify_session_boundary(
+    row: Any, *, day_session_absent: bool = False
+) -> NightObservation:
     """Classify one exact empirical row into its authoritative night interval."""
     trade_date = row["trade_date"]
     previous_trade_date = row["previous_trade_date"]
@@ -805,8 +826,23 @@ def classify_session_boundary(row: Any) -> NightObservation:
         "day_3_first": _at(trade_date, 13, 30),
         "day_3_last": _at(trade_date, 14, 59),
     }
-    for field, expected in expected_day.items():
-        _require_boundary(row, field, expected)
+    if day_session_absent:
+        # An authorised absence says the archive holds no day session at all for
+        # this product-day. A day that is partly there is a different thing --
+        # a malformed or non-canonical clock -- and stays fatal.
+        present = sorted(
+            field for field in expected_day if not _missing_boundary(row[field])
+        )
+        if present:
+            _boundary_error_reason(
+                row,
+                "day_session_partially_present",
+                "authorised day-session absence requires every day boundary to be "
+                f"missing; present={present}",
+            )
+    else:
+        for field, expected in expected_day.items():
+            _require_boundary(row, field, expected)
 
     night_first = row["night_first"]
     night_last = row["night_last"]
@@ -905,8 +941,16 @@ def classify_authorized_boundaries(
         kind="mergesort",
     )
     for row in ordered.to_dict("records"):
+        absent = matching_absent_product_day(
+            authority.absent_product_days,
+            row["exchange"],
+            row["product"],
+            row["trade_date"],
+        )
         try:
-            observation = classify_session_boundary(row)
+            observation = classify_session_boundary(
+                row, day_session_absent=absent is not None
+            )
         except (SessionCaptureError, SessionAuthorityError) as exc:
             ambiguous.append(
                 AmbiguityRecord(
@@ -1005,6 +1049,74 @@ def validate_capture_session_exception_calendar(
     loaded_dates = frozenset(calendar)
     relevant = tuple(row for row in rows if row.trade_date in loaded_dates)
     validate_session_exception_calendar(relevant, calendar)
+
+
+_DAY_BOUNDARY_COLUMNS = (
+    "day_1_first",
+    "day_1_last",
+    "day_2_first",
+    "day_2_last",
+    "day_3_first",
+    "day_3_last",
+)
+
+
+def consumed_absent_day_sessions(
+    boundaries: pd.DataFrame,
+) -> frozenset[tuple[date, str, str, str]]:
+    """Name the product-days whose captured row carries no day session at all.
+
+    Read from what the query returned rather than from the registry, so the run
+    reports the absences it actually leaned on, not the ones it was permitted.
+    """
+    missing = sorted(set(_DAY_BOUNDARY_COLUMNS).difference(boundaries.columns))
+    if missing:
+        raise SessionCaptureError(f"captured boundaries missing columns: {missing}")
+    absent: set[tuple[date, str, str, str]] = set()
+    for row in boundaries.to_dict("records"):
+        if all(_missing_boundary(row[column]) for column in _DAY_BOUNDARY_COLUMNS):
+            absent.add(
+                (
+                    row["trade_date"],
+                    row["exchange"],
+                    row["product"],
+                    row["daily_contract"],
+                )
+            )
+    return frozenset(absent)
+
+
+def authorized_absent_day_session_lines(
+    registered: Iterable[AbsentProductDay],
+    consumed_identities: frozenset[tuple[date, str, str, str]],
+) -> tuple[str, ...]:
+    """Name every absence the run actually leaned on, and count it.
+
+    An authorised absence must never be silent: it is the one place the capture
+    stops requiring evidence, so the run says out loud which product-days it
+    excused and which contract stood in for each.
+    """
+    rows = tuple(registered)
+    by_key = {(row.trade_date, row.exchange, row.product): row for row in rows}
+    lines: list[str] = []
+    for trade_date, exchange, product, contract in sorted(consumed_identities):
+        row = by_key.get((trade_date, exchange, product))
+        if row is None:
+            raise SessionCaptureError(
+                "authorized_absent_day_session_unregistered: "
+                f"key={exchange}/{product}/{trade_date.isoformat()} "
+                f"contract={contract}"
+            )
+        lines.append(
+            f"authorized_absent_day_session key={row.exchange}/{row.product}/"
+            f"{row.trade_date.isoformat()} contract={contract} "
+            f"source_url={row.source_url}"
+        )
+    lines.append(
+        f"authorized_absent_day_session_count={len(consumed_identities)} "
+        f"registered={len(rows)}"
+    )
+    return tuple(lines)
 
 
 def authorized_history_gap_lines(
@@ -1334,14 +1446,19 @@ def _validate_authority_hashes(
     authority: SessionAuthority,
     authority_paths: Mapping[str, Path],
 ) -> None:
-    expected_names = {"session_exception", "day_only", "history_exception"}
+    expected_names = {
+        "session_exception",
+        "day_only",
+        "history_exception",
+        "absent_product_day",
+    }
     if set(authority_paths) != expected_names:
         raise SessionCaptureError(
-            "authority_hash_paths: expected all three fixed authority assets"
+            "authority_hash_paths: expected every fixed authority asset"
         )
     if set(authority.sha256_by_asset) != expected_names:
         raise SessionCaptureError(
-            "authority_hash_manifest: expected all three authority hashes"
+            "authority_hash_manifest: expected every authority hash"
         )
     for name in sorted(expected_names):
         try:
@@ -1607,11 +1724,13 @@ def _capture_and_publish_outcome(
         "session_exception": SESSION_EXCEPTIONS_PATH,
         "day_only": DAY_ONLY_PATH,
         "history_exception": HISTORY_EXCEPTIONS_PATH,
+        "absent_product_day": ABSENT_PRODUCT_DAYS_PATH,
     }
     authority = load_session_authority(
         session_exception_path=SESSION_EXCEPTIONS_PATH,
         day_only_path=DAY_ONLY_PATH,
         history_exception_path=HISTORY_EXCEPTIONS_PATH,
+        absent_product_day_path=ABSENT_PRODUCT_DAYS_PATH,
     )
     eligibility_line = (
         "eligibility_config "
@@ -1702,7 +1821,19 @@ def _capture_and_publish_outcome(
         )
 
     source = PublicMinuteSource(config_path=settings, use_test=use_test)
-    boundaries = capture_session_boundaries(source, audit.candidates)
+    absent_identities = frozenset(
+        (row.trade_date, row.exchange, row.product)
+        for row in authority.absent_product_days
+    )
+    boundaries = capture_session_boundaries(
+        source, audit.candidates, absent_identities=absent_identities
+    )
+    absent_lines = authorized_absent_day_session_lines(
+        authority.absent_product_days, consumed_absent_day_sessions(boundaries)
+    )
+    for line in absent_lines:
+        print(line)
+    log_lines = (*log_lines, *absent_lines)
     boundary_keys = validate_boundary_keys(boundaries, audit.key_sets.audit_keys)
     checked_days = len(boundary_keys)
     if checked_days != sum(row["audited_days"] for row in report.rows):

@@ -340,6 +340,32 @@ def test_header_only_history_exception_asset_is_valid(tmp_path):
     assert load_authority_ranges(path) == ()
 
 
+ABSENT_HEADER = "version,exchange,product,trade_date,absent_segment,reason,source_url\n"
+
+
+def test_load_session_authority_reads_registered_absences(tmp_path):
+    absent_path = _write(
+        tmp_path / "absent.csv",
+        ABSENT_HEADER
+        + "commodity-v1,SHFE,AL,2018-01-02,day,archive holds no day session,"
+        "docs/research/2026-08-21-minute-archive-data-request.md\n",
+    )
+
+    authority = load_session_authority(
+        session_exception_path=_write(
+            tmp_path / "exceptions.csv", SESSION_EXCEPTION_HEADER
+        ),
+        day_only_path=_write(tmp_path / "day-only.csv", RANGE_HEADER),
+        history_exception_path=_write(tmp_path / "history.csv", RANGE_HEADER),
+        absent_product_day_path=absent_path,
+    )
+
+    assert [(row.exchange, row.product) for row in authority.absent_product_days] == [
+        ("SHFE", "AL")
+    ]
+    assert len(authority.sha256_by_asset["absent_product_day"]) == 64
+
+
 def test_load_session_authority_hashes_exact_asset_bytes(tmp_path):
     exception_path = _write(tmp_path / "exceptions.csv", SESSION_EXCEPTION_HEADER)
     day_only_path = _write(tmp_path / "day-only.csv", RANGE_HEADER)
@@ -349,6 +375,7 @@ def test_load_session_authority_hashes_exact_asset_bytes(tmp_path):
         session_exception_path=exception_path,
         day_only_path=day_only_path,
         history_exception_path=history_path,
+        absent_product_day_path=_write(tmp_path / "absent.csv", ABSENT_HEADER),
     )
 
     assert authority.session_exceptions == ()
@@ -358,6 +385,7 @@ def test_load_session_authority_hashes_exact_asset_bytes(tmp_path):
         "session_exception",
         "day_only",
         "history_exception",
+        "absent_product_day",
     }
     assert all(
         len(digest) == 64
@@ -384,6 +412,7 @@ def test_session_authority_parses_the_same_snapshot_bound_to_each_digest(tmp_pat
         session_exception_path=exception_path,
         day_only_path=day_only_path,
         history_exception_path=history_path,
+        absent_product_day_path=_write(tmp_path / "absent.csv", ABSENT_HEADER),
     )
 
     assert Path(exception_path).read_bytes() == replacement
@@ -635,6 +664,7 @@ def test_repository_uses_only_the_session_exception_authority_contract():
     exception_path = repository / "config/carry_minute_session_exceptions.csv"
     day_only_path = repository / "config/carry_minute_day_only_regimes.csv"
     history_path = repository / "config/carry_liquidity_history_exceptions.csv"
+    absent_path = repository / "config/carry_minute_absent_product_days.csv"
     old_path = repository / "config/carry_minute_no_night_dates.csv"
 
     assert (
@@ -654,10 +684,22 @@ def test_repository_uses_only_the_session_exception_authority_contract():
         session_exception_path=exception_path,
         day_only_path=day_only_path,
         history_exception_path=history_path,
+        absent_product_day_path=absent_path,
     )
     assert len(authority.session_exceptions) == 149
     assert len(authority.day_only_regimes) == 12
     assert authority.liquidity_history_exceptions == ()
+    # Five product-days the vendor confirmed on 2026-08-21 it cannot resupply.
+    assert [
+        (row.exchange, row.product, row.trade_date.isoformat(), row.absent_segment)
+        for row in authority.absent_product_days
+    ] == [
+        ("SHFE", "AL", "2018-01-02", "day"),
+        ("SHFE", "CU", "2019-01-02", "day"),
+        ("SHFE", "RU", "2019-01-02", "day"),
+        ("SHFE", "AL", "2020-01-02", "day"),
+        ("SHFE", "FU", "2020-01-02", "day"),
+    ]
 
     import cta_carry.session_authority as module
 

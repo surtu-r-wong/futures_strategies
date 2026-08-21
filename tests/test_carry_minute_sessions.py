@@ -24,9 +24,13 @@ from cta_carry.minute_sessions import (
 )
 from cta_carry.data import CarryDataSet
 from cta_carry.session_authority import (
+    AbsentProductDay,
     EffectiveAuthorityRange,
     SessionAuthority,
+    SessionAuthorityError,
     SessionException,
+    load_absent_product_days,
+    matching_absent_product_day,
 )
 from scripts.carry import capture_minute_sessions as capture_module
 from scripts.carry.capture_minute_sessions import (
@@ -1010,6 +1014,84 @@ def test_capture_classifies_only_supported_exact_session_boundaries(night_end):
     assert _interval(observation) == expected
 
 
+def _day_session_stripped(**kwargs):
+    row = _captured_boundary(**kwargs)
+    for field in (
+        "day_1_first",
+        "day_1_last",
+        "day_2_first",
+        "day_2_last",
+        "day_3_first",
+        "day_3_last",
+    ):
+        row[field] = None
+    return row
+
+
+def test_absent_day_session_still_fails_closed_by_default():
+    row = _day_session_stripped(night_end="01:00")
+
+    with pytest.raises(SessionCaptureError, match="day_1_first"):
+        classify_session_boundary(row)
+
+
+def test_authorized_absent_day_session_classifies_the_night_it_can_see():
+    row = _day_session_stripped(night_end="01:00")
+
+    observation = classify_session_boundary(row, day_session_absent=True)
+
+    assert _interval(observation) == ("21:00", "01:00")
+
+
+_ABSENT_HEADER = (
+    "version,exchange,product,trade_date,absent_segment,reason,source_url\n"
+)
+_ABSENT_ROW = (
+    "commodity-v1,SHFE,AL,2018-01-02,day,"
+    "vendor archive holds no day session for this product-day,"
+    "docs/research/2026-08-21-minute-archive-data-request.md\n"
+)
+
+
+def test_absent_product_day_matches_only_its_own_product_day(tmp_path):
+    path = tmp_path / "absent.csv"
+    path.write_text(_ABSENT_HEADER + _ABSENT_ROW, encoding="utf-8")
+
+    rows = load_absent_product_days(path)
+
+    assert [type(row) for row in rows] == [AbsentProductDay]
+    assert matching_absent_product_day(rows, "SHFE", "AL", date(2018, 1, 2)) is not None
+    assert matching_absent_product_day(rows, "SHFE", "AL", date(2018, 1, 3)) is None
+    assert matching_absent_product_day(rows, "SHFE", "CU", date(2018, 1, 2)) is None
+    assert matching_absent_product_day(rows, "DCE", "AL", date(2018, 1, 2)) is None
+
+
+def test_absent_product_day_rejects_an_unsupported_segment(tmp_path):
+    path = tmp_path / "absent.csv"
+    path.write_text(
+        _ABSENT_HEADER + _ABSENT_ROW.replace(",day,", ",night,"), encoding="utf-8"
+    )
+
+    with pytest.raises(SessionAuthorityError, match="absent_segment"):
+        load_absent_product_days(path)
+
+
+def test_absent_product_day_rejects_a_duplicate_key(tmp_path):
+    path = tmp_path / "absent.csv"
+    path.write_text(_ABSENT_HEADER + _ABSENT_ROW + _ABSENT_ROW, encoding="utf-8")
+
+    with pytest.raises(SessionAuthorityError, match="authority_duplicate_key"):
+        load_absent_product_days(path)
+
+
+def test_authorized_absent_day_session_rejects_a_partially_present_day():
+    row = _day_session_stripped(night_end="01:00")
+    row["day_2_first"] = _dt(2024, 1, 8, 10, 30)
+
+    with pytest.raises(SessionCaptureError, match="day_session_partially_present"):
+        classify_session_boundary(row, day_session_absent=True)
+
+
 def test_capture_reverse_maps_2330_session_segment():
     rule = SessionRule(
         exchange="DCE",
@@ -1807,9 +1889,10 @@ def test_capture_entry_wires_default_config_history_and_audit_candidates(
     def reject_legacy_selector(*args, **kwargs):
         raise AssertionError("legacy unfiltered selector must not be called")
 
-    def stop_at_boundaries(source, selected):
+    def stop_at_boundaries(source, selected, *, absent_identities=frozenset()):
         captured["boundary_source"] = source
         captured["boundary_candidates"] = selected
+        captured["boundary_absent_identities"] = absent_identities
         raise BoundaryReached
 
     source = object()
@@ -1876,6 +1959,7 @@ def test_capture_entry_wires_default_config_history_and_audit_candidates(
         "session_exception_path": capture_module.SESSION_EXCEPTIONS_PATH,
         "day_only_path": capture_module.DAY_ONLY_PATH,
         "history_exception_path": capture_module.HISTORY_EXCEPTIONS_PATH,
+        "absent_product_day_path": capture_module.ABSENT_PRODUCT_DAYS_PATH,
     }
     assert captured["audit_builder_frame"] is prices
     assert captured["audit_builder"]["history_starts"] is history_starts
@@ -2235,6 +2319,74 @@ def test_capture_calendar_validation_keeps_in_range_off_by_one_fail_closed():
         )
 
 
+def test_consumed_absent_day_sessions_reads_the_frame_not_the_registry():
+    frame = pd.DataFrame(
+        [
+            {
+                "trade_date": date(2018, 1, 2),
+                "exchange": "SHFE",
+                "product": "AL",
+                "daily_contract": "AL1803.SHF",
+                "day_1_first": None,
+                "day_1_last": None,
+                "day_2_first": None,
+                "day_2_last": None,
+                "day_3_first": None,
+                "day_3_last": None,
+            },
+            {
+                "trade_date": date(2018, 1, 3),
+                "exchange": "SHFE",
+                "product": "CU",
+                "daily_contract": "CU1803.SHF",
+                "day_1_first": _dt(2018, 1, 3, 9, 0),
+                "day_1_last": _dt(2018, 1, 3, 10, 14),
+                "day_2_first": _dt(2018, 1, 3, 10, 30),
+                "day_2_last": _dt(2018, 1, 3, 11, 29),
+                "day_3_first": _dt(2018, 1, 3, 13, 30),
+                "day_3_last": _dt(2018, 1, 3, 14, 59),
+            },
+        ]
+    )
+
+    assert capture_module.consumed_absent_day_sessions(frame) == frozenset(
+        {(date(2018, 1, 2), "SHFE", "AL", "AL1803.SHF")}
+    )
+
+
+def test_authorized_absent_day_session_lines_name_every_consumed_row():
+    rows = (
+        AbsentProductDay(
+            version="commodity-v1",
+            exchange="SHFE",
+            product="AL",
+            trade_date=date(2018, 1, 2),
+            absent_segment="day",
+            reason="archive holds no day session",
+            source_url="docs/research/x.md",
+        ),
+        AbsentProductDay(
+            version="commodity-v1",
+            exchange="SHFE",
+            product="CU",
+            trade_date=date(2019, 1, 2),
+            absent_segment="day",
+            reason="archive holds no day session",
+            source_url="docs/research/x.md",
+        ),
+    )
+
+    lines = capture_module.authorized_absent_day_session_lines(
+        rows, frozenset({(date(2018, 1, 2), "SHFE", "AL", "AL1803.SHF")})
+    )
+
+    assert lines == (
+        "authorized_absent_day_session key=SHFE/AL/2018-01-02 "
+        "contract=AL1803.SHF source_url=docs/research/x.md",
+        "authorized_absent_day_session_count=1 registered=2",
+    )
+
+
 def test_authorized_history_gap_lines_are_sorted_exact_and_do_not_leak_misses():
     day = date(2024, 1, 8)
     au = EffectiveAuthorityRange(
@@ -2527,6 +2679,7 @@ def _authority_files(tmp_path):
         "session_exception": b"session-exception-authority",
         "day_only": b"day-only-authority",
         "history_exception": b"history-exception-authority",
+        "absent_product_day": b"absent-product-day-authority",
     }
     paths = {}
     for name, payload in payloads.items():
@@ -3071,7 +3224,7 @@ def _install_capture_flow(
     monkeypatch.setattr(
         capture_module,
         "capture_session_boundaries",
-        lambda source, candidates: boundaries,
+        lambda source, candidates, *, absent_identities=frozenset(): boundaries,
     )
     return authority, calls, keys
 
@@ -3241,6 +3394,11 @@ def test_capture_success_failures_preserve_old_output_and_honest_diagnostics(
         capture_module,
         "HISTORY_EXCEPTIONS_PATH",
         paths["history_exception"],
+    )
+    monkeypatch.setattr(
+        capture_module,
+        "ABSENT_PRODUCT_DAYS_PATH",
+        paths["absent_product_day"],
     )
     if failure == "diagnostics":
         monkeypatch.setattr(

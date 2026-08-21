@@ -1,0 +1,6 @@
+version,exchange,product,trade_date,absent_segment,reason,source_url
+commodity-v1,SHFE,AL,2018-01-02,day,vendor archive holds no day session for any AL contract on this date; night bars complete; vendor confirmed 2026-08-21 it cannot resupply,docs/research/2026-08-21-minute-archive-data-request.md
+commodity-v1,SHFE,CU,2019-01-02,day,vendor archive holds no day session for any CU contract on this date; night bars complete; vendor confirmed 2026-08-21 it cannot resupply,docs/research/2026-08-21-minute-archive-data-request.md
+commodity-v1,SHFE,RU,2019-01-02,day,vendor archive holds no day session for any RU contract on this date; night bars complete; vendor confirmed 2026-08-21 it cannot resupply,docs/research/2026-08-21-minute-archive-data-request.md
+commodity-v1,SHFE,AL,2020-01-02,day,vendor archive holds no day session for any AL contract on this date; night bars complete; vendor confirmed 2026-08-21 it cannot resupply,docs/research/2026-08-21-minute-archive-data-request.md
+commodity-v1,SHFE,FU,2020-01-02,day,vendor archive holds no day session for any FU contract on this date; night bars complete; vendor confirmed 2026-08-21 it cannot resupply,docs/research/2026-08-21-minute-archive-data-request.md
