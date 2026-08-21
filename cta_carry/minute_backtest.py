@@ -38,6 +38,7 @@ from .minute_bars import (
     five_minute_vwap,
 )
 from .minute_pg_source import MinuteCandidate, minute_contract_identity
+from .session_authority import AbsentProductDay
 from .minute_sessions import (
     SESSION_RULES_CAPTURE_START,
     SESSION_RULES_VERSION,
@@ -551,6 +552,7 @@ def _prepare_candidates(
     dates: Sequence[date],
     research: DailyResearch,
     rules: Sequence[SessionRule],
+    untradable: frozenset[tuple[date, str, str]] = frozenset(),
 ) -> dict[tuple[date, str], _CandidateContext]:
     active = _active_signals(research.signal_result.signals)
     contexts: dict[tuple[date, str], _CandidateContext] = {}
@@ -574,6 +576,11 @@ def _prepare_candidates(
                 contract,
                 trade_date,
             )
+            if (trade_date, exchange, product) in untradable:
+                # No minute data exists for this product-day, so no candidate is
+                # prepared and nothing is executed. Not an error: an absence the
+                # repository has registered and the run reports.
+                continue
             key = (exchange, product, trade_date)
             dynamic_keys.add(key)
             if key not in audit_keys:
@@ -1197,6 +1204,7 @@ class CarryMinuteBacktester:
         config: CarryConfig,
         start: date,
         end: date,
+        absent_product_days: Sequence[AbsentProductDay] = (),
     ) -> None:
         if start > end:
             raise ValueError("start must be on or before end")
@@ -1206,6 +1214,30 @@ class CarryMinuteBacktester:
         self.config = config
         self.start = start
         self.end = end
+        # A product-day whose minute archive holds no day session cannot be
+        # priced, so it cannot be traded. The decision is deferred: the position
+        # stays exactly as it was and the next tradable day decides afresh.
+        self.absent_product_days = tuple(absent_product_days)
+        self._untradable = frozenset(
+            (row.trade_date, row.exchange, row.product)
+            for row in self.absent_product_days
+        )
+        self._untradable_product_days = frozenset(
+            (row.trade_date, row.product) for row in self.absent_product_days
+        )
+        # The execution loop only knows a product code, so two exchanges sharing
+        # one on the same date would make the skip ambiguous and silently stand
+        # the wrong product down. Refuse rather than guess.
+        by_product_day: dict[tuple[date, str], str] = {}
+        for row in self.absent_product_days:
+            key = (row.trade_date, row.product)
+            seen = by_product_day.setdefault(key, row.exchange)
+            if seen != row.exchange:
+                raise ValueError(
+                    "absent_product_day_ambiguous: "
+                    f"{row.product} on {row.trade_date.isoformat()} is registered "
+                    f"for both {seen} and {row.exchange}"
+                )
 
     def run(self) -> CarryBacktestResult:
         validate_capture_coverage(
@@ -1228,10 +1260,12 @@ class CarryMinuteBacktester:
         report_start_date = report_dates[0]
 
         research = build_daily_research(prices, self.config)
+        untradable_product_days = self._untradable_product_days
         contexts = _prepare_candidates(
             dates=dates,
             research=research,
             rules=self.session_rules,
+            untradable=self._untradable,
         )
         month_candidates = _monthly_candidates(contexts)
         signals_by_date = {
@@ -1386,6 +1420,27 @@ class CarryMinuteBacktester:
                 if contract in overrides:
                     result[contract] = float(overrides[contract])
                     continue
+                if (
+                    trade_date,
+                    contract_products.get(contract),
+                ) in untradable_product_days:
+                    # No minute price exists for this product-day. Mark the held
+                    # leg at the last price actually observed rather than at a
+                    # same-day close the event could not have seen.
+                    if contract in mark_prices:
+                        result[contract] = mark_prices[contract]
+                        continue
+                    raise MinuteDataError(
+                        trade_date=trade_date,
+                        timestamp=timestamp,
+                        product=contract_products.get(contract),
+                        contract=contract,
+                        check="untradable_product_day_unmarkable",
+                        reason=(
+                            "registered absent day session and no earlier mark "
+                            "for the held leg"
+                        ),
+                    )
                 _, frame = require_frame(trade_date, contract, "carried")
                 eligible = frame.loc[
                     frame["bar_time"].lt(timestamp) & frame["volume"].gt(0)
@@ -1659,6 +1714,13 @@ class CarryMinuteBacktester:
                 products = sorted(set(states) | set(pending_plan.states))
                 for product in products:
                     before = states.get(product, PositionState())
+                    if (trade_date, product) in untradable_product_days:
+                        # Deferred: the day is unpriceable, so the position is
+                        # carried untouched and the plan is dropped rather than
+                        # executed against prices we never saw.
+                        prospective_states[product] = before
+                        states[product] = before
+                        continue
                     after = pending_plan.states.get(product, PositionState())
                     prospective_states[product] = after
                     pending_stop = pending_final_stop_records.get(product)
@@ -1740,6 +1802,24 @@ class CarryMinuteBacktester:
             if index > 0:
                 for product, state in sorted(prospective_states.items()):
                     if state.direction == 0 or state.contract is None:
+                        continue
+                    if (trade_date, product) in untradable_product_days:
+                        # Unpriceable day: the position is carried but cannot be
+                        # marked or stop-monitored, and the run says so rather
+                        # than marking it against prices it never saw.
+                        quality_records.append(
+                            {
+                                "check": "untradable_product_day_unmonitored",
+                                "trade_date": trade_date,
+                                "product": product,
+                                "contract": state.contract,
+                                "candidate_role": "carried",
+                                "observed_rows": 0,
+                                "missing_slots": 0,
+                                "query_month": f"{trade_date:%Y-%m}",
+                                "detail": "registered absent day session",
+                            }
+                        )
                         continue
                     context, frame = require_frame(
                         trade_date,

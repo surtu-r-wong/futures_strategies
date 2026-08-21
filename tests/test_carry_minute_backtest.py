@@ -299,6 +299,82 @@ def test_minute_backtester_produces_auditable_tables_and_feedback() -> None:
     )
 
 
+def test_minute_backtester_defers_a_registered_absent_product_day() -> None:
+    from cta_carry.session_authority import AbsentProductDay
+
+    data, source, rules, start, end = minute_backtest_fixture()
+    absent_date = data.dates[10]
+
+    result = minute_backtest_module.CarryMinuteBacktester(
+        data=data,
+        minute_source=source,
+        session_rules=rules,
+        config=small_config(vol_window=3, min_shadow_active_days=2),
+        start=start,
+        end=end,
+        absent_product_days=(
+            AbsentProductDay(
+                version=SESSION_RULES_VERSION,
+                exchange="SHFE",
+                product="A",
+                trade_date=absent_date,
+                absent_segment="day",
+                reason="archive holds no day session",
+                source_url="docs/research/x.md",
+            ),
+        ),
+    ).run()
+
+    queried = {
+        (candidate.trade_date, candidate.product)
+        for candidates, _, _ in source.calls
+        for candidate in candidates
+    }
+    assert (absent_date, "A") not in queried
+
+    executed = result.executions
+    same_day = executed[executed["trade_date"] == absent_date]
+    assert "A" not in set(same_day["product"])
+
+    positions = result.positions
+    previous_date = data.dates[9]
+    held = positions[(positions["product"] == "A")]
+    before = held[held["trade_date"] == previous_date]
+    during = held[held["trade_date"] == absent_date]
+    if not before.empty and not during.empty:
+        for column in ("contract", "direction", "weight"):
+            assert during.iloc[0][column] == before.iloc[0][column]
+
+
+def test_minute_backtester_rejects_two_exchanges_sharing_a_product_day() -> None:
+    from cta_carry.session_authority import AbsentProductDay
+
+    data, source, rules, start, end = minute_backtest_fixture()
+    day = data.dates[10]
+
+    def _row(exchange: str) -> AbsentProductDay:
+        return AbsentProductDay(
+            version=SESSION_RULES_VERSION,
+            exchange=exchange,
+            product="A",
+            trade_date=day,
+            absent_segment="day",
+            reason="archive holds no day session",
+            source_url="docs/research/x.md",
+        )
+
+    with pytest.raises(ValueError, match="absent_product_day_ambiguous"):
+        minute_backtest_module.CarryMinuteBacktester(
+            data=data,
+            minute_source=source,
+            session_rules=rules,
+            config=small_config(vol_window=3, min_shadow_active_days=2),
+            start=start,
+            end=end,
+            absent_product_days=(_row("SHFE"), _row("DCE")),
+        )
+
+
 def _explain_only_summary() -> MinutePlanSummary:
     return MinutePlanSummary(
         query_kind="explain_only",
