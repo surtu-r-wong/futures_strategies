@@ -23,7 +23,7 @@ from cta_carry.session_authority import (
 
 
 SESSION_EXCEPTION_HEADER = (
-    "exchange,version,trade_date,night_start,night_end,reason,source_url\n"
+    "exchange,version,trade_date,product,night_start,night_end,reason,source_url\n"
 )
 RANGE_HEADER = (
     "version,exchange,product,effective_start,effective_end,reason,source_url\n"
@@ -159,7 +159,7 @@ def test_session_exception_loader_reads_exact_schema(tmp_path):
     path = _write(
         tmp_path / "exceptions.csv",
         SESSION_EXCEPTION_HEADER
-        + "DCE,commodity-v1,2019-12-26,22:30,23:00,delayed night open"
+        + "DCE,commodity-v1,2019-12-26,,22:30,23:00,delayed night open"
         " notice_evening=2019-12-25,https://www.dce.com.cn/notice/6202113\n",
     )
     assert load_session_exceptions(path) == (_session_exception(),)
@@ -195,7 +195,7 @@ def test_loaders_require_exact_ordered_headers(tmp_path, loader, header):
         (
             load_session_exceptions,
             SESSION_EXCEPTION_HEADER,
-            "SHFE,commodity-v1,2024-02-19,none,none,,https://www.shfe.com.cn/\n",
+            "SHFE,commodity-v1,2024-02-19,,none,none,,https://www.shfe.com.cn/\n",
         ),
         (
             load_authority_ranges,
@@ -220,7 +220,7 @@ def test_loaders_reject_empty_required_values(tmp_path, loader, header, row):
         (
             load_session_exceptions,
             SESSION_EXCEPTION_HEADER,
-            "SHFE,commodity-v1,2024-02-30,none,none,holiday,https://www.shfe.com.cn/\n",
+            "SHFE,commodity-v1,2024-02-30,,none,none,holiday,https://www.shfe.com.cn/\n",
         ),
         (
             load_authority_ranges,
@@ -249,7 +249,7 @@ def test_loaders_reject_invalid_iso_dates(tmp_path, loader, header, row):
         (
             load_session_exceptions,
             SESSION_EXCEPTION_HEADER,
-            "SHFE,commodity-v2,2024-02-19,none,none,holiday,https://www.shfe.com.cn/\n",
+            "SHFE,commodity-v2,2024-02-19,,none,none,holiday,https://www.shfe.com.cn/\n",
         ),
         (
             load_authority_ranges,
@@ -269,7 +269,7 @@ def test_loaders_reject_unknown_versions(tmp_path, loader, header, row):
 
 def test_session_exception_loader_rejects_duplicate_keys(tmp_path):
     row = (
-        "SHFE,commodity-v1,2024-02-19,none,none,"
+        "SHFE,commodity-v1,2024-02-19,,none,none,"
         "holiday notice_evening=2024-02-08,https://www.shfe.com.cn/\n"
     )
     path = _write(tmp_path / "exceptions.csv", SESSION_EXCEPTION_HEADER + row + row)
@@ -281,6 +281,7 @@ def test_session_exception_loader_rejects_duplicate_keys(tmp_path):
     assert exc.value.row_identity == {
         "version": "commodity-v1",
         "exchange": "SHFE",
+        "product": "",
         "trade_date": "2024-02-19",
     }
 
@@ -341,6 +342,50 @@ def test_header_only_history_exception_asset_is_valid(tmp_path):
 
 
 ABSENT_HEADER = "version,exchange,product,trade_date,absent_segment,reason,source_url\n"
+
+
+def _exception(
+    exchange, trade_date, *, product="", night_start="22:30", night_end="23:00"
+):
+    return SessionException(
+        exchange=exchange,
+        version="commodity-v1",
+        trade_date=trade_date,
+        product=product,
+        night_start=night_start,
+        night_end=night_end,
+        reason="delayed night open notice_evening=2019-12-25",
+        source_url="https://example.invalid/notice",
+    )
+
+
+def test_exchange_wide_exception_covers_every_product_of_that_exchange():
+    day = date(2019, 12, 26)
+    rows = (_exception("CZCE", day),)
+
+    assert matching_session_exceptions(rows, "CZCE", "SR", day) == rows
+    assert matching_session_exceptions(rows, "CZCE", "TA", day) == rows
+    assert matching_session_exceptions(rows, "SHFE", "CU", day) == ()
+
+
+def test_product_scoped_exception_covers_only_its_own_product():
+    day = date(2019, 12, 26)
+    gold = _exception("SHFE", day, product="AU", night_end="02:30")
+    copper = _exception("SHFE", day, product="CU", night_end="01:00")
+
+    assert matching_session_exceptions((gold, copper), "SHFE", "AU", day) == (gold,)
+    assert matching_session_exceptions((gold, copper), "SHFE", "CU", day) == (copper,)
+    assert matching_session_exceptions((gold, copper), "SHFE", "RB", day) == ()
+
+
+def test_an_exchange_wide_and_a_product_row_for_one_day_is_refused():
+    # Two rows could both explain the same product-day. Which one wins is not a
+    # judgement the repository gets to make silently.
+    day = date(2019, 12, 26)
+    rows = (_exception("SHFE", day), _exception("SHFE", day, product="AU"))
+
+    with pytest.raises(SessionAuthorityError, match="authority_match_cardinality"):
+        matching_session_exceptions(rows, "SHFE", "AU", day)
 
 
 def test_load_session_authority_reads_registered_absences(tmp_path):
@@ -476,7 +521,7 @@ def test_matching_helpers_are_deterministic_and_inclusive():
     )
 
     assert matching_session_exceptions(
-        reversed(exceptions), "SHFE", date(2019, 12, 26)
+        reversed(exceptions), "SHFE", "AU", date(2019, 12, 26)
     ) == (exceptions[1],)
     assert matching_ranges(ranges, "SHFE", "AU", date(2011, 1, 1)) == (ranges[1],)
     assert matching_ranges(ranges, "SHFE", "AU", date(2013, 7, 4)) == (ranges[1],)
@@ -497,7 +542,7 @@ def test_matching_helpers_reject_multiplicity_even_for_unloaded_rows():
     )
 
     with pytest.raises(SessionAuthorityError, match="authority_match_cardinality"):
-        matching_session_exceptions(duplicates, "DCE", date(2019, 12, 26))
+        matching_session_exceptions(duplicates, "DCE", "I", date(2019, 12, 26))
     with pytest.raises(SessionAuthorityError, match="authority_match_cardinality"):
         matching_ranges(overlapping_ranges, "SHFE", "AU", date(2013, 2, 1))
 

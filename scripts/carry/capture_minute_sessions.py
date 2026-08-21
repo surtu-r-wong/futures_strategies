@@ -937,7 +937,9 @@ def classify_authorized_boundaries(
     classified: list[dict[str, Any]] = []
     ambiguous: list[AmbiguityRecord] = []
     notes: list[str] = []
-    consumed_exception_keys: set[tuple[str, date]] = set()
+    # Keyed by the row's own identity: an exchange-wide row is consumed by any
+    # product of that exchange, a product-scoped row only by its own product.
+    consumed_exception_keys: set[tuple[str, str, date]] = set()
     ordered = boundaries.sort_values(
         ["trade_date", "exchange", "product", "daily_contract"],
         kind="mergesort",
@@ -994,7 +996,9 @@ def classify_authorized_boundaries(
             )
             continue
         if consumed is not None:
-            consumed_exception_keys.add((consumed.exchange, consumed.trade_date))
+            consumed_exception_keys.add(
+                (consumed.exchange, consumed.product, consumed.trade_date)
+            )
         classified.append(
             {
                 "exchange": row["exchange"],
@@ -1006,19 +1010,19 @@ def classify_authorized_boundaries(
         )
     relevant_keys = sorted(
         {
-            (row.exchange, row.trade_date)
+            (row.exchange, row.product, row.trade_date)
             for row in authority.session_exceptions
             if row.trade_date in loaded_dates
         }
     )
-    for exchange, trade_date in relevant_keys:
-        if (exchange, trade_date) in consumed_exception_keys:
+    for exchange, product, trade_date in relevant_keys:
+        if (exchange, product, trade_date) in consumed_exception_keys:
             continue
         ambiguous.append(
             AmbiguityRecord(
                 trade_date=trade_date,
                 exchange=exchange,
-                product="*",
+                product=product or "*",
                 check="session_exception_unconsumed",
                 reason=(
                     "loaded session exception was never consumed by an audited "

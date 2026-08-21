@@ -31,6 +31,7 @@ _SESSION_EXCEPTION_COLUMNS = (
     "exchange",
     "version",
     "trade_date",
+    "product",
     "night_start",
     "night_end",
     "reason",
@@ -136,15 +137,27 @@ class SessionException:
     night_end: str
     reason: str
     source_url: str
+    # Empty means the row speaks for every product of that exchange, which is
+    # how an exchange-wide notice reads. A code narrows it to one product, for
+    # notices that set a different close per product.
+    product: str = ""
 
     def __post_init__(self) -> None:
         identity = {
             "version": self.version,
             "exchange": self.exchange,
+            "product": self.product,
             "trade_date": self.trade_date.isoformat()
             if type(self.trade_date) is date
             else self.trade_date,
         }
+        if type(self.product) is not str or self.product != self.product.strip():
+            raise SessionAuthorityError(
+                check="authority_record_product",
+                reason="session exception product must be unpadded text",
+                row_identity=identity,
+                context={"actual": repr(self.product)},
+            )
         if self.version != AUTHORITY_VERSION:
             raise SessionAuthorityError(
                 check="authority_record_version",
@@ -410,6 +423,7 @@ def _session_exception_sort_key(row: SessionException) -> tuple[object, ...]:
         row.version,
         row.exchange,
         row.trade_date,
+        row.product,
         row.night_start,
         row.night_end,
         row.reason,
@@ -433,14 +447,18 @@ def _load_session_exceptions_payload(
     path: Path, payload: bytes
 ) -> tuple[SessionException, ...]:
     parsed: list[SessionException] = []
-    seen: set[tuple[str, str, date]] = set()
+    seen: set[tuple[str, str, str, date]] = set()
     for row_number, row in _read_csv_rows(
-        path, payload, columns=_SESSION_EXCEPTION_COLUMNS
+        path,
+        payload,
+        columns=_SESSION_EXCEPTION_COLUMNS,
+        # An empty product is the exchange-wide form, not a missing value.
+        optional_fields=frozenset({"product"}),
     ):
         trade_date = _parse_csv_date(
             path=path, row_number=row_number, row=row, field="trade_date"
         )
-        key = (row["version"], row["exchange"], trade_date)
+        key = (row["version"], row["exchange"], row["product"], trade_date)
         if key in seen:
             raise SessionAuthorityError(
                 check="authority_duplicate_key",
@@ -448,7 +466,8 @@ def _load_session_exceptions_payload(
                 row_identity={
                     "version": key[0],
                     "exchange": key[1],
-                    "trade_date": key[2].isoformat(),
+                    "product": key[2],
+                    "trade_date": key[3].isoformat(),
                 },
                 context={"path": str(path), "row_number": row_number},
             )
@@ -459,6 +478,7 @@ def _load_session_exceptions_payload(
                     exchange=row["exchange"],
                     version=row["version"],
                     trade_date=trade_date,
+                    product=row["product"],
                     night_start=row["night_start"],
                     night_end=row["night_end"],
                     reason=row["reason"],
@@ -782,16 +802,27 @@ def matching_ranges(
 
 
 def matching_session_exceptions(
-    rows: Iterable[SessionException], exchange: str, trade_date: date
+    rows: Iterable[SessionException],
+    exchange: str,
+    product: str,
+    trade_date: date,
 ) -> tuple[SessionException, ...]:
-    """Return the one deterministic exchange-date match, or fail on multiplicity."""
-    _validate_match_query(exchange=exchange, product=None, trade_date=trade_date)
+    """Return the one deterministic match for a product-day, or fail on multiplicity.
+
+    A row with no product speaks for the whole exchange; a row with one speaks
+    only for that product. Where both could explain the same product-day the
+    match is ambiguous, and choosing between them is not something the
+    repository does silently.
+    """
+    _validate_match_query(exchange=exchange, product=product, trade_date=trade_date)
     matches = tuple(
         sorted(
             (
                 row
                 for row in rows
-                if row.exchange == exchange and row.trade_date == trade_date
+                if row.exchange == exchange
+                and row.trade_date == trade_date
+                and row.product in ("", product)
             ),
             key=_session_exception_sort_key,
         )
@@ -802,6 +833,7 @@ def matching_session_exceptions(
             reason="expected at most one session exception match",
             row_identity={
                 "exchange": exchange,
+                "product": product,
                 "trade_date": trade_date.isoformat(),
             },
             context={"match_count": len(matches)},
@@ -840,7 +872,7 @@ def authorize_night_observation(
 
     regimes = matching_ranges(authority.day_only_regimes, exchange, product, trade_date)
     exceptions = matching_session_exceptions(
-        authority.session_exceptions, exchange, trade_date
+        authority.session_exceptions, exchange, product, trade_date
     )
     observed = (observed_night_start, observed_night_end)
     if regimes:
