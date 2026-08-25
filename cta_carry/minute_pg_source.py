@@ -125,9 +125,74 @@ WHERE "合约代码" = %s
   AND "交易日期" <= %s
 ORDER BY "交易日期" DESC, "合约乘数" ASC NULLS LAST
 """
+_DAILY_MULTIPLIER_QUERY = """
+SELECT volume, turnover, close
+FROM public.futures_daily
+WHERE symbol = %s
+  AND trade_date <= %s
+  AND volume > 0
+  AND close > 0
+  AND turnover > 0
+ORDER BY trade_date DESC
+LIMIT 60
+"""
 _TABLE_BOUNDS_QUERY = """
 SELECT min(bar_time), max(bar_time) FROM public.futures_minute
 """
+
+
+def _daily_turnover_multiplier(
+    cursor: Any,
+    *,
+    daily_contract: str,
+    trade_date: date,
+) -> int | None:
+    """Settle a contract multiplier from the daily record, or refuse.
+
+    The daily turnover reconciles on every exchange, including the one whose
+    minute turnover is synthetic, so this is the broadest reliable basis. Each
+    day's close stands in for its VWAP, which leaves a few percent of spread;
+    the median absorbs that and is then required to sit close to one integer.
+    """
+    cursor.execute(_DAILY_MULTIPLIER_QUERY, (daily_contract, trade_date))
+    rows = cursor.fetchall()
+    factors: list[float] = []
+    for row in rows or ():
+        if not isinstance(row, Sequence) or len(row) < 3:
+            continue
+        try:
+            volume, turnover, close = float(row[0]), float(row[1]), float(row[2])
+        except (TypeError, ValueError):
+            continue
+        if volume > 0 and close > 0 and turnover > 0:
+            factors.append(turnover / volume / close)
+    if not factors:
+        return None
+    if len(factors) < 10:
+        raise MinuteDataError(
+            trade_date=trade_date,
+            contract=daily_contract,
+            check="daily_turnover_multiplier",
+            reason="at least 10 daily rows are required to settle a multiplier",
+            context={"rows": len(factors)},
+        )
+    factors.sort()
+    middle = len(factors) // 2
+    median = (
+        factors[middle]
+        if len(factors) % 2
+        else (factors[middle - 1] + factors[middle]) / 2.0
+    )
+    candidate = round(median)
+    if candidate <= 0 or abs(median - candidate) > 0.02 * candidate:
+        raise MinuteDataError(
+            trade_date=trade_date,
+            contract=daily_contract,
+            check="daily_turnover_multiplier",
+            reason="daily turnover does not settle on one integer multiplier",
+            context={"median": median, "nearest": candidate, "rows": len(factors)},
+        )
+    return int(candidate)
 
 
 def _require_trade_date(value: object, *, contract: str | None = None) -> date:
@@ -1653,12 +1718,25 @@ class PublicMinuteSource:
                     dated_values.append((effective_date, row[1]))
                 if not dated_values:
                     # futures_contract_info only reaches back to 2025-12-22, so
-                    # every historical product-day arrives here. The bars can
-                    # settle the multiplier themselves when they are present:
-                    # inference enumerates the integers and accepts exactly one
-                    # candidate at a 0.99 pass rate, so it fails closed rather
-                    # than guessing. With no bars there is nothing to reason
-                    # from and the original refusal stands.
+                    # every historical product-day arrives here. The daily
+                    # record is tried first: its turnover reconciles on every
+                    # exchange, including the one whose minute turnover is
+                    # synthetic. Only if that is silent do the bars themselves
+                    # get a say, and neither path guesses.
+                    daily = _daily_turnover_multiplier(
+                        cursor,
+                        daily_contract=daily_contract,
+                        trade_date=trade_date,
+                    )
+                    if daily is not None:
+                        if frame is None:
+                            return daily
+                        return validate_metadata_multiplier(
+                            frame,
+                            contract=minute_symbol,
+                            multiplier=daily,
+                            source="daily_turnover",
+                        )
                     source_frame = frame if inference_frame is None else inference_frame
                     if source_frame is None:
                         raise MinuteDataError(

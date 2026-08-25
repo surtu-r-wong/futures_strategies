@@ -14,10 +14,12 @@ from cta_carry.session_authority import (
     SessionException,
     authorize_night_observation,
     load_authority_ranges,
+    load_pricing_bases,
     load_session_authority,
     load_session_exceptions,
     matching_ranges,
     matching_session_exceptions,
+    pricing_basis_for,
     validate_session_exception_calendar,
 )
 
@@ -386,6 +388,50 @@ def test_an_exchange_wide_and_a_product_row_for_one_day_is_refused():
 
     with pytest.raises(SessionAuthorityError, match="authority_match_cardinality"):
         matching_session_exceptions(rows, "SHFE", "AU", day)
+
+
+BASIS_HEADER = "version,exchange,basis,reason,evidence\n"
+
+
+def test_pricing_basis_defaults_to_the_turnover_vwap_and_names_its_exceptions(
+    tmp_path,
+):
+    path = _write(
+        tmp_path / "basis.csv",
+        BASIS_HEADER + "commodity-v1,CZCE,ohlc_typical,minute turnover is synthesised,"
+        "docs/research/x.md\n",
+    )
+
+    rows = load_pricing_bases(path)
+
+    assert pricing_basis_for(rows, "CZCE") == "ohlc_typical"
+    assert pricing_basis_for(rows, "SHFE") == "amount_vwap"
+    assert pricing_basis_for(rows, "DCE") == "amount_vwap"
+
+
+def test_pricing_basis_rejects_an_unknown_basis(tmp_path):
+    path = _write(
+        tmp_path / "basis.csv",
+        BASIS_HEADER + "commodity-v1,CZCE,settlement,because,docs/research/x.md\n",
+    )
+
+    with pytest.raises(SessionAuthorityError, match="pricing_basis"):
+        load_pricing_bases(path)
+
+
+def test_pricing_basis_rejects_a_duplicate_exchange(tmp_path):
+    row = "commodity-v1,CZCE,ohlc_typical,synthesised,docs/research/x.md\n"
+    path = _write(tmp_path / "basis.csv", BASIS_HEADER + row + row)
+
+    with pytest.raises(SessionAuthorityError, match="authority_duplicate_key"):
+        load_pricing_bases(path)
+
+
+def test_repository_pricing_basis_names_only_zhengzhou():
+    repository = Path(__file__).resolve().parents[1]
+    rows = load_pricing_bases(repository / "config/carry_minute_pricing_basis.csv")
+
+    assert [(row.exchange, row.basis) for row in rows] == [("CZCE", "ohlc_typical")]
 
 
 def test_load_session_authority_reads_registered_absences(tmp_path):

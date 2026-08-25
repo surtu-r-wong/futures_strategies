@@ -64,6 +64,9 @@ class VwapFill:
     trade_date: date | None = None
     window_slots: tuple[datetime, ...] = ()
     missing_slot_times: tuple[datetime, ...] = ()
+    # Which fields the price came from. A fill priced off OHLC is not a VWAP and
+    # must not be read as one, so every fill carries its basis.
+    pricing_basis: str = "amount_vwap"
 
     @property
     def window_start(self) -> datetime:
@@ -880,6 +883,7 @@ def validate_metadata_multiplier(
     *,
     contract: str,
     multiplier: int,
+    source: str = "metadata",
 ) -> MultiplierResolution:
     clock = _multiplier_clock(frame, contract)
     if type(multiplier) is not int or multiplier <= 0:
@@ -891,7 +895,7 @@ def validate_metadata_multiplier(
             context={"multiplier": multiplier},
         )
     sample, clock = _select_multiplier_sample(frame, contract=contract)
-    resolution = _resolution(sample, multiplier=multiplier, source="metadata")
+    resolution = _resolution(sample, multiplier=multiplier, source=source)
     if resolution.pass_rate < 0.99:
         raise _minute_error(
             clock=clock,
@@ -909,12 +913,16 @@ def validate_metadata_multiplier(
     return resolution
 
 
+_PRICING_BASES = frozenset({"amount_vwap", "ohlc_typical"})
+
+
 def five_minute_vwap(
     frame: pd.DataFrame,
     *,
     slots: Sequence[datetime],
     contract: str,
     multiplier: int,
+    pricing_basis: str = "amount_vwap",
 ) -> VwapFill:
     ordered, slot_values, clock, missing_slot_times = _bound_rows(
         frame,
@@ -942,16 +950,30 @@ def five_minute_vwap(
             reason="execution window has zero traded volume",
             context={"volume": volume, "amount": amount},
         )
-    if not np.isfinite(amount) or amount <= 0:
+    if pricing_basis not in _PRICING_BASES:
         raise _minute_error(
             clock=clock,
             contract=contract,
-            check="execution_vwap",
-            reason="execution window total amount must be finite and positive",
-            context={"volume": volume, "amount": amount},
+            check="execution_pricing_basis",
+            reason=f"pricing basis must be one of {sorted(_PRICING_BASES)}",
+            context={"pricing_basis": pricing_basis},
         )
-
-    price = amount / volume / multiplier
+    if pricing_basis == "ohlc_typical":
+        # The turnover column is not trusted on this basis, so the price is the
+        # volume-weighted typical price of the bars themselves. It approximates
+        # a VWAP from fields that reconcile, and it is not one.
+        typical = (traded["high"] + traded["low"] + traded["close"]) / 3.0
+        price = float((typical * traded["volume"]).sum() / volume)
+    else:
+        if not np.isfinite(amount) or amount <= 0:
+            raise _minute_error(
+                clock=clock,
+                contract=contract,
+                check="execution_vwap",
+                reason="execution window total amount must be finite and positive",
+                context={"volume": volume, "amount": amount},
+            )
+        price = amount / volume / multiplier
     if not np.isfinite(price) or price <= 0:
         raise _minute_error(
             clock=clock,
@@ -992,4 +1014,5 @@ def five_minute_vwap(
         trade_date=clock.trade_date,
         window_slots=slot_values,
         missing_slot_times=missing_slot_times,
+        pricing_basis=pricing_basis,
     )

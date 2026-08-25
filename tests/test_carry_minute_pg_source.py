@@ -488,6 +488,8 @@ class FakeCursor:
             self.mode = "stream"
         elif "FROM public.futures_contract_info" in normalized:
             self.mode = "metadata"
+        elif "FROM public.futures_daily" in normalized:
+            self.mode = "daily"
         elif "SELECT min(bar_time), max(bar_time)" in normalized:
             self.mode = "table_bounds"
 
@@ -498,9 +500,11 @@ class FakeCursor:
         return (self.connection.plan,)
 
     def fetchall(self):
-        assert self.mode in {"metadata", "boundary"}
+        assert self.mode in {"metadata", "boundary", "daily"}
         if self.mode == "boundary":
             return list(self.connection.boundary_rows)
+        if self.mode == "daily":
+            return list(self.connection.daily_rows)
         return list(self.connection.metadata_rows)
 
     def fetchmany(self, size):
@@ -527,6 +531,7 @@ class FakeConnection:
         stream_chunks=(),
         boundary_rows=(),
         metadata_rows=(),
+        daily_rows=(),
         table_bounds=(
             datetime(2005, 1, 4, 9, 0, tzinfo=SHANGHAI),
             datetime(2026, 8, 5, 23, 59, tzinfo=SHANGHAI),
@@ -538,6 +543,7 @@ class FakeConnection:
         self.stream_chunks = list(stream_chunks)
         self.boundary_rows = list(boundary_rows)
         self.metadata_rows = list(metadata_rows)
+        self.daily_rows = list(daily_rows)
         self.table_bounds = table_bounds
         self.raise_on = raise_on
         self.rollback_error = rollback_error
@@ -1617,6 +1623,54 @@ def test_metadata_multiplier_falls_back_to_inference_when_history_is_absent():
 
     assert resolution.multiplier == 10
     assert resolution.source == "inferred"
+
+
+def _daily_rows(multiplier, close=2500.0, n=40):
+    # turnover = volume * close_of_day * multiplier, with the day's close standing
+    # in for its VWAP, which is where the small spread comes from in real data.
+    return [
+        (float(1000 + index), float(1000 + index) * close * multiplier, close)
+        for index in range(n)
+    ]
+
+
+def test_multiplier_comes_from_the_daily_turnover_before_any_minute_inference():
+    # Zhengzhou's minute turnover is synthetic, so the minute bars cannot settle
+    # its multiplier. The daily record reconciles and can.
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10))
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="RM909.CZC",
+        trade_date=date(2019, 6, 3),
+        frame=_inferable_frame(contract="RM1909"),
+    )
+
+    assert resolution.multiplier == 10
+    assert resolution.source == "daily_turnover"
+
+
+def test_daily_turnover_multiplier_refuses_a_non_integer_result():
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(7.4))
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="RM909.CZC",
+            trade_date=date(2019, 6, 3),
+        )
+
+    assert exc_info.value.check == "daily_turnover_multiplier"
+
+
+def test_daily_turnover_multiplier_refuses_too_few_days():
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10, n=4))
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="RM909.CZC",
+            trade_date=date(2019, 6, 3),
+        )
+
+    assert exc_info.value.check == "daily_turnover_multiplier"
 
 
 def test_metadata_multiplier_infers_from_the_wider_sample_when_given_one():

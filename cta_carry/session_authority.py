@@ -27,6 +27,9 @@ _ABSENT_PRODUCT_DAY_COLUMNS = (
     "source_url",
 )
 _SUPPORTED_ABSENT_SEGMENTS = frozenset({"day"})
+_PRICING_BASIS_COLUMNS = ("version", "exchange", "basis", "reason", "evidence")
+DEFAULT_PRICING_BASIS = "amount_vwap"
+_SUPPORTED_PRICING_BASES = frozenset({DEFAULT_PRICING_BASIS, "ohlc_typical"})
 _SESSION_EXCEPTION_COLUMNS = (
     "exchange",
     "version",
@@ -304,6 +307,84 @@ class AbsentProductDay:
                 row_identity=identity,
                 context={"actual": self.absent_segment},
             )
+
+
+@dataclass(frozen=True)
+class PricingBasis:
+    """How one exchange's fills may be priced.
+
+    Only exceptions are recorded. An exchange with no row prices on its own
+    turnover, which is what every exchange but Zhengzhou supports.
+    """
+
+    version: str
+    exchange: str
+    basis: str
+    reason: str
+    evidence: str
+
+    def __post_init__(self) -> None:
+        identity = {"version": self.version, "exchange": self.exchange}
+        if self.version != AUTHORITY_VERSION:
+            raise SessionAuthorityError(
+                check="authority_record_version",
+                reason=f"expected {AUTHORITY_VERSION!r}",
+                row_identity=identity,
+                context={"actual": self.version},
+            )
+        for field in ("exchange", "reason", "evidence"):
+            _validate_required_record_text(
+                record_kind="pricing basis",
+                field=field,
+                value=getattr(self, field),
+                identity=identity,
+            )
+        if self.basis not in _SUPPORTED_PRICING_BASES:
+            raise SessionAuthorityError(
+                check="authority_pricing_basis",
+                reason=(
+                    f"pricing_basis must be one of {sorted(_SUPPORTED_PRICING_BASES)}"
+                ),
+                row_identity=identity,
+                context={"actual": self.basis},
+            )
+
+
+def load_pricing_bases(path: Path) -> tuple[PricingBasis, ...]:
+    """Load the exchanges whose fills are not priced on their own turnover."""
+    payload = _read_asset_bytes(path)
+    parsed: list[PricingBasis] = []
+    seen: set[tuple[str, str]] = set()
+    for row_number, row in _read_csv_rows(
+        path, payload, columns=_PRICING_BASIS_COLUMNS
+    ):
+        key = (row["version"], row["exchange"])
+        if key in seen:
+            raise SessionAuthorityError(
+                check="authority_duplicate_key",
+                reason="duplicate pricing basis authority key",
+                row_identity={"version": key[0], "exchange": key[1]},
+                context={"path": str(path), "row_number": row_number},
+            )
+        seen.add(key)
+        parsed.append(
+            PricingBasis(
+                version=row["version"],
+                exchange=row["exchange"],
+                basis=row["basis"],
+                reason=row["reason"],
+                evidence=row["evidence"],
+            )
+        )
+    return tuple(sorted(parsed, key=lambda item: item.exchange))
+
+
+def pricing_basis_for(rows: Iterable[PricingBasis], exchange: str) -> str:
+    """Return the declared basis for one exchange, or the turnover default."""
+    for row in rows:
+        if row.exchange == exchange:
+            return row.basis
+    return DEFAULT_PRICING_BASIS
 
 
 @dataclass(frozen=True)

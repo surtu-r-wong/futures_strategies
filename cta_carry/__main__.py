@@ -33,7 +33,7 @@ from .minute_sessions import (
     load_session_rules,
 )
 from .pg_source import load_public_carry_data
-from .session_authority import load_absent_product_days
+from .session_authority import load_absent_product_days, load_pricing_bases
 from .provenance import capture_git_state
 from .report import (
     ReportWriteError,
@@ -47,6 +47,7 @@ _SESSION_RULES_PATH = _REPO_ROOT / "config" / "carry_minute_sessions.csv"
 _ABSENT_PRODUCT_DAYS_PATH = (
     _REPO_ROOT / "config" / "carry_minute_absent_product_days.csv"
 )
+_PRICING_BASIS_PATH = _REPO_ROOT / "config" / "carry_minute_pricing_basis.csv"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -301,6 +302,8 @@ def main(argv: list[str] | None = None) -> int:
             # them the engine cannot tell an authorised absence from missing
             # data and fails closed on a day it was told to defer.
             absent_product_days = load_absent_product_days(_ABSENT_PRODUCT_DAYS_PATH)
+            # Exchanges whose minute turnover cannot price a fill.
+            pricing_bases = load_pricing_bases(_PRICING_BASIS_PATH)
         except (OSError, KeyError, ValueError, psycopg2.Error) as exc:
             print(str(exc), file=sys.stderr)
             return 2
@@ -316,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
                 start=args.start,
                 end=args.end,
                 absent_product_days=absent_product_days,
+                pricing_bases=pricing_bases,
             ).run()
             _validate_minute_runtime_provenance(
                 result.run_config,

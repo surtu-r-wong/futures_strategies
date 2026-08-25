@@ -527,6 +527,7 @@ def test_public_pg_cli_constructs_only_the_selected_execution_engine(
     source_calls = []
     rule_calls = []
     absence_calls = []
+    basis_calls = []
     written_results = []
 
     class FakeDailyBacktester:
@@ -547,6 +548,7 @@ def test_public_pg_cli_constructs_only_the_selected_execution_engine(
             start,
             end,
             absent_product_days=(),
+            pricing_bases=(),
         ):
             self.minute_source = minute_source
             engine_calls.append(
@@ -561,6 +563,7 @@ def test_public_pg_cli_constructs_only_the_selected_execution_engine(
                 )
             )
             absence_calls.append(tuple(absent_product_days))
+            basis_calls.append(tuple(pricing_bases))
 
         def run(self):
             audit = self.minute_source.audit
@@ -691,6 +694,10 @@ def test_public_pg_cli_constructs_only_the_selected_execution_engine(
         # Without this the deferral built for unpriceable product-days never
         # reaches the engine, and a run crossing one fails closed instead.
         assert len(absence_calls) == 1
+        # Zhengzhou fills cannot be priced on turnover; the engine must be told.
+        assert [(row.exchange, row.basis) for row in basis_calls[0]] == [
+            ("CZCE", "ohlc_typical")
+        ]
         assert [
             (row.exchange, row.product, row.trade_date.isoformat())
             for row in absence_calls[0]

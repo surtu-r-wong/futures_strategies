@@ -77,6 +77,61 @@ def test_vwap_uses_amount_volume_and_multiplier():
     assert result.volume == 15.0
 
 
+def _czce_shaped_rows(prices, volumes, multiplier=10, synthetic_price=90.0):
+    """Bars whose OHLC is sound but whose amount was synthesised from one price.
+
+    This is the shape Zhengzhou's minute archive actually has: turnover equals
+    volume times a single integer price, unrelated to the bar's own range.
+    """
+    start = datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI)
+    records = []
+    for index, (price, volume) in enumerate(zip(prices, volumes, strict=True)):
+        records.append(
+            {
+                "bar_time": start + timedelta(minutes=index),
+                "symbol": CONTRACT,
+                "open": price,
+                "high": price + 1.0,
+                "low": price - 1.0,
+                "close": price,
+                "volume": volume,
+                "amount": synthetic_price * volume * multiplier,
+            }
+        )
+    return pd.DataFrame(records)
+
+
+def test_ohlc_basis_prices_a_fill_without_touching_the_amount_column():
+    frame = _czce_shaped_rows([100.0, 102.0, 104.0, 106.0, 108.0], [1, 2, 3, 4, 5])
+
+    result = five_minute_vwap(
+        frame,
+        slots=tuple(frame["bar_time"]),
+        contract=CONTRACT,
+        multiplier=10,
+        pricing_basis="ohlc_typical",
+    )
+
+    typical = (frame["high"] + frame["low"] + frame["close"]) / 3
+    expected = float((typical * frame["volume"]).sum() / frame["volume"].sum())
+    assert result.price == pytest.approx(expected)
+    assert result.pricing_basis == "ohlc_typical"
+
+
+def test_amount_basis_still_refuses_a_synthesised_turnover():
+    # The same bars on the default basis: the amount puts the fill far outside
+    # the range the bars themselves report, and that must stay an error.
+    frame = _czce_shaped_rows([100.0, 102.0, 104.0, 106.0, 108.0], [1, 2, 3, 4, 5])
+
+    with pytest.raises(MinuteDataError, match="outside the traded price range"):
+        five_minute_vwap(
+            frame,
+            slots=tuple(frame["bar_time"]),
+            contract=CONTRACT,
+            multiplier=10,
+        )
+
+
 def test_multiplier_is_uniquely_inferred_from_price_ranges():
     frame = _rows([100.0] * 60, [1.0] * 60, multiplier=10)
     frame["trade_date"] = frame["bar_time"].dt.date

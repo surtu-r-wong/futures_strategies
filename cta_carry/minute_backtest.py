@@ -38,7 +38,7 @@ from .minute_bars import (
     five_minute_vwap,
 )
 from .minute_pg_source import MinuteCandidate, minute_contract_identity
-from .session_authority import AbsentProductDay
+from .session_authority import AbsentProductDay, PricingBasis, pricing_basis_for
 from .minute_sessions import (
     SESSION_RULES_CAPTURE_START,
     SESSION_RULES_VERSION,
@@ -1205,6 +1205,7 @@ class CarryMinuteBacktester:
         start: date,
         end: date,
         absent_product_days: Sequence[AbsentProductDay] = (),
+        pricing_bases: Sequence[PricingBasis] = (),
     ) -> None:
         if start > end:
             raise ValueError("start must be on or before end")
@@ -1218,6 +1219,9 @@ class CarryMinuteBacktester:
         # priced, so it cannot be traded. The decision is deferred: the position
         # stays exactly as it was and the next tradable day decides afresh.
         self.absent_product_days = tuple(absent_product_days)
+        # Exchanges whose fills are not priced on their own turnover. Empty
+        # means every fill prices the ordinary way.
+        self.pricing_bases = tuple(pricing_bases)
         self._untradable = frozenset(
             (row.trade_date, row.exchange, row.product)
             for row in self.absent_product_days
@@ -1372,6 +1376,10 @@ class CarryMinuteBacktester:
                 resolution_cache[key] = cached
             return cached
 
+        def basis_for(contract: str, trade_date: date) -> str:
+            exchange = minute_contract_identity(contract, trade_date)[2]
+            return pricing_basis_for(self.pricing_bases, exchange)
+
         def audit_fill(
             fill: VwapFill,
             *,
@@ -1411,6 +1419,7 @@ class CarryMinuteBacktester:
                 slots=slots,
                 contract=minute_symbol,
                 multiplier=resolved.multiplier,
+                pricing_basis=basis_for(contract, trade_date),
             )
             fill = replace(fill, contract=contract)
             audit_fill(
@@ -2017,6 +2026,7 @@ class CarryMinuteBacktester:
                         slots=fill_slots,
                         contract=minute_symbol,
                         multiplier=resolved.multiplier,
+                        pricing_basis=basis_for(before.contract, trade_date),
                     )
                     fill = replace(fill, contract=before.contract)
                     audit_fill(
