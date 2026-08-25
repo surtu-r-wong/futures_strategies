@@ -221,16 +221,13 @@ def _daily_turnover_multiplier(
         mid = (high + low) / 2.0
         if volume > 0 and mid > 0 and turnover > 0:
             factors.append(turnover / volume / mid)
-    if not factors:
-        return None
+    # Too few rows to settle anything is missing evidence, so it hands over to
+    # the next resolution level. Refusing here punished a newly listed contract
+    # -- a handful of daily rows -- harder than one with no daily record at
+    # all, which fell through cleanly. Refusal is reserved below, for rows that
+    # agree on no integer at all: that is evidence which contradicts.
     if len(factors) < 10:
-        raise MinuteDataError(
-            trade_date=trade_date,
-            contract=daily_contract,
-            check="daily_turnover_multiplier",
-            reason="at least 10 daily rows are required to settle a multiplier",
-            context={"rows": len(factors)},
-        )
+        return None
     factors.sort()
     middle = len(factors) // 2
     median = (

@@ -1794,7 +1794,27 @@ def test_daily_turnover_multiplier_refuses_a_non_integer_result():
     assert exc_info.value.check == "daily_turnover_multiplier"
 
 
-def test_daily_turnover_multiplier_refuses_too_few_days():
+def test_a_thin_daily_record_falls_through_to_minute_inference():
+    # Replaces a test that demanded a refusal here. Too few daily rows to
+    # settle a multiplier is missing evidence, not wrong evidence, so it hands
+    # over to the next level. Refusing made a newly listed contract -- one with
+    # a handful of daily rows -- fail harder than one with no daily record at
+    # all, which fell through cleanly.
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10, n=4))
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="RM909.CZC",
+        trade_date=date(2019, 6, 3),
+        frame=_inferable_frame(contract="RM1909"),
+    )
+
+    assert resolution.multiplier == 10
+    assert resolution.source == "inferred"
+
+
+def test_a_thin_daily_record_with_nothing_to_infer_from_still_refuses():
+    # Reverse guard: falling through is not the same as giving up. With no
+    # frame to infer from either, the run still refuses rather than guessing.
     connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10, n=4))
 
     with pytest.raises(MinuteDataError) as exc_info:
@@ -1803,7 +1823,8 @@ def test_daily_turnover_multiplier_refuses_too_few_days():
             trade_date=date(2019, 6, 3),
         )
 
-    assert exc_info.value.check == "daily_turnover_multiplier"
+    assert exc_info.value.check == "metadata_multiplier"
+    assert "no contract multiplier metadata" in exc_info.value.reason
 
 
 def test_metadata_multiplier_infers_from_the_wider_sample_when_given_one():
