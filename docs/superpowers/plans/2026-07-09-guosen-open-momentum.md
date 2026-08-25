@@ -235,10 +235,17 @@ Wind 实时快照表：中金所只有 IC / IM（2026-05-13 起），**无 IF / 
 - Create: `index_open_momentum/signals.py`
 - Test: `tests/test_index_open_momentum_signals.py`
 
-- [ ] Add strict long-signal detection from the first 3 bars: increasing `open`, `low`, and `close`.
-- [ ] Add strict short-signal detection from the first 3 bars: decreasing `open`, `high`, and `close`.
-- [ ] Return a neutral signal when there are fewer than 3 valid opening bars or either strict condition fails.
-- [ ] Add tests for long, short, neutral, ties, and missing opening bars.
+- [x] Add strict long-signal detection from the first 3 bars: increasing `open`, `low`, and `close`.
+- [x] Add strict short-signal detection from the first 3 bars: decreasing `open`, `high`, and `close`.
+- [x] Return a neutral signal when there are fewer than 3 valid opening bars or either strict condition fails.
+- [x] Add tests for long, short, neutral, ties, and missing opening bars.
+
+**2026-08-25 完工记录**：8 个测试全绿。两条"写完就过"的断言（tie、第四根不影响判定）
+已做变异验证 —— `<` 放宽成 `<=` 只打红 tie 那条、去掉 `[:3]` 切片只打红第四根那条，
+两次都是精确一条，证明它们不是空断言。另外两处是实测驱动出来的：
+① 空序列与两根序列原本会被判成多头（`all(())` 恒真），由测试当场抓出；
+② 多头判据只读 open/low/close，一根只有 `high` 是 NaN 的坏 bar 会沿判据盲区溜过去
+——因此 `Bar.is_valid()` 显式判有限性，不依赖"NaN 比较恒为假"这条巧合。
 
 ### Task 4: Implement ATR and Stop Events
 
