@@ -59,7 +59,25 @@ CU 库存只覆盖上海保税区、AL/CU/RB 现货是周频而其余六个是�
 
 ## 仓库边界
 
-- 本仓拥有商品期货策略、只读数据适配、回测、质量闸门和研究报告。
+- 本仓拥有商品期货与**股指期货**策略、只读数据适配、回测、质量闸门和研究报告。
 - Wind 抽取、writer、数据库 DDL、标准数据构建属于 `market-monitor`。
-- 股指期货类策略属于股票生态，不在本仓新增。
-- 任何新策略都需要单独设计与批准；“商品期货归本仓”不是具体策略的实施授权。
+- ~~股指期货类策略属于股票生态，不在本仓新增。~~ **2026-08-25 用户裁决推翻**：股指期货类
+  策略改归本仓。依据是三条实测事实——① 分钟表 `public.futures_minute`（661,966,168 行，
+  IF 2010-04-16 起无缺口）是本仓 2026-08-13 建的；② 15 分钟执行引擎（版本化时段、
+  5 分钟 VWAP、吊灯止损三档减仓、影子账户波动率反馈）在本仓 `feature/carry-minute-execution`
+  上正在建，与股指日内策略重合约八成；③ stock_selector 的策略七层布局是股票形状，
+  其统一平台 `asset_class` 为 `equity | fund` 闭合枚举、设计 §4 Non-Goals 点名不收 CTA。
+  首个落地对象 = 国信开盘动量（`docs/superpowers/plans/2026-07-09-guosen-open-momentum.md`，未开工）。
+- ⚠️ 边界改动只挪**策略归属**，不挪数据责任：`cta_gtja` / `cta_carry` 两条 `public-pg` 路径
+  默认排除股指与国债期货这条不变（`FINANCIAL_FUTURES` 常量原样保留）。
+- 任何新策略都需要单独设计与批准；“期货归本仓”不是具体策略的实施授权。
+
+## 股指期货：国信开盘动量（未开工，已排期）
+
+计划 = `docs/superpowers/plans/2026-07-09-guosen-open-momentum.md`（2026-08-25 从 stock_selector
+迁入并按实测重写，47 个 checkbox 全未打勾）。
+
+**分钟层归属已裁决（2026-08-25，方案 A）**：等 `feature/carry-minute-execution` merge 后，把
+`minute_sessions` / `minute_bars` / `minute_pg_source` / `minute_account` 从 `cta_carry/` 抽到
+`common/minute/`，Carry 与开盘动量各接一个信号层；抽层须保证 Carry 侧 CLI 输出逐点不变。
+⇒ 该分支的落地是本策略 Task 1/2/7 的前置；Task 3~6（纯合成数据的策略逻辑）不受阻，可先做。

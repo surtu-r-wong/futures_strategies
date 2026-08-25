@@ -1,7 +1,11 @@
 # Futures Strategies
 
-商品期货策略研究项目（券商研报复刻）。2026-07-11 从 `stock_selector/cta/` 剥离成独立项目；
+期货策略研究项目（券商研报复刻）。2026-07-11 从 `stock_selector/cta/` 剥离成独立项目；
 与股票多因子系统（stock_selector）数据域、概念域完全平行。
+
+覆盖**商品期货**与**股指期货**两类。股指期货 2026-08-25 起纳入本仓（此前 2026-07-12 曾裁决归股票生态），
+理由是分钟数据表 `public.futures_minute` 与 15 分钟执行引擎都在本仓 —— 见
+[`docs/ROADMAP.md`](docs/ROADMAP.md)「仓库边界」。
 
 当前交付状态、外部阻塞与仓库边界以 [`docs/ROADMAP.md`](docs/ROADMAP.md) 为准。
 
@@ -10,6 +14,8 @@
 - `common/` — PG 连接 / settings 加载 / 净值指标（从 stock_selector 拷贝一次，此后独立演化，不回同步）
 - `cta_gtja/` — 国君六因子 CTA 因子组合复刻（原 `stock_selector/cta/`，复刻计划见 `docs/plans/2026-05-31-cta-strategy-replication-plan.md`）
 - `cta_carry/` — 国信 Carry 商品期货日线研究版（分合约期限结构 + 动量缩量缩仓过滤 + 吊灯止损）
+- `index_open_momentum/` — 国信开盘动量股指期货日内复刻（**未开工**，计划见
+  `docs/superpowers/plans/2026-07-09-guosen-open-momentum.md`）
 - `docs/plans|operations|specs/` — 随迁的计划 / runbook / 设计文档
 
 ## 数据源
