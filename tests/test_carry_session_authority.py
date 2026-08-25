@@ -731,9 +731,34 @@ def test_repository_uses_only_the_session_exception_authority_contract():
         history_exception_path=history_path,
         absent_product_day_path=absent_path,
     )
-    assert len(authority.session_exceptions) == 149
-    assert len(authority.day_only_regimes) == 12
+    # Batches A/C/D/E (149) plus F (74), G (304), G-3 (11), the two 2017
+    # option-launch evenings, and H (15), all reviewed on 2026-08-25.
+    assert len(authority.session_exceptions) == 555
+    assert len(authority.day_only_regimes) == 37
     assert authority.liquidity_history_exceptions == ()
+    # Only the evening of 2019-12-25 needs product-scoped rows: Shanghai wrote
+    # three closes and the energy centre two, so an exchange-wide row cannot
+    # transcribe them. Everything else speaks for a whole exchange.
+    scoped = [row for row in authority.session_exceptions if row.product]
+    assert {row.trade_date.isoformat() for row in scoped} == {"2019-12-26"}
+    assert sorted(
+        (row.exchange, row.product, row.night_start, row.night_end) for row in scoped
+    ) == [
+        ("INE", "SC", "22:30", "02:30"),
+        ("SHFE", "AG", "22:30", "02:30"),
+        ("SHFE", "AL", "22:30", "01:00"),
+        ("SHFE", "AU", "22:30", "02:30"),
+        ("SHFE", "BU", "22:30", "23:00"),
+        ("SHFE", "CU", "22:30", "01:00"),
+        ("SHFE", "FU", "22:30", "23:00"),
+        ("SHFE", "HC", "22:30", "23:00"),
+        ("SHFE", "NI", "22:30", "01:00"),
+        ("SHFE", "PB", "22:30", "01:00"),
+        ("SHFE", "RB", "22:30", "23:00"),
+        ("SHFE", "RU", "22:30", "23:00"),
+        ("SHFE", "SP", "22:30", "23:00"),
+        ("SHFE", "ZN", "22:30", "01:00"),
+    ]
     # Five product-days the vendor confirmed on 2026-08-21 it cannot resupply.
     assert [
         (row.exchange, row.product, row.trade_date.isoformat(), row.absent_segment)

@@ -1,5 +1,28 @@
 # Carry 分钟时段权威来源登记
 
+> ## ✅ 2026-08-25：全部批次已写入资产
+>
+> 用户 2026-08-25 全部确认，429 行权威行已写入 `config/`：
+>
+> | 批次 | 行数 | 去向 |
+> |---|---:|---|
+> | 既有 A/C/D/E | 149 | `carry_minute_session_exceptions.csv` |
+> | **F**（2011–2017） | 25 区间 + 74 例外 | 区间进 `carry_minute_day_only_regimes.csv` |
+> | **G**（2018-01 → 2020-06） | 304 例外 | 节后 52 + 疫情暂停 252 |
+> | **G-3**（三个元旦日） | 11 例外 | 2018/2019/2020-01-02 |
+> | **H**（2019-12-26 延迟夜盘） | 15 例外 | CZCE 1 + INE 1 + SHFE 13（首次使用 `product` 列） |
+> | 2017 两夜 | 2 例外 | 大商所发〔2017〕112号、郑商函〔2017〕97号 |
+>
+> 合计 `carry_minute_session_exceptions.csv` **555 行**、
+> `carry_minute_day_only_regimes.csv` **37 行**、
+> `carry_minute_absent_product_days.csv` **5 行**。
+>
+> **批次 F 的第 ② 项一并确认**：那 9 条非 `reviewed_direct` 来源
+> （SHFE 5 条 `reviewed_corroborative`、CZCE 4 条 `reviewed_pair_required`）据经验交叉收下，
+> 判据是 8/9 与实测经验末日**精确到天吻合**、0 条晚于。其 review_status 视同
+> `reviewed_corroborative_plus_empirical`。
+
+
 日期：2026-08-14
 覆盖目标：2011-01-01 至 2026-04-29
 资产版本：`commodity-v1`
@@ -65,7 +88,7 @@
 | INE | product_day_only | EC 于 2023-08-18 上市；通知完整枚举 09:00–10:15、10:30–11:30、13:30–15:00 | https://www.ine.cn/publicnotice/notice/202308/t20230811_814262.html | 1 | `reviewed_direct_with_note`：通知未使用“日盘”字样，但完整时段枚举无夜盘 |
 | INE | night_suspension | 自 2020-02-03 晚起暂停夜盘，恢复日期另行通知 | https://www.ine.cn/publicnotice/notice/202002/t20200202_812084.html | 0 | `reviewed_boundary`：与恢复边界及全局日历已展开 63 个目标日 |
 | INE | night_resumption | 2020-05-06 晚恢复夜盘 | https://www.ine.cn/publicnotice/notice/202004/t20200424_812209.html | 0 | `reviewed_boundary`：闭合暂停区间，不重复计行 |
-| INE | holiday_no_night | 《关于2018年休市安排的公告》（〔2018〕6号，2018-03-14）；SC 上市后的 `E→R`：2018-04-04→04-09、04-27→05-02、06-15→06-19、09-21→09-25、09-28→10-08 | https://www.ine.cn/publicnotice/notice/201803/t20180314_811180.html | 5 | `reviewed_direct`：只派生 2018-03-26 夜盘品种上市后的五个前夕 |
+| INE | holiday_no_night | 《关于2018年休市安排的公告》（〔2018〕6号，2018-03-14）；SC 上市后的 `E→R`：2018-04-04→04-09、04-27→05-02、06-15→06-19、09-21→09-25、09-28→10-08 | https://www.ine.cn/publicnotice/notice/201803/t20180314_811180.html | 2 | `reviewed_direct`：只派生 2018-03-26 夜盘品种上市后的五个前夕 |
 | INE | holiday_no_night | 《上海国际能源交易中心关于2019年休市安排的公告》（〔2018〕35号，2018-12-21）；canonical `E→R`：2018-12-28→2019-01-02、2019-02-01→02-11、04-04→04-08、06-06→06-10、09-12→09-16、09-30→10-08；原劳动节恢复条款被调整公告覆盖 | https://www.ine.cn/publicnotice/notice/201812/t20181221_811566.html | 6 | `reviewed_direct_superseded_part`：不从原劳动节条款重复派生 2019-04-30 |
 | INE | holiday_no_night | 《关于2019年劳动节休市安排的公告》（〔2019〕6号，2019-04-15）；`E→R`：2019-04-30→05-06 | https://www.ine.cn/publicnotice/notice/201904/t20190415_811704.html | 1 | `reviewed_direct_override`：劳动节 canonical 来源 |
 | INE | holiday_no_night | 《上海国际能源交易中心关于2020年休市安排的公告》（〔2019〕30号，2019-12-24）；`E→R`：2019-12-31→2020-01-02、2020-01-23→01-31、04-03→04-07、04-30→05-06、06-24→06-29、09-30→10-09 | https://www.ine.cn/publicnotice/notice/201912/t20191224_812027.html | 6 | `reviewed_direct`：春节恢复边界后被延长公告修订；04-03、04-30 映射后的 final key 与疫情暂停区间去重 |
@@ -115,6 +138,11 @@
 | CZCE | holiday_no_night | `notice_evening=2018-12-28`；2019-01-02 晚恢复夜盘 | https://www.czce.com.cn/cn/rootfiles/2018/12/24/1545632831296256-1545632831311552.pdf | 1 | `reviewed_direct`：只保存公告前夕，目标日由全局日历计算 |
 | CZCE | night_suspension | 自 2020-02-03 晚起暂停夜盘；首个疫情暂停目标日为 2020-02-04 | http://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2020/02/1572884629536892.htm | 0 | `official_url_manual_fetch`：官方旧页当前 412；与恢复边界及全局日历合用派生 63 行，2020-02-03 另按节后规则归因 |
 | CZCE | night_resumption | 2020-05-06 晚恢复商品期货、期权夜盘；首个恢复夜盘目标日为 2020-05-07 | http://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2020/04/1584386593065063.htm | 0 | `official_url_manual_fetch`：郑商函〔2020〕153号；闭合暂停区间，不重复计行 |
+| DCE | no_night_for_option_launch | 大商所发〔2017〕112号（2017-03-27）《关于豆粕期货期权上市及2017年清明节期间交易时间提示的通知》：「2017年3月30日当晚不进行期货夜盘品种的夜盘交易」 | http://www.dce.com.cn/dce/content/2017/ywggytz/6033072.html | 1 | `reviewed_direct`（用户 2026-08-21 于浏览器取回）。⚠️ 大商所存在**第二套路径** `www.dce.com.cn/dce/content/<年>/ywggytz/<id>.html`，与既有的 `qhxy.dce.com.cn/...` 并存，两套均对脚本 412 |
+| CZCE | no_night_for_option_launch | **郑商函〔2017〕97号**（2017-04-06）：「为配合白糖期权上市……2017年4月18日当晚所有合约不进行夜盘交易。4月19日8:55-9:00为所有期货合约、白糖期权合约的集合竞价时间，当晚恢复夜盘交易」 | https://www.czce.com.cn/cn/rootfiles/2017/04/06/1488807195737022-1488807195739261.pdf | 1 | `reviewed_direct`。取回手法：WebFetch 回传的是二进制、模型读不了，但字节会落到本地 `tool-results/*.pdf`，用 `pdftotext -enc UTF-8 -layout` 本地解即可 —— 该手法对整个 CZCE PDF 来源族适用 |
+| SHFE | irregular_night_session | 《关于连续交易开市时间的通知》（2019-12-25，《连续交易细则》第七条）：「连续交易品种于今日22:30开始连续交易，其中22:25至22:30为集合竞价」；**逐组列明结束时间**：橡胶/沥青/燃油/纸浆/螺纹/热卷 23:00，铜铝锌铅镍锡不锈钢 次日01:00，金银 次日02:30 | https://www.shfe.cn/publicnotice/notice/201912/t20191225_795464.html | 13 | `reviewed_direct`。⚠️ **域名必须用 `shfe.cn`**，`shfe.com.cn` 返回 WAF 页 —— 这推翻了「SHFE 只能人工取」的旧结论 |
+| INE | irregular_night_session | 《关于连续交易开市时间的通知》（2019-12-25，《交易细则》第二十九条）：22:30 开市、22:25–22:30 集合竞价；结束时间 20号胶 23:00、原油 次日02:30 | https://www.ine.cn/publicnotice/notice/201912/t20191225_812034.html | 1 | `reviewed_direct`（用户 2026-08-21 于浏览器取回；站内页为 WAF 人机识别）。只派生 SC 一行 —— NR 当日不在流动性池，写了会以 `session_exception_unconsumed` 挡发布 |
+| CZCE | irregular_night_session | **郑商发〔2019〕228号**（2019-12-25，《夜盘交易细则》第八条）：「12月25日夜盘交易时间调整为22:30-23:00，集合竞价时间为22：25-22：30」，**全所统一口径** | https://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2019/12/1572881274442160.htm | 1 | `reviewed_direct`（用户 2026-08-21 于浏览器取回；站内页 412）。全所口径故 `product` 留空，一行覆盖 8 个受审品种 |
 | GFEX | session_launch_schedule | SI 于 2022-12-22 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202212/44ccfcb613e442658c8ac94861e0de18.shtml | 1 | `reviewed_launch_plus_empirical`（2026-08-20 用户裁决）：上市通知给制度（三个日盘小节），经验数据给连续覆盖 —— 与 CZCE 逐年日历那次同一手法。广期所无夜盘品种，故不存在节前例外行与之相撞。判据：SI 682/684 个区间交易日观测为 `none,none`，零反例（`rerun_inventory.csv`，2020-07-01 → 2026-04-29）。|
 | GFEX | session_launch_schedule | LC 于 2023-07-21 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202307/33f2a342d80f4ee69966df4a554c26a4.shtml | 1 | `reviewed_launch_plus_empirical`（2026-08-20 用户裁决）：上市通知给制度（三个日盘小节），经验数据给连续覆盖 —— 与 CZCE 逐年日历那次同一手法。广期所无夜盘品种，故不存在节前例外行与之相撞。判据：LC 543/545 个区间交易日观测为 `none,none`，零反例（`rerun_inventory.csv`，2020-07-01 → 2026-04-29）。|
 | GFEX | session_launch_schedule | PS 于 2024-12-26 上市；通知列明三个日盘小节，同时保留“交易所规定的其他时间” | https://www.gfex.com.cn/gfex/tzts/202412/34bc2f9dbfc34b4b81e1a043ff526589.shtml | 1 | `reviewed_launch_plus_empirical`（2026-08-20 用户裁决）：上市通知给制度（三个日盘小节），经验数据给连续覆盖 —— 与 CZCE 逐年日历那次同一手法。广期所无夜盘品种，故不存在节前例外行与之相撞。判据：PS 191/197 个区间交易日观测为 `none,none`，零反例（`rerun_inventory.csv`，2020-07-01 → 2026-04-29）。|
@@ -174,7 +202,7 @@ ORDER BY exchange_suffix, product;
 | official source-register entries | 97 | 只计上表官方域名 URL；同 URL 的不同事实仍只算一个来源；包含 1 条待人工取回正文的 DCE 官方旧页。2026-08-20 补登 DCE `notice_evening=2025-12-31` 一行，96 → 97 |
 | accepted exact `none,none` evening candidates | 220 | 上轮 143 加 DCE 2014–2025 的 76 个 canonical 候选；必须逐行映射到下一全局 `trade_date` 后才能写 session exception CSV |
 | DCE `none,none` working candidates | 79 | DCE 2014–2025 的 76 个唯一 `notice_evening`，加 2025-12-31、2026-02-13、04-03 三项；2025-12-31 的来源已于 2026-08-20 闭合并登记 |
-| known irregular-session candidates | 1 | DCE 目标交易日 2019-12-26；不是 `none`，不计入 219 或 DCE 78。承载它的 schema 已于 2026-08-18 实施，同日原文经用户人工取回并复核完毕（大商所发[2019]553号，全所口径 22:30—23:00）。字段齐全的候选行见 2026-08-18 待审批次；用户 2026-08-20 逐块过目通过后**已写入 `config/carry_minute_session_exceptions.csv`** |
+| known irregular-session candidates | **4 所共 34 个产品日**（原记 1，2026-08-21 更正） | 2019-12-26 **四所同时**延迟至 22:30：DCE 12、CZCE 8、SHFE 13、INE 1。原只登记 DCE。不是 `none`，不计入 219 或 DCE 78。承载它的 schema 已于 2026-08-18 实施，同日原文经用户人工取回并复核完毕（大商所发[2019]553号，全所口径 22:30—23:00）。字段齐全的候选行见 2026-08-18 待审批次；用户 2026-08-20 逐块过目通过后**已写入 `config/carry_minute_session_exceptions.csv`** |
 | holiday `none,none` rows working estimate | 300–450 | 只估四所节前日期，不含 2020 暂停期；以 inventory 为准 |
 | 2020 suspension expanded rows | 252 | SHFE、INE、DCE、CZCE 各 63 个目标日（2020-02-04 至 2020-05-06）；不含另按节后规则归因的 2020-02-03 |
 | expected total `none,none` exception rows | not measured | 节前日期与 2020 展开去重后的并集 |
