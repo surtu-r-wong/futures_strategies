@@ -457,6 +457,50 @@ def test_valid_metadata_multiplier_returns_auditable_resolution():
     assert result.pass_rate == 1.0
 
 
+def test_metadata_multiplier_tolerates_a_single_out_of_range_bar():
+    # At a sixty-bar sample a 0.99 gate means "every bar must pass": 59/60 is
+    # 0.9833. Real archives put one bar a tick outside the day's range often
+    # enough that 135 of 805 representative contract-months tripped it on a
+    # multiplier since confirmed correct.
+    # Evidence: docs/research/2026-08-25-multiplier-pass-rate-threshold.md
+    frame = _multiplier_rows()
+    frame.loc[0, "amount"] = 1005.0
+
+    result = validate_metadata_multiplier(frame, contract=CONTRACT, multiplier=10)
+
+    assert result.pass_rate == pytest.approx(59 / 60)
+
+
+def test_metadata_multiplier_still_refuses_a_sample_below_the_floor():
+    # Reverse guard. Correct multipliers measured no worse than 91.67% and
+    # wrong ones no better than about 35%, so the floor sits in an empty band
+    # and a sample beneath it must still refuse.
+    frame = _multiplier_rows()
+    frame.loc[0:7, "amount"] = 1005.0
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        validate_metadata_multiplier(frame, contract=CONTRACT, multiplier=10)
+
+    _assert_error(exc_info, "metadata_multiplier")
+    assert exc_info.value.context["pass_rate"] == pytest.approx(52 / 60)
+    assert exc_info.value.context["required_pass_rate"] == 0.90
+
+
+def test_the_relaxed_gate_does_not_reach_multiplier_inference():
+    # The same frame the validator now accepts. Inference has to land on
+    # exactly one candidate out of 1..10000, and its stricter criterion is what
+    # keeps that set a singleton, so the relaxation must not leak into it.
+    frame = _multiplier_rows()
+    frame.loc[0, "amount"] = 1005.0
+
+    validate_metadata_multiplier(frame, contract=CONTRACT, multiplier=10)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        infer_contract_multiplier(frame, contract=CONTRACT)
+
+    _assert_error(exc_info, "contract_multiplier")
+
+
 def test_all_zero_volume_bar_is_no_trade_with_null_ohlc():
     frame = _rows([100.0, 101.0, 102.0], [0.0, 0.0, 0.0])
 

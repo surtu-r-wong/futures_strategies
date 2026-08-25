@@ -814,6 +814,22 @@ def _range_diagnostics(
     return float(passed.mean()), float(error.max())
 
 
+# The two range-validation gates below do different jobs and must not be
+# merged. Inference scans every integer from 1 to 10,000 and then demands the
+# qualifying set be a singleton; its high bar is what keeps neighbouring
+# integers out and the answer unique. Validation checks one already-chosen
+# multiplier, where the only question is whether the bars corroborate it.
+#
+# Validation sits at 0.90 because at a sixty-bar sample 0.99 means "every bar
+# must pass" (59/60 = 0.9833), and a correct multiplier misses that on ordinary
+# archive noise: 135 of 805 representative contract-months did. Measured,
+# correct multipliers pass no worse than 91.67% and wrong ones no better than
+# about 35%, so 0.90 sits in an empty band 56 points wide.
+# Evidence: docs/research/2026-08-25-multiplier-pass-rate-threshold.md
+INFERENCE_PASS_RATE = 0.99
+VALIDATION_PASS_RATE = 0.90
+
+
 def _qualifying_multipliers(sample: pd.DataFrame) -> tuple[int, ...]:
     unit_amount = sample["amount"].to_numpy(dtype=float) / sample["volume"].to_numpy(
         dtype=float
@@ -829,7 +845,9 @@ def _qualifying_multipliers(sample: pd.DataFrame) -> tuple[int, ...]:
         (prices >= low[None, :] - tolerance[None, :])
         & (prices <= high[None, :] + tolerance[None, :])
     ).mean(axis=1)
-    return tuple(int(value) for value in np.flatnonzero(pass_rates >= 0.99) + 1)
+    return tuple(
+        int(value) for value in np.flatnonzero(pass_rates >= INFERENCE_PASS_RATE) + 1
+    )
 
 
 def _resolution(
@@ -896,7 +914,7 @@ def validate_metadata_multiplier(
         )
     sample, clock = _select_multiplier_sample(frame, contract=contract)
     resolution = _resolution(sample, multiplier=multiplier, source=source)
-    if resolution.pass_rate < 0.99:
+    if resolution.pass_rate < VALIDATION_PASS_RATE:
         raise _minute_error(
             clock=clock,
             contract=contract,
@@ -906,7 +924,7 @@ def validate_metadata_multiplier(
             context={
                 "multiplier": multiplier,
                 "pass_rate": resolution.pass_rate,
-                "required_pass_rate": 0.99,
+                "required_pass_rate": VALIDATION_PASS_RATE,
                 "sample_rows": resolution.sample_rows,
             },
         )
