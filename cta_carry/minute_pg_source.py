@@ -161,6 +161,35 @@ def _resolution_without_sample(multiplier: int, *, source: str):
     )
 
 
+def _corroborate(
+    frame: pd.DataFrame,
+    *,
+    contract: str,
+    multiplier: int,
+    source: str,
+):
+    """Check a settled multiplier against bars, tolerating too few to check.
+
+    Missing corroboration and contradicted corroboration are different
+    answers. A frame spanning too few trade dates to form a sample says
+    nothing about the multiplier, and refusing there aborts a whole run over
+    an answer the daily record settled from months of history. A sample that
+    did form and disagreed is a real conflict and still refuses -- that is the
+    check that caught crude oil resolving to 998.
+    """
+    try:
+        return validate_metadata_multiplier(
+            frame,
+            contract=contract,
+            multiplier=multiplier,
+            source=source,
+        )
+    except MinuteDataError as exc:
+        if exc.check != "contract_multiplier_sample":
+            raise
+        return _resolution_without_sample(multiplier, source=source)
+
+
 def _daily_turnover_multiplier(
     cursor: Any,
     *,
@@ -171,8 +200,8 @@ def _daily_turnover_multiplier(
 
     The daily turnover reconciles on every exchange, including the one whose
     minute turnover is synthetic, so this is the broadest reliable basis. Each
-    day's close stands in for its VWAP, which leaves a few percent of spread;
-    the median absorbs that and is then required to sit close to one integer.
+    day's mid price stands in for its VWAP, which leaves a little spread; the
+    median absorbs that and is then required to sit close to one integer.
     """
     cursor.execute(_DAILY_MULTIPLIER_QUERY, (daily_contract, trade_date))
     rows = cursor.fetchall()
@@ -1769,7 +1798,7 @@ class PublicMinuteSource:
                             return _resolution_without_sample(
                                 daily, source="daily_turnover"
                             )
-                        return validate_metadata_multiplier(
+                        return _corroborate(
                             check_frame,
                             contract=minute_symbol,
                             multiplier=daily,
@@ -1823,10 +1852,11 @@ class PublicMinuteSource:
                 multiplier = distinct.pop()
                 if frame is None:
                     return multiplier
-                return validate_metadata_multiplier(
+                return _corroborate(
                     frame,
                     contract=minute_symbol,
                     multiplier=multiplier,
+                    source="metadata",
                 )
             finally:
                 _close_cursor_preserving(cursor)

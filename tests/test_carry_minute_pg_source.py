@@ -1727,6 +1727,46 @@ def test_a_checked_daily_multiplier_still_reports_a_measured_pass_rate():
     assert resolution.pass_rate == 1.0
 
 
+def test_a_settled_daily_multiplier_survives_a_bar_sample_too_thin_to_check():
+    # A far-month contract can hold too few trade dates in the frame to form a
+    # sample at all, while the daily record settled its multiplier from months
+    # of history. The corroboration is missing, not contradicted, so the answer
+    # stands and says it went unchecked. Real case: A1805 on 2017-12-11, where
+    # a thin sample aborted a whole backtest over a multiplier 260 daily rows
+    # agreed on.
+    thin = _inferable_frame(contract="A1805").iloc[:20].copy()
+    thin["trade_date"] = date(2017, 12, 11)
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10))
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="A1805.DCE",
+        trade_date=date(2017, 12, 11),
+        frame=thin,
+    )
+
+    assert resolution.multiplier == 10
+    assert resolution.source == "daily_turnover"
+    assert resolution.sample_rows == 0
+    assert np.isnan(resolution.pass_rate)
+
+
+def test_a_daily_multiplier_the_bars_contradict_is_still_refused():
+    # Reverse guard. A sample that formed and disagreed is a real conflict and
+    # must not be waved through as "unchecked" — this is the check that caught
+    # crude oil resolving to 998.
+    contradicting = _inferable_frame(contract="RM1909", multiplier=97)
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10))
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="RM909.CZC",
+            trade_date=date(2019, 6, 3),
+            frame=contradicting,
+        )
+
+    assert exc_info.value.check == "metadata_multiplier"
+
+
 def test_daily_multiplier_uses_the_mid_price_not_the_close():
     # A close 0.15% away from the mid is enough to round a 1000 multiplier to
     # 998 if the close is used, which is exactly what crude oil did.
@@ -1851,8 +1891,10 @@ def test_metadata_multiplier_delegates_frame_validation(monkeypatch):
     sentinel = object()
     captured = {}
 
-    def fake_validate(frame, *, contract, multiplier):
-        captured.update(frame=frame, contract=contract, multiplier=multiplier)
+    def fake_validate(frame, *, contract, multiplier, source):
+        captured.update(
+            frame=frame, contract=contract, multiplier=multiplier, source=source
+        )
         return sentinel
 
     monkeypatch.setattr(
@@ -1871,7 +1913,12 @@ def test_metadata_multiplier_delegates_frame_validation(monkeypatch):
     )
 
     assert result is sentinel
-    assert captured == {"frame": frame, "contract": "RB2405", "multiplier": 10}
+    assert captured == {
+        "frame": frame,
+        "contract": "RB2405",
+        "multiplier": 10,
+        "source": "metadata",
+    }
 
 
 def _session_candidate(
