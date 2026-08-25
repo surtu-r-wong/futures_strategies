@@ -526,6 +526,7 @@ def test_public_pg_cli_constructs_only_the_selected_execution_engine(
     engine_calls = []
     source_calls = []
     rule_calls = []
+    absence_calls = []
     written_results = []
 
     class FakeDailyBacktester:
@@ -545,6 +546,7 @@ def test_public_pg_cli_constructs_only_the_selected_execution_engine(
             config,
             start,
             end,
+            absent_product_days=(),
         ):
             self.minute_source = minute_source
             engine_calls.append(
@@ -558,6 +560,7 @@ def test_public_pg_cli_constructs_only_the_selected_execution_engine(
                     end,
                 )
             )
+            absence_calls.append(tuple(absent_product_days))
 
         def run(self):
             audit = self.minute_source.audit
@@ -685,6 +688,19 @@ def test_public_pg_cli_constructs_only_the_selected_execution_engine(
         ]
         assert len(rule_calls) == 1
         assert rule_calls[0].name == "carry_minute_sessions.csv"
+        # Without this the deferral built for unpriceable product-days never
+        # reaches the engine, and a run crossing one fails closed instead.
+        assert len(absence_calls) == 1
+        assert [
+            (row.exchange, row.product, row.trade_date.isoformat())
+            for row in absence_calls[0]
+        ] == [
+            ("SHFE", "AL", "2018-01-02"),
+            ("SHFE", "CU", "2019-01-02"),
+            ("SHFE", "RU", "2019-01-02"),
+            ("SHFE", "AL", "2020-01-02"),
+            ("SHFE", "FU", "2020-01-02"),
+        ]
         final_values = dict(final_config[["key", "value"]].itertuples(index=False))
         assert final_values["minute_table_min"] == "2005-01-04T09:00:00+08:00"
         assert final_values["minute_table_max"] == "2026-08-05T23:59:00+08:00"

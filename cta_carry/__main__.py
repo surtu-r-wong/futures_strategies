@@ -33,6 +33,7 @@ from .minute_sessions import (
     load_session_rules,
 )
 from .pg_source import load_public_carry_data
+from .session_authority import load_absent_product_days
 from .provenance import capture_git_state
 from .report import (
     ReportWriteError,
@@ -43,6 +44,9 @@ from .report import (
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SESSION_RULES_PATH = _REPO_ROOT / "config" / "carry_minute_sessions.csv"
+_ABSENT_PRODUCT_DAYS_PATH = (
+    _REPO_ROOT / "config" / "carry_minute_absent_product_days.csv"
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -293,6 +297,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             minute_source.load_table_bounds()
             session_rules = load_session_rules(_SESSION_RULES_PATH)
+            # Product-days whose minute archive holds no day session. Without
+            # them the engine cannot tell an authorised absence from missing
+            # data and fails closed on a day it was told to defer.
+            absent_product_days = load_absent_product_days(_ABSENT_PRODUCT_DAYS_PATH)
         except (OSError, KeyError, ValueError, psycopg2.Error) as exc:
             print(str(exc), file=sys.stderr)
             return 2
@@ -307,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
                 config=config,
                 start=args.start,
                 end=args.end,
+                absent_product_days=absent_product_days,
             ).run()
             _validate_minute_runtime_provenance(
                 result.run_config,
