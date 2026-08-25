@@ -327,11 +327,32 @@ Carry 的分钟执行设计 §7.2 用的是更严的 `bar_start >= fill_end`（�
 - Modify: `index_open_momentum/backtest.py`
 - Test: `tests/test_index_open_momentum_leverage.py`
 
-- [ ] Add ATR leverage: `clip(0.005 * close / ATR, 0, 4)`.
-- [ ] Add monthly realized-volatility multiplier using one year of prior strategy returns.
-- [ ] Combine IF, IC, and IH by equal capital across available active families.
-- [ ] Keep IM excluded from the paper-faithful profile.
-- [ ] Add tests for leverage clipping, zero ATR handling, missing realized-volatility history, and active-family equal weighting.
+- [x] Add ATR leverage: `clip(0.005 * close / ATR, 0, 4)`.
+- [x] Add monthly realized-volatility multiplier using one year of prior strategy returns.
+- [x] Combine IF, IC, and IH by equal capital across available active families.
+- [x] Keep IM excluded from the paper-faithful profile.
+- [x] Add tests for leverage clipping, zero ATR handling, missing realized-volatility history, and active-family equal weighting.
+
+**2026-08-25 完工记录**：14 个测试全绿，10 个变异**逐一按"打红集合 == 预期集合"验收**。
+
+**两道截断的顺序有实质差别**，已单独钉住：`close=4000 / atr=2 / 已实现波动 60%` 时，
+先截 `Lev_ATR` 得 1.0，不先截得 2.5。
+
+三处对"研报沉默处"的显式裁定（都要进保真度报告，不是实现细节）：
+
+1. **`ATR == 0` 取 0（当日不建仓），不是按字面把 `+inf` 截到 4。** 此时公式是除零、
+   没有定义。按字面取上限，等于在跌停封死或数据坏掉的那天上满杠杆 —— 所有解读里最差的。
+2. **不满一年策略收益取 0（不建仓），不是把乘数默认成 1。** 这条同时给研报的样本起点
+   一个**可检验的解释**：IF 2010-04-16 挂牌、研报样本自 2011 年 6 月起，相隔约 14 个月，
+   与"先攒够一年策略收益再开跑"一致。⚠️ 是假设不是原文，列为待检验项。
+3. **等权分母是当日活跃品种数，不是恒定的 3。** 某品种当日无信号时资金给到其余品种，
+   不空置。IM 不在忠实口径内（挂牌 2022-07-22，晚于研报 2021-05-13），传入直接报错。
+
+**已实现波动率用样本标准差（`ddof=1`）**，写死并由手算用例钉住 —— 本仓为 ddof 取舍
+吃过一次亏（vol_basis 差 1.16%），这不是可有可无的细节。
+
+📌 抓到并修掉一条自指断言：截断测试原先拿 `MAX_LEVERAGE` 当期望值，常量改了测试跟着改，
+等于没有断言（变异"上限 4→8"当场漏网）。已全部换成手写字面量 `4.0`。
 
 ### Task 7: 数据源与 CLI
 
