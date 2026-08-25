@@ -293,12 +293,31 @@ Wind 实时快照表：中金所只有 IC / IM（2026-05-13 起），**无 IF / 
 - Create: `index_open_momentum/backtest.py`
 - Test: `tests/test_index_open_momentum_backtest.py`
 
-- [ ] Enter after the opening signal confirmation.
-- [ ] Reduce the initial position by one third for each stop event.
-- [ ] Flatten after the third stop event.
-- [ ] Carry remaining long exposure overnight only for long opening signals that are not fully flattened.
-- [ ] Flatten short exposure on same-day close.
-- [ ] Record a trade ledger with entry, scale-downs, day-close exits, overnight exits, gross return, cost, and net return.
+- [x] Enter after the opening signal confirmation.
+- [x] Reduce the initial position by one third for each stop event.
+- [x] Flatten after the third stop event.
+- [x] Carry remaining long exposure overnight only for long opening signals that are not fully flattened.
+- [x] Flatten short exposure on same-day close.
+- [x] Record a trade ledger with entry, scale-downs, day-close exits, overnight exits, gross return, cost, and net return.
+
+**2026-08-25 完工记录**：9 个测试全绿，8 个变异全部捕获（其中 3 个按"打红集合 == 预期集合"验收）。
+
+**成交价是注入的**：`simulate_session(fill_price=...)`。生产上它是分钟层的"信号后 5 分钟
+VWAP"（Task 2/7，被 Task 0 裁决 A 阻塞），测试里是确定性字典。这条缝使持仓路径逻辑
+不必等分钟层就能验完 —— 也是 Task 3~6 能在 (A) 方案的等待期里做掉的原因。
+
+⚠️ **一条复刻假设**：入场后的价格极值**从建仓那根之后的第一根起算**，开盘三根自身的
+高低价不属于这笔持仓。研报没写极值从哪根起算。这条假设有实质后果，已用专门用例钉住
+（第 0 根 high 抬到 4200：按错误口径第 3 根就会触发吊灯，按本口径全程不触发）。
+Carry 的分钟执行设计 §7.2 用的是更严的 `bar_start >= fill_end`（跳过与成交窗重叠的
+那根）—— 抽层（Task 0-A）之后应当对齐到那条，届时本假设作废，须重跑对照。
+
+⚠️ **隔夜仓缺次日开盘价 → 硬失败**，不静默用当日收盘代替。多头未被打平就必须持隔夜，
+拿收盘价冒充次日开盘价会把隔夜跳空的损益整段抹掉，而报表上看不出任何异常。
+
+📌 变异跑出的一处**测试盲区**（补了才有人守）：第三档减完后若不 `break`，后续 bar 仍会
+再触发 —— 但原有用例里第三次止损恰好发生在最后一根 bar 上，永远走不到那个分支。已补
+`test_a_flat_position_takes_no_further_stops_for_the_rest_of_the_day`。
 
 ### Task 6: Add Leverage and Portfolio Combination
 
