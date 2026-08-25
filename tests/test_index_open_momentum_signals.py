@@ -9,7 +9,8 @@
 本文件的每个期望值都是手算字面量，不由被测代码推导。
 """
 
-from index_open_momentum.signals import Bar, OpeningSignal, opening_signal
+from index_open_momentum.signals import OpeningSignal, opening_signal
+from index_open_momentum.types import Bar
 
 
 def test_all_three_series_strictly_rising_is_a_long_signal():

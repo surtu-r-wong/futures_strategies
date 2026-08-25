@@ -254,13 +254,37 @@ Wind 实时快照表：中金所只有 IC / IM（2026-05-13 起），**无 IF / 
 - Create: `index_open_momentum/risk.py`
 - Test: `tests/test_index_open_momentum_risk.py`
 
-- [ ] Compute True Range from 15-minute bars.
-- [ ] Compute 16-bar rolling ATR with previous close.
-- [ ] Add long reverse-stop detection using 5 strictly decreasing highs.
-- [ ] Add short reverse-stop detection using 3 strictly increasing lows.
-- [ ] Add long chandelier stop using `best_high_since_entry - 2.5 * ATR`.
-- [ ] Add short chandelier stop using `best_low_since_entry + 2.0 * ATR`.
-- [ ] Add tests proving one bar can count as only one scale-down event even when both stop families trigger.
+- [x] Compute True Range from 15-minute bars.
+- [x] Compute 16-bar rolling ATR with previous close.
+- [x] Add long reverse-stop detection using 5 strictly decreasing highs.
+- [x] Add short reverse-stop detection using 3 strictly increasing lows.
+- [x] Add long chandelier stop using `best_high_since_entry - 2.5 * ATR`.
+- [x] Add short chandelier stop using `best_low_since_entry + 2.0 * ATR`.
+- [x] Add tests proving one bar can count as only one scale-down event even when both stop families trigger.
+
+**2026-08-25 完工记录**：27 个测试全绿，10 个变异**逐一按"打红集合等于预期集合"验收**（不是只看红不红）。
+
+三条要留给后来者的：
+
+1. ⚠️ **复刻假设：ATR 取 16 根的简单算术均值，不是 Wilder 平滑。** 研报只写"16 根窗口"，
+   没写平滑方式。两者在同一窗口下数值不同，会移动吊灯止损的触发时点 —— 这是必须写进
+   保真度报告的显式假设。同理，TR 跨隔夜时把跳空计入（前收取上一交易日末根），也是假设。
+2. **ATR 窗口正好等于一个交易日**：股指日盘 09:30–11:30 + 13:00–15:00 = 240 分钟 = 16 根。
+   ⇒ ATR 必须在**跨日连续**的 15 分钟序列上算，不能按 session 重置；否则建仓时（当日第 3 根）
+   永远拿不到 ATR。这一条直接约束 Task 7 的取数窗口：每个交易日至少要多取前一交易日。
+3. **无 ATR 时硬失败，不返回"未触发"**：窗口未满就判"不触发"，等于在风控最弱的时刻把风控
+   关掉，而且外部现象与"行情很稳"完全一致。研报口径下没有 ATR 就不该建仓（既算不出吊灯
+   阈值也算不出杠杆），所以缺 ATR 属于调用方的错，`_require_atr` 抛 `ValueError`。
+
+⚠️ **变异 harness 的一个坑（第一次跑时真踩了）**：等长变异（`= 3` → `= 2`）在同一秒内写入时，
+`.pyc` 的 `(mtime, size)` 校验不失效，pytest 会跑**上一轮**的字节码 —— 现象是几个互不相关的
+变异报出同一批红测试，而 APPLIED 回执一切正常。**APPLIED 回执只证明文件变了，不证明测试
+跑的是变后的代码。** 必须 `PYTHONDONTWRITEBYTECODE=1` + 每轮清 `__pycache__`，并断言打红
+**集合**而非只看红不红。harness 存档：`scratchpad/mutate.py`（不入库，方法写在这里）。
+
+📌 这一轮还抓出一条测试名 overclaim：`test_the_two_reverse_stops_read_different_columns_and_different_lengths`
+原先的多头用例全是 3 根 bar，**在长度守卫处就返回了，走不到"读哪一列"**——名字里的
+"different columns" 对多头侧根本没验到。已补一组 5 根、low 严格递减而 high 恒定的 bar。
 
 ### Task 5: Simulate Intraday and Overnight Position Paths
 

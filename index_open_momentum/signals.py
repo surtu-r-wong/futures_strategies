@@ -8,49 +8,20 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
-from dataclasses import dataclass
 from enum import StrEnum
+
+from index_open_momentum.types import Bar, strictly_falling, strictly_rising
 
 
 #: 研报判据只看开盘后的前三根 15 分钟 bar。
 OPENING_BAR_COUNT = 3
 
 
-@dataclass(frozen=True)
-class Bar:
-    """一根 15 分钟 K 线的价格四元组。"""
-
-    open: float
-    high: float
-    low: float
-    close: float
-
-    def is_valid(self) -> bool:
-        """四个价格都是有限数才算有效。
-
-        显式判定，不依赖"NaN 的比较恒为假"这条巧合：多头判据只读
-        open/low/close，一根只有 ``high`` 坏掉的 bar 会沿着判据的盲区
-        溜过去，靠比较运算是拦不住的。
-        """
-        return all(
-            math.isfinite(v) for v in (self.open, self.high, self.low, self.close)
-        )
-
-
 class OpeningSignal(StrEnum):
     LONG = "long"
     SHORT = "short"
     NEUTRAL = "neutral"
-
-
-def _strictly_rising(values: Sequence[float]) -> bool:
-    return all(a < b for a, b in zip(values, values[1:]))
-
-
-def _strictly_falling(values: Sequence[float]) -> bool:
-    return all(a > b for a, b in zip(values, values[1:]))
 
 
 def opening_signal(bars: Sequence[Bar]) -> OpeningSignal:
@@ -69,15 +40,15 @@ def opening_signal(bars: Sequence[Bar]) -> OpeningSignal:
     closes = [b.close for b in opening]
 
     if (
-        _strictly_rising(opens)
-        and _strictly_rising([b.low for b in opening])
-        and _strictly_rising(closes)
+        strictly_rising(opens)
+        and strictly_rising([b.low for b in opening])
+        and strictly_rising(closes)
     ):
         return OpeningSignal.LONG
     if (
-        _strictly_falling(opens)
-        and _strictly_falling([b.high for b in opening])
-        and _strictly_falling(closes)
+        strictly_falling(opens)
+        and strictly_falling([b.high for b in opening])
+        and strictly_falling(closes)
     ):
         return OpeningSignal.SHORT
     return OpeningSignal.NEUTRAL
