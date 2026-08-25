@@ -89,9 +89,13 @@ class MultiplierResolution:
 def _stable_value(value: Any) -> str:
     if isinstance(value, Mapping):
         items = sorted(value.items(), key=lambda item: repr(item[0]))
-        return "{" + ", ".join(
-            f"{_stable_value(key)}: {_stable_value(item)}" for key, item in items
-        ) + "}"
+        return (
+            "{"
+            + ", ".join(
+                f"{_stable_value(key)}: {_stable_value(item)}" for key, item in items
+            )
+            + "}"
+        )
     if isinstance(value, tuple):
         return "(" + ", ".join(_stable_value(item) for item in value) + ")"
     if isinstance(value, list):
@@ -159,8 +163,7 @@ def _clock_context(
     return _ClockContext(
         trade_date=getattr(original_slots, "trade_date", None),
         product=(
-            getattr(original_slots, "product", None)
-            or _product_from_contract(contract)
+            getattr(original_slots, "product", None) or _product_from_contract(contract)
         ),
     )
 
@@ -300,8 +303,7 @@ def _validated_slots(
         )
     try:
         strictly_increasing = all(
-            values[index - 1] < values[index]
-            for index in range(1, len(values))
+            values[index - 1] < values[index] for index in range(1, len(values))
         )
     except (TypeError, ValueError, OverflowError) as exc:
         raise _minute_error(
@@ -358,10 +360,7 @@ def _require_traded_price_order(
         "low_high": positive & frame["low"].gt(frame["high"]),
         **{
             column: positive
-            & (
-                frame[column].lt(frame["low"])
-                | frame[column].gt(frame["high"])
-            )
+            & (frame[column].lt(frame["low"]) | frame[column].gt(frame["high"]))
             for column in price_columns
         },
     }
@@ -441,7 +440,9 @@ def _bound_rows(
             reason="minute row symbol does not match the requested contract",
             context={
                 "symbols": tuple(
-                    sorted(str(value) for value in working.loc[wrong_contract, "symbol"])
+                    sorted(
+                        str(value) for value in working.loc[wrong_contract, "symbol"]
+                    )
                 )
             },
         )
@@ -531,9 +532,7 @@ def _bound_rows(
     )
 
     slot_index = pd.Index(slot_values, name="bar_time")
-    missing_slot_times = tuple(
-        slot_index[~slot_index.isin(working["bar_time"])]
-    )
+    missing_slot_times = tuple(slot_index[~slot_index.isin(working["bar_time"])])
     ordered = working.set_index("bar_time").reindex(slot_index)
     return ordered, slot_values, clock, missing_slot_times
 
@@ -549,9 +548,7 @@ def _candidate_pass_rate(sample: pd.DataFrame, multiplier: int) -> float:
     tolerance = 1e-6 * np.maximum.reduce(
         (np.ones(len(sample)), np.abs(low), np.abs(high))
     )
-    passed = price.ge(sample["low"] - tolerance) & price.le(
-        sample["high"] + tolerance
-    )
+    passed = price.ge(sample["low"] - tolerance) & price.le(sample["high"] + tolerance)
     return float(passed.mean())
 
 
@@ -773,10 +770,7 @@ def _select_multiplier_sample(
         sample = eligible
         required_dates = 2
     else:
-        positions = [
-            index * (eligible_rows - 1) // 59
-            for index in range(60)
-        ]
+        positions = [index * (eligible_rows - 1) // 59 for index in range(60)]
         if len(set(positions)) != 60:
             raise RuntimeError("internal multiplier sample positions are not unique")
         sample = eligible.iloc[positions].reset_index(drop=True)
@@ -818,9 +812,8 @@ def _range_diagnostics(
 
 
 def _qualifying_multipliers(sample: pd.DataFrame) -> tuple[int, ...]:
-    unit_amount = (
-        sample["amount"].to_numpy(dtype=float)
-        / sample["volume"].to_numpy(dtype=float)
+    unit_amount = sample["amount"].to_numpy(dtype=float) / sample["volume"].to_numpy(
+        dtype=float
     )
     low = sample["low"].to_numpy(dtype=float)
     high = sample["high"].to_numpy(dtype=float)

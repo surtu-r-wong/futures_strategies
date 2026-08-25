@@ -286,6 +286,7 @@ def test_vwap_outside_the_traded_range_is_rejected():
     assert exc_info.value.reason == "VWAP is outside the traded price range"
     assert exc_info.value.context == {"vwap": 110.0, "low": 100.0, "high": 100.0}
 
+
 def _multiplier_rows(count=60, *, date_count=3, low=100.0, high=100.0):
     frame = _rows([100.0] * count, [1.0] * count, multiplier=10)
     first_date = frame.loc[0, "bar_time"].date()
@@ -595,8 +596,7 @@ def _resolve_multiplier(frame, source):
 def test_intraday_trade_date_timestamps_count_as_one_calendar_date(source):
     frame = _multiplier_rows(count=10, date_count=2)
     frame["trade_date"] = [
-        pd.Timestamp("2024-01-08") + pd.Timedelta(minutes=index)
-        for index in range(10)
+        pd.Timestamp("2024-01-08") + pd.Timedelta(minutes=index) for index in range(10)
     ]
 
     with pytest.raises(MinuteDataError) as exc_info:
