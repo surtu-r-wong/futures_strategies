@@ -1625,11 +1625,18 @@ def test_metadata_multiplier_falls_back_to_inference_when_history_is_absent():
     assert resolution.source == "inferred"
 
 
-def _daily_rows(multiplier, close=2500.0, n=40):
-    # turnover = volume * close_of_day * multiplier, with the day's close standing
-    # in for its VWAP, which is where the small spread comes from in real data.
+def _daily_rows(multiplier, mid=2500.0, n=40, close_bias=0.0):
+    # turnover = volume * the day's mid price * multiplier. close_bias moves the
+    # close away from the mid, which is what a volatile day does and what made
+    # a close-based derivation round crude oil to 998 instead of 1000.
     return [
-        (float(1000 + index), float(1000 + index) * close * multiplier, close)
+        (
+            float(1000 + index),
+            float(1000 + index) * mid * multiplier,
+            mid * 1.001,
+            mid * 0.999,
+            mid * (1.0 + close_bias),
+        )
         for index in range(n)
     ]
 
@@ -1647,6 +1654,92 @@ def test_multiplier_comes_from_the_daily_turnover_before_any_minute_inference():
 
     assert resolution.multiplier == 10
     assert resolution.source == "daily_turnover"
+
+
+def test_daily_multiplier_is_checked_against_the_wider_sample_not_the_day():
+    # The day's own window spans one trade date, which the sample selector
+    # rejects. The month's bars are what the check should see.
+    single_day = _inferable_frame(contract="HC1710").iloc[:20].copy()
+    single_day["trade_date"] = date(2017, 7, 18)
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10))
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="HC1710.SHF",
+        trade_date=date(2017, 7, 18),
+        frame=single_day,
+        inference_frame=_inferable_frame(contract="HC1710"),
+    )
+
+    assert resolution.multiplier == 10
+    assert resolution.source == "daily_turnover"
+
+
+def test_daily_multiplier_skips_the_turnover_check_where_turnover_is_untrusted():
+    # On the OHLC basis the amount column is the thing we do not believe, so
+    # checking a multiplier against it proves nothing and would refuse a
+    # perfectly good answer from the daily record.
+    czce_shaped = _inferable_frame(contract="RM1909", multiplier=10).copy()
+    czce_shaped["amount"] = czce_shaped["volume"] * 90.0 * 10
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10))
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="RM909.CZC",
+        trade_date=date(2019, 6, 3),
+        frame=czce_shaped,
+        pricing_basis="ohlc_typical",
+    )
+
+    assert resolution.multiplier == 10
+    assert resolution.source == "daily_turnover"
+
+
+def test_an_unchecked_daily_multiplier_reports_its_pass_rate_as_unmeasured():
+    # The audit table carries this number. Where no sample was checked there is
+    # no pass rate, and reporting a perfect one would read as a verification
+    # that never ran.
+    czce_shaped = _inferable_frame(contract="RM1909", multiplier=10).copy()
+    czce_shaped["amount"] = czce_shaped["volume"] * 90.0 * 10
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10))
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="RM909.CZC",
+        trade_date=date(2019, 6, 3),
+        frame=czce_shaped,
+        pricing_basis="ohlc_typical",
+    )
+
+    assert resolution.sample_rows == 0
+    assert np.isnan(resolution.pass_rate)
+
+
+def test_a_checked_daily_multiplier_still_reports_a_measured_pass_rate():
+    # Reverse guard: where a sample was checked the audit column must carry the
+    # real rate, so the unmeasured marker above cannot spread to every row.
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10))
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="RM909.CZC",
+        trade_date=date(2019, 6, 3),
+        frame=_inferable_frame(contract="RM1909"),
+    )
+
+    assert resolution.sample_rows > 0
+    assert resolution.pass_rate == 1.0
+
+
+def test_daily_multiplier_uses_the_mid_price_not_the_close():
+    # A close 0.15% away from the mid is enough to round a 1000 multiplier to
+    # 998 if the close is used, which is exactly what crude oil did.
+    connection = FakeConnection(
+        metadata_rows=[], daily_rows=_daily_rows(1000, mid=425.0, close_bias=0.0015)
+    )
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="SC1904.INE",
+        trade_date=date(2019, 2, 11),
+    )
+
+    assert resolution.multiplier == 1000
 
 
 def test_daily_turnover_multiplier_refuses_a_non_integer_result():

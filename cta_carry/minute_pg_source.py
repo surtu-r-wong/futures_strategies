@@ -23,6 +23,7 @@ from common.db import get_connection, pg_config_from
 
 from .minute_bars import (
     MinuteDataError,
+    MultiplierResolution,
     infer_contract_multiplier,
     validate_metadata_multiplier,
 )
@@ -126,12 +127,13 @@ WHERE "合约代码" = %s
 ORDER BY "交易日期" DESC, "合约乘数" ASC NULLS LAST
 """
 _DAILY_MULTIPLIER_QUERY = """
-SELECT volume, turnover, close
+SELECT volume, turnover, high, low, close
 FROM public.futures_daily
 WHERE symbol = %s
   AND trade_date <= %s
   AND volume > 0
-  AND close > 0
+  AND high > 0
+  AND low > 0
   AND turnover > 0
 ORDER BY trade_date DESC
 LIMIT 60
@@ -139,6 +141,24 @@ LIMIT 60
 _TABLE_BOUNDS_QUERY = """
 SELECT min(bar_time), max(bar_time) FROM public.futures_minute
 """
+
+
+def _resolution_without_sample(multiplier: int, *, source: str):
+    """Report a multiplier settled without a bar sample to check it against.
+
+    The pass rate reaches the audit table, so it says "not measured" rather
+    than a perfect score no sample earned. Nothing gates on it here: the gate
+    lives in ``validate_metadata_multiplier``, which this path does not reach.
+    """
+    return MultiplierResolution(
+        multiplier=multiplier,
+        source=source,
+        sample_rows=0,
+        pass_rate=float("nan"),
+        sample_dates=0,
+        sample_start=None,
+        sample_end=None,
+    )
 
 
 def _daily_turnover_multiplier(
@@ -158,14 +178,20 @@ def _daily_turnover_multiplier(
     rows = cursor.fetchall()
     factors: list[float] = []
     for row in rows or ():
-        if not isinstance(row, Sequence) or len(row) < 3:
+        if not isinstance(row, Sequence) or len(row) < 4:
             continue
         try:
-            volume, turnover, close = float(row[0]), float(row[1]), float(row[2])
+            volume, turnover = float(row[0]), float(row[1])
+            high, low = float(row[2]), float(row[3])
         except (TypeError, ValueError):
             continue
-        if volume > 0 and close > 0 and turnover > 0:
-            factors.append(turnover / volume / close)
+        # The day's mid price stands in for its VWAP. The close was tried first
+        # and is worse: on a volatile day it sits far enough from the VWAP that
+        # a four-figure multiplier rounds to the wrong integer, which is how
+        # crude oil came out as 998.
+        mid = (high + low) / 2.0
+        if volume > 0 and mid > 0 and turnover > 0:
+            factors.append(turnover / volume / mid)
     if not factors:
         return None
     if len(factors) < 10:
@@ -1676,6 +1702,7 @@ class PublicMinuteSource:
         trade_date: date,
         frame: pd.DataFrame | None = None,
         inference_frame: pd.DataFrame | None = None,
+        pricing_basis: str = "amount_vwap",
     ):
         """Resolve latest effective contract metadata, optionally validate it.
 
@@ -1729,10 +1756,21 @@ class PublicMinuteSource:
                         trade_date=trade_date,
                     )
                     if daily is not None:
-                        if frame is None:
-                            return daily
+                        # Checking a multiplier against turnover only means
+                        # something where the turnover is believed. On the OHLC
+                        # basis it is the untrusted column, so the daily record
+                        # stands on its own. The wider sample is used where a
+                        # check does run, because the day's own window spans one
+                        # trade date and the selector wants three.
+                        check_frame = (
+                            frame if inference_frame is None else inference_frame
+                        )
+                        if check_frame is None or pricing_basis != "amount_vwap":
+                            return _resolution_without_sample(
+                                daily, source="daily_turnover"
+                            )
                         return validate_metadata_multiplier(
-                            frame,
+                            check_frame,
                             contract=minute_symbol,
                             multiplier=daily,
                             source="daily_turnover",

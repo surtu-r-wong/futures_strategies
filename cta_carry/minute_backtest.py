@@ -1372,6 +1372,7 @@ class CarryMinuteBacktester:
                     trade_date=trade_date,
                     frame=frame,
                     inference_frame=inference_frame,
+                    pricing_basis=basis_for(contract, trade_date),
                 )
                 resolution_cache[key] = cached
             return cached
