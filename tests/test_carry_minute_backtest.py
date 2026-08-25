@@ -199,7 +199,9 @@ class FakeMinuteSource:
                 if not chunk.empty:
                     yield chunk.reset_index(drop=True)
 
-    def resolve_metadata_multiplier(self, *, daily_contract, trade_date, frame=None):
+    def resolve_metadata_multiplier(
+        self, *, daily_contract, trade_date, frame=None, inference_frame=None
+    ):
         assert frame is not None
         return MultiplierResolution(
             multiplier=10,

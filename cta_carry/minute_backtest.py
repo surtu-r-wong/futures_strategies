@@ -1350,10 +1350,24 @@ class CarryMinuteBacktester:
             key = (trade_date, contract)
             cached = resolution_cache.get(key)
             if cached is None:
+                # The month's bars for this contract, so an inference fallback
+                # has more than one trade date to reason from. Metadata, where
+                # it exists, is still validated against the day's own window.
+                same_contract = [
+                    value
+                    for (_, other), value in current_frames.items()
+                    if other == contract and not value.empty
+                ]
+                inference_frame = (
+                    pd.concat(same_contract, ignore_index=True)
+                    if len(same_contract) > 1
+                    else None
+                )
                 cached = self.minute_source.resolve_metadata_multiplier(
                     daily_contract=contract,
                     trade_date=trade_date,
                     frame=frame,
+                    inference_frame=inference_frame,
                 )
                 resolution_cache[key] = cached
             return cached

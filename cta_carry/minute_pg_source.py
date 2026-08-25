@@ -21,7 +21,11 @@ from psycopg2 import extras, sql
 from common.config import load_config, resolve_settings_path
 from common.db import get_connection, pg_config_from
 
-from .minute_bars import MinuteDataError, validate_metadata_multiplier
+from .minute_bars import (
+    MinuteDataError,
+    infer_contract_multiplier,
+    validate_metadata_multiplier,
+)
 
 
 _DAILY_TO_MINUTE_EXCHANGE = {
@@ -1606,8 +1610,15 @@ class PublicMinuteSource:
         daily_contract: str,
         trade_date: date,
         frame: pd.DataFrame | None = None,
+        inference_frame: pd.DataFrame | None = None,
     ):
-        """Resolve latest effective contract metadata, optionally validate it."""
+        """Resolve latest effective contract metadata, optionally validate it.
+
+        `inference_frame` is the wider sample to reason from when no metadata
+        exists: the day's own window spans a single trade date, which is below
+        what the inference sample requires. It is never consulted while metadata
+        is present.
+        """
         trade_date = _require_trade_date(trade_date, contract=daily_contract)
         _, minute_symbol, _ = _minute_contract(daily_contract, trade_date)
         with _managed_connection(
@@ -1641,11 +1652,27 @@ class PublicMinuteSource:
                         )
                     dated_values.append((effective_date, row[1]))
                 if not dated_values:
-                    raise MinuteDataError(
-                        trade_date=trade_date,
-                        contract=daily_contract,
-                        check="metadata_multiplier",
-                        reason="no contract multiplier metadata exists on or before trade_date",
+                    # futures_contract_info only reaches back to 2025-12-22, so
+                    # every historical product-day arrives here. The bars can
+                    # settle the multiplier themselves when they are present:
+                    # inference enumerates the integers and accepts exactly one
+                    # candidate at a 0.99 pass rate, so it fails closed rather
+                    # than guessing. With no bars there is nothing to reason
+                    # from and the original refusal stands.
+                    source_frame = frame if inference_frame is None else inference_frame
+                    if source_frame is None:
+                        raise MinuteDataError(
+                            trade_date=trade_date,
+                            contract=daily_contract,
+                            check="metadata_multiplier",
+                            reason=(
+                                "no contract multiplier metadata exists on or "
+                                "before trade_date"
+                            ),
+                        )
+                    return infer_contract_multiplier(
+                        source_frame,
+                        contract=minute_symbol,
                     )
                 latest_date = max(item[0] for item in dated_values)
                 latest_values = [

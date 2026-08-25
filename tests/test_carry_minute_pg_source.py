@@ -1582,6 +1582,89 @@ def test_metadata_multiplier_uses_latest_record_on_or_before_trade_date():
     assert metadata_event[2] == ("RB2405", date(2024, 1, 8))
 
 
+def _inferable_frame(contract="RB2405", multiplier=10):
+    start = datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI)
+    records = []
+    for index in range(60):
+        price = 100.0
+        records.append(
+            {
+                "bar_time": start + timedelta(minutes=index),
+                "symbol": contract,
+                "open": price,
+                "high": price,
+                "low": price,
+                "close": price,
+                "volume": 1.0,
+                "amount": price * 1.0 * multiplier,
+                "trade_date": (start + timedelta(days=index // 20)).date(),
+            }
+        )
+    return pd.DataFrame(records)
+
+
+def test_metadata_multiplier_falls_back_to_inference_when_history_is_absent():
+    # futures_contract_info only reaches back to 2025-12-22, so every historical
+    # product-day has no metadata row. The minute bars still carry enough to
+    # settle the multiplier on their own.
+    connection = FakeConnection(metadata_rows=[])
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="RB2405.SHF",
+        trade_date=date(2018, 6, 19),
+        frame=_inferable_frame(),
+    )
+
+    assert resolution.multiplier == 10
+    assert resolution.source == "inferred"
+
+
+def test_metadata_multiplier_infers_from_the_wider_sample_when_given_one():
+    # The day's own window spans one trade date, which is too narrow for the
+    # inference sample. The month's bars for that contract are not.
+    single_day = _inferable_frame().iloc[:20].copy()
+    single_day["trade_date"] = date(2018, 6, 19)
+    connection = FakeConnection(metadata_rows=[])
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="RB2405.SHF",
+        trade_date=date(2018, 6, 19),
+        frame=single_day,
+        inference_frame=_inferable_frame(),
+    )
+
+    assert resolution.multiplier == 10
+    assert resolution.source == "inferred"
+    assert resolution.sample_dates >= 3
+
+
+def test_metadata_multiplier_without_metadata_or_bars_still_fails_closed():
+    connection = FakeConnection(metadata_rows=[])
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="RB2405.SHF",
+            trade_date=date(2018, 6, 19),
+        )
+
+    assert exc_info.value.check == "metadata_multiplier"
+
+
+def test_metadata_multiplier_prefers_metadata_over_inference():
+    # Metadata is a recorded fact and inference is a conclusion drawn from
+    # turnover, so the fact wins wherever it exists.
+    connection = FakeConnection(metadata_rows=[(date(2024, 1, 5), 10)])
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="RB2405.SHF",
+        trade_date=date(2024, 1, 8),
+        frame=_inferable_frame(),
+    )
+
+    assert resolution.multiplier == 10
+    assert resolution.source == "metadata"
+
+
 def test_metadata_multiplier_rejects_conflict_on_latest_date():
     connection = FakeConnection(
         metadata_rows=[
