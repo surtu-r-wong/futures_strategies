@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import statistics
+from datetime import date
 from collections.abc import Sequence
 
 
@@ -95,3 +96,30 @@ def equal_capital_weights(
         return {}
     weight = 1.0 / len(active_families)
     return {family: weight for family in active_families}
+
+
+def monthly_realized_volatility(
+    *,
+    session_date: date,
+    returns_by_date: Sequence[tuple[date, float]],
+    min_observations: int = TRADING_DAYS_PER_YEAR,
+) -> float | None:
+    """研报的**按月重算**节拍：月内保持不变，只用上月末为止的过去一年收益。
+
+    两条性质是分开的，都得有：
+
+    - **月内不变**。研报写的是 "recomputed monthly"，不是逐日重算。逐日重算会让
+      杠杆天天微动，换手与成本都不再是研报那条曲线。
+    - **不用当月自己的收益**。用了就是前视：当月中旬的杠杆会知道当月前几天发生
+      了什么。窗口在**当月第一天之前**截断，这一刀同时兑现了上面那条。
+
+    ⚠️ 窗口取"最近 ``min_observations`` 个**观测**"，不是"最近 365 个自然日"。研报
+    只说 "past one year"；按观测数取可以在停市、长假上保持窗口长度稳定，代价是
+    真实跨度会略长于一年。这是显式假设，须进保真度报告。
+    """
+    month_start = session_date.replace(day=1)
+    prior = [r for d, r in returns_by_date if d < month_start]
+    # 历史不足由 `realized_volatility` 一处判定 —— 在这里再写一遍同样的长度守卫是
+    # 死代码（切片后长度不足时它照样返回 None），而"同一条规则有两个出口"迟早会
+    # 分叉。
+    return realized_volatility(prior[-min_observations:], min_observations=min_observations)
