@@ -806,6 +806,38 @@ def test_cli_returns_two_when_database_load_fails(tmp_path, capsys, monkeypatch)
     assert not prefix.with_suffix(".xlsx").exists()
 
 
+def test_cli_reports_the_notes_attached_to_a_failure(tmp_path, capsys, monkeypatch):
+    """The minute source attaches notes when cleanup fails on top of an error.
+
+    Printing only str(exc) throws them away, which is how a 55-minute run ended
+    at "connection already closed" with nothing saying where.
+    """
+    import psycopg2
+
+    def boom(**kwargs):
+        error = psycopg2.InterfaceError("connection already closed")
+        error.add_note("rollback also failed: InterfaceError('closed')")
+        raise error
+
+    monkeypatch.setattr(carry_cli, "load_public_carry_data", boom)
+    data = make_carry_panel()
+    prefix = tmp_path / "noted"
+    args = _small_cli_args(
+        None,
+        prefix,
+        data.dates[12],
+        data.dates[-1],
+        source="public-pg",
+    )
+
+    exit_code = carry_cli.main(args)
+
+    assert exit_code == 2
+    err = capsys.readouterr().err
+    assert "connection already closed" in err
+    assert "rollback also failed" in err
+
+
 def test_minute_cli_returns_two_when_stream_query_disconnects(
     tmp_path,
     capsys,

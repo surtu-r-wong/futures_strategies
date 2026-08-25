@@ -175,6 +175,18 @@ def _runtime_config(
     )
 
 
+def _describe(exc: BaseException) -> str:
+    """Render a failure with the notes its raiser went to trouble to attach.
+
+    The minute source records what else went wrong during cleanup as notes on
+    the original error rather than letting a secondary failure mask it. Those
+    notes are the only thing distinguishing "the query failed" from "the query
+    failed and then the rollback failed too", so they belong in the message.
+    """
+    notes = getattr(exc, "__notes__", ())
+    return "\n".join((str(exc), *notes))
+
+
 def _validate_minute_runtime_provenance(
     run_config: pd.DataFrame,
     audit: object,
@@ -260,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.execution == "minute" and args.source != "public-pg":
             raise ValueError("--execution minute requires --source public-pg")
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
+        print(_describe(exc), file=sys.stderr)
         return 2
 
     products = _parse_products(args.products)
@@ -285,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         _validate_data_coverage(data, start=args.start, end=args.end)
     except (OSError, KeyError, ValueError, psycopg2.Error) as exc:
-        print(str(exc), file=sys.stderr)
+        print(_describe(exc), file=sys.stderr)
         return 2
 
     minute_source = None
@@ -305,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
             # Exchanges whose minute turnover cannot price a fill.
             pricing_bases = load_pricing_bases(_PRICING_BASIS_PATH)
         except (OSError, KeyError, ValueError, psycopg2.Error) as exc:
-            print(str(exc), file=sys.stderr)
+            print(_describe(exc), file=sys.stderr)
             return 2
 
     try:
@@ -341,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
         SignalInputError,
         WarmupInsufficientError,
     ) as exc:
-        print(str(exc), file=sys.stderr)
+        print(_describe(exc), file=sys.stderr)
         return 2
 
     runtime_config = _runtime_config(
@@ -373,7 +385,7 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.output_prefix),
         )
     except ReportWriteError as exc:
-        print(str(exc), file=sys.stderr)
+        print(_describe(exc), file=sys.stderr)
         return 3
 
     print(console_summary(result))
