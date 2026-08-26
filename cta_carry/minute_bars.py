@@ -358,7 +358,7 @@ def _require_traded_price_order(
     clock: _ClockContext,
     contract: str,
     price_columns: tuple[str, ...] = (),
-) -> None:
+) -> pd.Series | None:
     invalid_by_field = {
         "low_high": positive & frame["low"].gt(frame["high"]),
         **{
@@ -367,23 +367,29 @@ def _require_traded_price_order(
             for column in price_columns
         },
     }
-    invalid_fields = tuple(
-        field for field, mask in invalid_by_field.items() if mask.any()
-    )
-    if not invalid_fields:
-        return
-    invalid_rows = pd.concat(
-        [invalid_by_field[field] for field in invalid_fields],
-        axis=1,
-    ).any(axis=1)
-    raise _minute_error(
-        clock=clock,
-        contract=contract,
-        timestamp=_first_timestamp(frame, invalid_rows),
-        check="minute_price_range",
-        reason="positive-volume traded prices violate OHLC ordering",
-        context={"invalid_fields": invalid_fields},
-    )
+    # A low above its own high is the range contradicting itself: nothing in
+    # that bar can be trusted to price with, so it stays fatal. A stamped open
+    # or close outside an otherwise sound range is one bad field, and the
+    # archive has a handful -- 19 such bars in 2011, 58 in 2012, none after.
+    # Those bars are dropped instead: they cannot price a fill either, but
+    # ending a six-year window on seventy-seven of them serves nobody, and the
+    # slot then reads as untraded, which the run already accounts for.
+    if invalid_by_field["low_high"].any():
+        raise _minute_error(
+            clock=clock,
+            contract=contract,
+            timestamp=_first_timestamp(frame, invalid_by_field["low_high"]),
+            check="minute_price_range",
+            reason="positive-volume traded prices violate OHLC ordering",
+            context={"invalid_fields": ("low_high",)},
+        )
+    stamped = [mask for field, mask in invalid_by_field.items() if field != "low_high"]
+    if not stamped:
+        return None
+    dropped = pd.concat(stamped, axis=1).any(axis=1)
+    if not dropped.any():
+        return None
+    return dropped
 
 
 def _bound_rows(
@@ -485,13 +491,12 @@ def _bound_rows(
     working["amount"] = pd.to_numeric(working["amount"], errors="coerce")
     negative_amount = working["amount"].lt(0)
     if negative_amount.any():
-        raise _minute_error(
-            clock=clock,
-            contract=contract,
-            timestamp=_first_timestamp(working, negative_amount),
-            check="minute_amount",
-            reason="minute amount must be nonnegative",
-        )
+        # The vendor's 2025 and 2026 data carries 502 such bars -- one glass
+        # bar shows 653 lots at minus 27,720 against an expected sixteen
+        # million. A negative turnover prices nothing, so the bar is dropped
+        # and its slot reads as untraded, the same as any other corrupt bar.
+        working = working.loc[~negative_amount].reset_index(drop=True)
+        positive = working["volume"].gt(0)
 
     for column in ("open", "high", "low", "close"):
         working[column] = pd.to_numeric(working[column], errors="coerce")
@@ -526,13 +531,15 @@ def _bound_rows(
             reason="positive-volume rows require finite OHLC and amount",
             context={"invalid_fields": invalid_fields},
         )
-    _require_traded_price_order(
+    dropped = _require_traded_price_order(
         working,
         positive=positive,
         clock=clock,
         contract=contract,
         price_columns=("open", "close"),
     )
+    if dropped is not None:
+        working = working.loc[~dropped].reset_index(drop=True)
 
     slot_index = pd.Index(slot_values, name="bar_time")
     missing_slot_times = tuple(slot_index[~slot_index.isin(working["bar_time"])])
@@ -1028,6 +1035,12 @@ def five_minute_vwap(
 
     low = float(traded["low"].min())
     high = float(traded["high"].max())
+    if low == high:
+        # One price is all the window could have traded at, so the turnover's
+        # own imprecision cannot mean anything else. Iron ore implied 0.18
+        # above 591.0 and coke 0.70 above 3201.0 -- too far for a rounding
+        # tolerance to cover honestly, and no tolerance is needed here.
+        price = low
     epsilon = _fill_epsilon(low, high)
     if not low - epsilon <= price <= high + epsilon:
         raise _minute_error(

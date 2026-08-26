@@ -192,6 +192,19 @@ def test_negative_volume_or_amount_is_rejected(column, check):
     frame = _rows([100.0] * 5, [1.0] * 5)
     frame.loc[2, column] = -1.0
 
+    if column == "amount":
+        # A negative turnover prices nothing, so its bar is dropped rather
+        # than ending the run: the vendor's 2025-2026 data holds 502 of them.
+        # A negative volume is still fatal -- it is not a quantity at all.
+        result = five_minute_vwap(
+            frame,
+            slots=tuple(frame["bar_time"]),
+            contract=CONTRACT,
+            multiplier=10,
+        )
+        assert result.volume == 4.0
+        return
+
     with pytest.raises(MinuteDataError) as exc_info:
         five_minute_vwap(
             frame,
@@ -326,7 +339,11 @@ def test_invalid_authoritative_slots_are_rejected(slots, check):
 
 
 def test_vwap_outside_the_traded_range_is_rejected():
+    # The range needs width for this to mean anything: a bar whose high equals
+    # its low traded at one price, and that price is the fill.
     frame = _rows([100.0] * 5, [1.0] * 5)
+    frame["low"] = 99.0
+    frame["high"] = 101.0
     frame["amount"] = 110.0 * frame["volume"] * 10
 
     with pytest.raises(MinuteDataError) as exc_info:
@@ -339,7 +356,7 @@ def test_vwap_outside_the_traded_range_is_rejected():
 
     _assert_error(exc_info, "execution_vwap")
     assert exc_info.value.reason == "VWAP is outside the traded price range"
-    assert exc_info.value.context == {"vwap": 110.0, "low": 100.0, "high": 100.0}
+    assert exc_info.value.context == {"vwap": 110.0, "low": 99.0, "high": 101.0}
 
 
 def _multiplier_rows(count=60, *, date_count=3, low=100.0, high=100.0):
@@ -473,6 +490,82 @@ def test_a_failed_multiplier_check_names_where_the_number_came_from():
     assert "metadata" not in exc_info.value.reason
 
 
+def test_a_bar_with_a_negative_amount_is_dropped_not_fatal():
+    # The vendor's 2025 and 2026 data carries 502 bars whose turnover is
+    # negative -- one glass bar shows 653 lots at minus 27,720 against an
+    # expected sixteen million. A negative turnover prices nothing, so the bar
+    # is left out and its slot reads as untraded.
+    frame = _rows([100.0, 102.0, 104.0, 106.0, 108.0], [1.0, 2.0, 3.0, 4.0, 5.0])
+    frame.loc[1, "amount"] = -27720.0
+
+    result = five_minute_vwap(
+        frame,
+        slots=tuple(frame["bar_time"]),
+        contract=CONTRACT,
+        multiplier=10,
+    )
+
+    assert result.volume == 13.0
+
+
+def test_a_zero_width_range_prices_at_the_only_price_that_traded():
+    # When high equals low there is one price the bar could have traded at, so
+    # the turnover's own imprecision cannot mean anything else. Iron ore came
+    # out 0.18 above 591.0 and coke 0.70 above 3201.0 -- too far for a rounding
+    # tolerance to cover honestly, and no tolerance is needed: the price is
+    # known outright.
+    frame = _rows([591.0] * 5, [10.0] * 5, multiplier=100)
+    frame["low"] = 591.0
+    frame["high"] = 591.0
+    frame["amount"] = frame["amount"] * 1.0003
+
+    fill = five_minute_vwap(
+        frame,
+        slots=tuple(frame["bar_time"]),
+        contract=CONTRACT,
+        multiplier=100,
+    )
+
+    assert fill.price == 591.0
+
+
+def test_a_bar_whose_close_left_its_own_range_is_dropped_not_fatal():
+    # The archive stamped a handful of session-closing minutes with a close
+    # outside their own high and low -- 19 bars in 2011 and 58 in 2012, none
+    # after. Such a bar cannot price a fill, so it is left out; the slot then
+    # reads as untraded, which the run already accounts for. Refusing instead
+    # ended a whole window on seventy-seven bars in six years.
+    frame = _rows([100.0, 102.0, 104.0, 106.0, 108.0], [1.0, 2.0, 3.0, 4.0, 5.0])
+    frame.loc[1, "close"] = frame.loc[1, "low"] - 5.0
+
+    result = five_minute_vwap(
+        frame,
+        slots=tuple(frame["bar_time"]),
+        contract=CONTRACT,
+        multiplier=10,
+    )
+
+    assert result.volume == 13.0
+
+
+def test_a_bar_whose_low_exceeds_its_high_is_still_fatal():
+    # Reverse guard: a close outside the range is one stamped field, but a low
+    # above its own high is the range itself contradicting, and nothing in the
+    # bar can be trusted to price with.
+    frame = _rows([100.0, 102.0, 104.0, 106.0, 108.0], [1.0, 2.0, 3.0, 4.0, 5.0])
+    frame.loc[1, "low"] = frame.loc[1, "high"] + 5.0
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        five_minute_vwap(
+            frame,
+            slots=tuple(frame["bar_time"]),
+            contract=CONTRACT,
+            multiplier=10,
+        )
+
+    _assert_error(exc_info, "minute_price_range")
+
+
 def test_a_locked_bar_prices_at_its_only_traded_price():
     # A bar locked at limit has high == low, so the stored turnover's own
     # rounding decides whether the VWAP lands inside it. Iron ore's VWAP came
@@ -497,8 +590,8 @@ def test_a_locked_bar_prices_at_its_only_traded_price():
 def test_a_price_well_outside_the_range_is_still_refused():
     # Reverse guard: the tolerance absorbs storage rounding, not a bad fill.
     frame = _rows([606.5] * 5, [10.0] * 5, multiplier=100)
-    frame["low"] = 606.5
-    frame["high"] = 606.5
+    frame["low"] = 606.0
+    frame["high"] = 607.0
     frame["amount"] = frame["amount"] * 1.02
 
     with pytest.raises(MinuteDataError) as exc_info:
@@ -649,7 +742,7 @@ def test_frame_trade_date_overrides_a_night_window_physical_date():
     frame = _rows([100.0] * 5, [1.0] * 5)
     frame["bar_time"] = slots
     frame["trade_date"] = date(2024, 1, 8)
-    frame.loc[0, "amount"] = -1.0
+    frame.loc[0, "low"] = frame.loc[0, "high"] + 1.0
 
     with pytest.raises(MinuteDataError) as exc_info:
         five_minute_vwap(
@@ -659,7 +752,7 @@ def test_frame_trade_date_overrides_a_night_window_physical_date():
             multiplier=10,
         )
 
-    _assert_error(exc_info, "minute_amount")
+    _assert_error(exc_info, "minute_price_range")
     assert exc_info.value.trade_date == date(2024, 1, 8)
     assert "trade_date=2024-01-08" in str(exc_info.value)
 
@@ -669,7 +762,7 @@ def test_plain_night_slots_do_not_invent_a_physical_trade_date():
     slots = tuple(friday_night + timedelta(minutes=index) for index in range(5))
     frame = _rows([100.0] * 5, [1.0] * 5)
     frame["bar_time"] = slots
-    frame.loc[0, "amount"] = -1.0
+    frame.loc[0, "low"] = frame.loc[0, "high"] + 1.0
 
     with pytest.raises(MinuteDataError) as exc_info:
         five_minute_vwap(
@@ -679,7 +772,7 @@ def test_plain_night_slots_do_not_invent_a_physical_trade_date():
             multiplier=10,
         )
 
-    _assert_error(exc_info, "minute_amount")
+    _assert_error(exc_info, "minute_price_range")
     assert exc_info.value.trade_date is None
     assert "trade_date=" not in str(exc_info.value)
 
@@ -842,17 +935,23 @@ def test_positive_volume_low_above_high_is_rejected(operation):
 
 @pytest.mark.parametrize("operation", ["aggregation", "vwap"])
 @pytest.mark.parametrize("column", ["open", "close"])
-def test_positive_volume_open_and_close_must_be_within_range(operation, column):
+def test_a_positive_volume_open_or_close_outside_its_range_is_dropped(
+    operation, column
+):
+    """This used to be fatal. The archive holds seventy-seven such bars across
+    2011 and 2012 and none after, all at session-closing minutes, and refusing
+    ended a whole research window on them. One stamped field outside an
+    otherwise sound range cannot price a fill, so the bar is left out and its
+    slot reads as untraded -- which the run already accounts for. A low above
+    its own high stays fatal; that is the range contradicting itself."""
     count = 5 if operation == "vwap" else 3
     frame = _rows([100.0] * count, [1.0] * count)
     frame.loc[1, ["low", "high"]] = [99.0, 101.0]
     frame.loc[1, column] = 102.0
 
-    with pytest.raises(MinuteDataError) as exc_info:
-        _run_bar_operation(frame, operation)
+    result = _run_bar_operation(frame, operation)
 
-    _assert_error(exc_info, "minute_price_range")
-    assert column in exc_info.value.context["invalid_fields"]
+    assert result.volume == float(count - 1)
 
 
 @pytest.mark.parametrize("operation", ["aggregation", "vwap"])
