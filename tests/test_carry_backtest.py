@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -551,6 +552,34 @@ def test_stateful_engine_is_deterministic_across_all_result_tables() -> None:
             getattr(first, field_name),
             getattr(second, field_name),
         )
+
+
+def test_shared_decision_extraction_preserves_all_daily_result_tables():
+    baseline = pd.read_pickle(
+        Path(__file__).parent / "fixtures" / "carry_daily_stateful_baseline.pkl"
+    )
+    # The fixture was pickled on a machine without pyarrow, so its string
+    # columns are python-backed. An environment built from requirements.txt
+    # has pyarrow and would infer arrow-backed strings, failing on storage
+    # rather than on content. Pinning the storage for the rerun compares like
+    # with like and leaves every other dtype checked exactly.
+    with pd.option_context("mode.string_storage", "python"):
+        _, rerun = _run_stateful(periods=24, start_index=12)
+    for name in (
+        "daily_returns",
+        "positions",
+        "trades",
+        "signals",
+        "curve_selection",
+        "data_quality",
+        "run_config",
+    ):
+        pd.testing.assert_frame_equal(
+            baseline[name],
+            getattr(rerun, name),
+            check_exact=True,
+        )
+    assert baseline["metrics"] == rerun.metrics
 
 
 def test_requested_start_is_never_slid_when_shadow_warmup_is_short() -> None:

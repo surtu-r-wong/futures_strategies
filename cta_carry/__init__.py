@@ -10,14 +10,18 @@ from .backtest import (
 )
 from .config import CarryConfig
 from .data import CarryDataSet
+from .minute_backtest import CarryMinuteBacktester
+from .minute_bars import MinuteDataError
 
 __all__ = [
     "CarryBacktestResult",
     "CarryBacktester",
     "CarryConfig",
     "CarryDataSet",
+    "CarryMinuteBacktester",
     "EquityDepletedError",
     "ExecutionPriceError",
+    "MinuteDataError",
     "SignalInputError",
     "WarmupInsufficientError",
 ]

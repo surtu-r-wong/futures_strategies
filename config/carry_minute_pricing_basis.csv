@@ -1,0 +1,2 @@
+version,exchange,basis,reason,evidence
+commodity-v1,CZCE,ohlc_typical,minute turnover is synthesised from a single integer price per bar and cannot price a fill; volume and OHLC both reconcile with the daily record,docs/research/2026-08-25-czce-minute-turnover-is-synthetic.md

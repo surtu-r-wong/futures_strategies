@@ -282,7 +282,8 @@ cost = sum(abs(new_weight - old_weight)) * cost_bps / 10000
 
 ### 8.3 报告边界
 
-预热期从 `start - prewarm_calendar_days` 开始，同时驱动日线信号、分钟执行状态和影子账户。正式报告起始日要求：
+预热期从 `start - prewarm_calendar_days` 开始，同时驱动日线信号、分钟执行状态和影子账户。因此版本化时段资产必须满足
+`capture_start <= backtest_start - prewarm_calendar_days`；调整回测起点或预热长度后若旧资产欠覆盖，分钟引擎必须在启动预检中硬失败，不能把 resolver 的远端零匹配当成首个诊断。正式报告起始日要求：
 
 - 日线信号已就绪；
 - 至少 252 个影子日收益已完成；

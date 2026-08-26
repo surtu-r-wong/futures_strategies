@@ -861,6 +861,15 @@ git commit -m "feat(carry): stream bounded minute batches from PostgreSQL"
 ```
 
 ### Task 5: Capture and validate the versioned session-rule asset
+> **Authoritative replacement (2026-08-14):** Do not execute the legacy
+> Steps 1–5 below. Execute every checked step in
+> [`2026-08-14-carry-minute-session-eligibility-v2.md`](2026-08-14-carry-minute-session-eligibility-v2.md)
+> Tasks 1–8 instead. The legacy text remains only to preserve the original plan
+> history.
+
+- [ ] Complete the authoritative Task 5 subplan with unit, database, authority-source,
+  asset-hash, and `ambiguous=0` evidence before starting Task 6.
+
 
 **Files:**
 - Create: `scripts/carry/capture_minute_sessions.py`
@@ -1249,11 +1258,36 @@ def test_minute_backtester_produces_auditable_tables_and_feedback():
     )
 ```
 
+Also prove the minute engine invokes the repository-asset prewarm preflight before
+daily research or minute queries:
+
+```python
+def test_minute_backtester_rejects_a_session_asset_that_misses_prewarm(
+    monkeypatch,
+):
+    data, source, rules, start, end = minute_backtest_fixture()
+    monkeypatch.setattr(
+        "cta_carry.minute_backtest.SESSION_RULES_CAPTURE_START", start
+    )
+    with pytest.raises(SessionClockError, match="session_asset_prewarm_coverage"):
+        CarryMinuteBacktester(
+            data=data, minute_source=source, session_rules=rules,
+            config=small_config(), start=start, end=end,
+        ).run()
+```
+
+
 - [ ] **Step 2: Verify red**
 
 Run the named test. Expected: FAIL because `CarryMinuteBacktester` is not defined.
 
 - [ ] **Step 3: Implement candidate-month preparation**
+Before `build_daily_research`, call `validate_capture_coverage` with
+`SESSION_RULES_CAPTURE_START`, the requested backtest `start`, and
+`config.prewarm_calendar_days`. This makes a future prewarm/start change fail at
+engine startup with `session_asset_prewarm_coverage`, rather than later as a resolver
+zero-match.
+
 
 `CarryMinuteBacktester.run()` first calls `build_daily_research`, then creates candidate rows from:
 
@@ -1261,6 +1295,15 @@ Run the named test. Expected: FAIL because `CarryMinuteBacktester` is not define
 - every carried contract;
 - both legs of a same-direction roll;
 - every contract required for a daily close mark.
+
+Tag every concrete candidate with exactly one role from `signal_main`, `carried`,
+`roll_old`, `roll_new`, `exit`, or `close_mark`. A missing actual candidate raises
+`MinuteDataError(check="dynamic_execution_leg_missing_minutes")` with that
+`candidate_role`; it must never reuse
+`session_representative_missing_minutes`. Convert the concrete candidate union to
+product-day keys and require it to be a subset of the Task 5 `audit_keys` evidence
+before the first monthly query.
+
 
 For each target trade date, attach `previous_trade_date`, resolve the session rule, and use the rule's first/last slot for `window_start/window_end`. Group by target trade-date calendar month while preserving one-session overlap at boundaries.
 
@@ -1574,7 +1617,26 @@ Expected: all comparison tests pass before commit.
 - Modify: `docs/operations/carry-daily-research.md`
 - Modify: any code/test files required by failures, limited to root-cause fixes.
 
-- [ ] **Step 1: Explain the real bounded query before selecting rows**
+- [x] **Step 0: Close the explain-only and plan-summary audit gap with TDD**
+
+Before the real smoke, add failing source and backtester tests for an immutable,
+serializable `MinutePlanSummary`. `PublicMinuteSource.explain_month(...)` must reuse
+the exact candidate canonicalization, temp table, transaction-local settings and
+bounded SELECT text used by `iter_month`, but execute only `EXPLAIN (FORMAT JSON)`:
+it must not open the named streaming cursor or execute the data SELECT. Refactor
+the existing plan gate to return the summary while retaining every current hard
+failure. Both explain-only calls and the EXPLAIN already executed by `iter_month`
+must expose their summaries through an immutable source snapshot.
+
+The minute backtester must append one deterministic `minute_query_plan` row per
+actual monthly query to `minute_data_quality`, including physical lower/upper
+bounds, candidate contract-day count, referenced chunk names, maximum estimated
+rows and plan node types. Missing, malformed or count-mismatched source plan audit
+must fail closed. Tests must cover the single-contract/five-date explain-only
+smoke shape, unsafe-plan cleanup, absence of a data SELECT, and report-table
+serialization before proceeding to Step 1.
+
+- [x] **Step 1: Explain the real bounded query before selecting rows**
 
 Use a single active contract and five trade dates in 2020. Run the source's explain-only entry point with a 300-second timeout.
 
@@ -1586,6 +1648,27 @@ Expected:
 - no sequential scan over the entire hypertable.
 
 Save the plan summary into the smoke run's `minute_data_quality`.
+
+**Step 0 result (delivered 2026-08-17, verified 2026-08-18):** `MinutePlanSummary`,
+`PublicMinuteSource.explain_month()` and the backtester `minute_query_plan` rows landed in
+`13aeabd` / `09df0da` / `9c25ed5` / `bc54246` / `011e8c1` / `663eea0` / `a50bf63`. Test
+coverage confirmed for the explain-only summary, unsafe-plan cleanup, absence of a data
+SELECT, immutable plan-audit snapshots, count mismatch, bounds mismatch and report-table
+serialization (`tests/test_carry_minute_pg_source.py`, `tests/test_carry_minute_backtest.py`).
+Full suite on 2026-08-18: `835 passed` with only the known absent session-asset gate failing.
+
+**Step 1 result (2026-08-18):** run against the real Debian primary with `RB2005.SHF` and
+five 2020 trade dates (01-03, 01-06, 01-07, 01-08, 01-09). All four expectations pass:
+bare `symbol = c.minute_symbol` index condition; 2 chunks referenced out of 264;
+maximum plan rows 852,013; no sequential scan on the hypertable — the only `Seq Scan`
+is on the 5-row temp candidate table, which is the intended small-side driver.
+`audit.minute_query_months == 0` and `audit.minute_rows == 0` prove no data SELECT ran.
+Full evidence: `docs/research/2026-08-18-carry-minute-task12-step1-explain-smoke.md`.
+
+**Not yet done in Step 1:** persisting the summary into a smoke run's `minute_data_quality`
+happens inside the backtester run, i.e. Step 2, which is blocked — `cta_carry/__main__.py:294`
+hard-loads `config/carry_minute_sessions.csv` on the `--execution minute` path and that formal
+asset does not exist yet.
 
 - [ ] **Step 2: Run a real five-product smoke backtest**
 

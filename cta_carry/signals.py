@@ -1,4 +1,5 @@
 """Pure cross-sectional signal construction for the Carry strategy."""
+
 from dataclasses import dataclass
 from datetime import date
 import math
@@ -63,12 +64,7 @@ def _trend_states(signals: pd.DataFrame, config) -> list:
         signals["atr"],
     ):
         state = current.get(product, 0)
-        if (
-            _is_finite(close)
-            and _is_finite(price_ma)
-            and _is_finite(atr)
-            and atr > 0.0
-        ):
+        if _is_finite(close) and _is_finite(price_ma) and _is_finite(atr) and atr > 0.0:
             half_width = band * atr
             if close > price_ma + half_width:
                 side = 1
@@ -202,11 +198,10 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
             if trend_aligned:
                 strength = 1.0
             elif (
-                trend_opposed
-                and signals.at[index, "main_volume"]
-                < signals.at[index, "volume_ma"]
-                and signals.at[index, "main_oi"]
-                < signals.at[index, "oi_ma"]
+                getattr(config, "allow_trend_opposed", True)
+                and trend_opposed
+                and signals.at[index, "main_volume"] < signals.at[index, "volume_ma"]
+                and signals.at[index, "main_oi"] < signals.at[index, "oi_ma"]
             ):
                 strength = 0.5
             else:

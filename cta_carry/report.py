@@ -8,6 +8,7 @@ import shutil
 import tempfile
 
 import pandas as pd
+from zoneinfo import ZoneInfo
 
 from .backtest import CarryBacktestResult
 
@@ -22,7 +23,7 @@ _CURVE_EXCEL_COLUMNS = (
     "exclusion_reasons",
     "liquidity_mean",
 )
-_SHEET_NAMES = (
+_DAILY_SHEET_NAMES = (
     "metrics",
     "daily_returns",
     "positions",
@@ -32,6 +33,12 @@ _SHEET_NAMES = (
     "data_quality",
     "run_config",
 )
+_MINUTE_AUDIT_SHEETS = (
+    "executions",
+    "intraday_stops",
+    "minute_data_quality",
+)
+_REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 _EXCEL_MAX_DATA_ROWS = 1_048_575
 _EXCEL_MAX_COLUMNS = 16_384
 
@@ -177,19 +184,22 @@ def curve_selection_excel_view(frame: pd.DataFrame) -> pd.DataFrame:
 def _report_sheets(
     result: CarryBacktestResult,
 ) -> tuple[tuple[str, pd.DataFrame], ...]:
-    return (
-        ("metrics", pd.DataFrame([result.metrics])),
-        ("daily_returns", result.daily_returns),
-        ("positions", result.positions),
-        ("trades", result.trades),
-        ("signals", result.signals),
-        (
-            "curve_selection",
-            curve_selection_excel_view(result.curve_selection),
-        ),
-        ("data_quality", result.data_quality),
-        ("run_config", result.run_config),
-    )
+    frames = {
+        "metrics": pd.DataFrame([result.metrics]),
+        "daily_returns": result.daily_returns,
+        "positions": result.positions,
+        "trades": result.trades,
+        "signals": result.signals,
+        "curve_selection": curve_selection_excel_view(result.curve_selection),
+        "data_quality": result.data_quality,
+        "run_config": result.run_config,
+    }
+    if result.execution_mode == "minute":
+        frames.update((name, getattr(result, name)) for name in _MINUTE_AUDIT_SHEETS)
+        names = _DAILY_SHEET_NAMES[:-1] + _MINUTE_AUDIT_SHEETS + _DAILY_SHEET_NAMES[-1:]
+    else:
+        names = _DAILY_SHEET_NAMES
+    return tuple((name, frames[name]) for name in names)
 
 
 def _preflight_sheet_bounds(
@@ -241,23 +251,50 @@ def _cleanup_paths(
     return tuple(errors)
 
 
+def _localised(frame: pd.DataFrame) -> pd.DataFrame:
+    """Drop the offset from aware instants, keeping the local wall time.
+
+    Excel has no concept of a timezone, and the minute audit sheets are full of
+    aware instants: a whole 2019-2020 run reached this step and died on the
+    first of them. Converting to Shanghai before dropping the offset writes the
+    time a trader there saw, which is what every other column in these sheets
+    is keyed to.
+    """
+    aware = [
+        column
+        for column in frame.columns
+        if isinstance(frame[column].dtype, pd.DatetimeTZDtype)
+    ]
+    if not aware:
+        return frame
+    localised = frame.copy()
+    for column in aware:
+        localised[column] = (
+            localised[column].dt.tz_convert(_REPORT_TIMEZONE).dt.tz_localize(None)
+        )
+    return localised
+
+
 def _write_workbook(
     sheets: tuple[tuple[str, pd.DataFrame], ...],
     path: Path,
 ) -> None:
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         for name, frame in sheets:
-            frame.to_excel(writer, sheet_name=name, index=False)
+            _localised(frame).to_excel(writer, sheet_name=name, index=False)
 
 
-def _validate_workbook(path: Path) -> None:
+def _validate_workbook(
+    path: Path,
+    expected_names: tuple[str, ...],
+) -> None:
     if path.stat().st_size <= 0:
         raise ValueError("workbook is empty")
     with pd.ExcelFile(path, engine="openpyxl") as workbook:
         sheet_names = workbook.sheet_names
-    if sheet_names != list(_SHEET_NAMES):
+    if sheet_names != list(expected_names):
         raise ValueError(
-            f"workbook sheets are {sheet_names}, expected {list(_SHEET_NAMES)}"
+            f"workbook sheets are {sheet_names}, expected {list(expected_names)}"
         )
 
 
@@ -377,7 +414,10 @@ def write_carry_outputs(
 
         stage = "excel_validate"
         active_path = temporary_xlsx
-        _validate_workbook(temporary_xlsx)
+        _validate_workbook(
+            temporary_xlsx,
+            tuple(name for name, _ in sheets),
+        )
 
         stage = "png_validate"
         active_path = temporary_png

@@ -81,9 +81,9 @@ def _two_day_cross_section(carries, latest=None):
 
 def _latest_by_product(result):
     latest_date = result.signals["trade_date"].max()
-    return result.signals[
-        result.signals["trade_date"] == latest_date
-    ].set_index("product")
+    return result.signals[result.signals["trade_date"] == latest_date].set_index(
+        "product"
+    )
 
 
 def _price_path_cross_section(closes, carries):
@@ -108,9 +108,7 @@ def test_signals_expose_trend_state_for_audit() -> None:
     carries = {"A": 0.5, "B": 0.2, "C": 0.0, "D": -0.2, "E": -0.5}
     frame, _ = _price_path_cross_section([100.0, 106.0, 112.0], carries)
 
-    latest = _latest_by_product(
-        build_signals(frame, _config(trend_band_atr=1.0))
-    )
+    latest = _latest_by_product(build_signals(frame, _config(trend_band_atr=1.0)))
 
     assert latest.loc["A", "trend_state"] == 1
     # E never left the band around its own flat MA.
@@ -146,9 +144,7 @@ def test_missing_atr_freezes_the_trend_state_instead_of_flipping_it() -> None:
     config = _config(trend_band_atr=1.0)
     # Day 2 sets the state to +1 (close 106 clears MA 103 by a full ATR).  Day 3
     # would push it to -1 (close 80 vs MA 93), and day 4 lands inside the band.
-    frozen = _latest_by_product(
-        build_signals(_frame(float("nan")), config)
-    ).loc["A"]
+    frozen = _latest_by_product(build_signals(_frame(float("nan")), config)).loc["A"]
     flipped = _latest_by_product(build_signals(_frame(2.0), config)).loc["A"]
 
     assert frozen["rank_direction"] == 1
@@ -193,9 +189,7 @@ def test_confirm_days_requires_consecutive_same_side_closes_before_flipping() ->
     # momentum_window=2.  Day 1's MA is NaN, so days 2..n are the same-side run:
     # day2 close 102 vs MA 101, day3 104 vs 103, day4 106 vs 105.
     two_day_run, _ = _price_path_cross_section([100.0, 102.0, 104.0], carries)
-    three_day_run, _ = _price_path_cross_section(
-        [100.0, 102.0, 104.0, 106.0], carries
-    )
+    three_day_run, _ = _price_path_cross_section([100.0, 102.0, 104.0, 106.0], carries)
 
     slow_after_two = _latest_by_product(
         build_signals(two_day_run, _config(trend_confirm_days=3))
@@ -225,9 +219,9 @@ def test_atr_band_holds_trend_state_when_price_pops_back_inside_band() -> None:
     # day 4's MA is 92, so close=94 sits exactly on the +1 ATR band edge.
     frame, _ = _price_path_cross_section([100.0, 100.0, 90.0, 94.0], carries)
 
-    banded = _latest_by_product(
-        build_signals(frame, _config(trend_band_atr=1.0))
-    ).loc["A"]
+    banded = _latest_by_product(build_signals(frame, _config(trend_band_atr=1.0))).loc[
+        "A"
+    ]
     bare = _latest_by_product(build_signals(frame, _config())).loc["A"]
 
     assert banded["rank_direction"] == -1
@@ -384,9 +378,7 @@ def test_equal_price_volume_and_oi_moving_averages_give_zero_strength() -> None:
 
 
 def test_four_ready_products_never_start_cross_sectional_signals() -> None:
-    frame, _ = _two_day_cross_section(
-        {"A": -0.5, "B": -0.2, "C": 0.2, "D": 0.5}
-    )
+    frame, _ = _two_day_cross_section({"A": -0.5, "B": -0.2, "C": 0.2, "D": 0.5})
 
     result = build_signals(frame, _config())
     latest = _latest_by_product(result)
@@ -514,3 +506,59 @@ def test_equal_price_ma_blocks_half_strength_despite_double_contraction() -> Non
     assert row["main_oi"] < row["oi_ma"]
     assert row["strength"] == 0.0
     assert row["effective_direction"] == 0
+
+
+def _opposed_and_fading(carries, closes):
+    """A rises against a short carry rank while its volume and OI both fade,
+    which is exactly the condition the 0.5 branch exists for."""
+    dates = pd.bdate_range("2024-01-02", periods=len(closes)).date.tolist()
+    rows = []
+    for day, trade_date in enumerate(dates):
+        for product, carry_ma in carries.items():
+            fading = product == "A"
+            rows.append(
+                _row(
+                    trade_date,
+                    product,
+                    carry_ma,
+                    main_close=closes[day] if fading else 100.0,
+                    main_volume=(100.0 - 12.0 * day) if fading else 100.0,
+                    main_oi=(100.0 - 12.0 * day) if fading else 100.0,
+                )
+            )
+    return pd.DataFrame(rows)
+
+
+def test_the_opposed_but_fading_branch_can_be_switched_off():
+    """The 0.5 branch trades against the trend when volume and open interest
+    are both fading. Attribution over 2013-2026 puts its contribution at -0.102
+    across the three loss-making windows against +0.220 for the trend-aligned
+    branch, so it has to be testable without it. The default stays on: the
+    baseline must not move."""
+    carries = {"A": -0.5, "B": -0.2, "C": 0.0, "D": 0.2, "E": 0.5}
+    frame = _opposed_and_fading(carries, [100.0, 100.0, 104.0, 108.0])
+
+    on = _latest_by_product(build_signals(frame, _config())).loc["A"]
+    off = _latest_by_product(
+        build_signals(frame, _config(allow_trend_opposed=False))
+    ).loc["A"]
+
+    assert on["strength"] == 0.5
+    assert on["effective_direction"] == -1
+    assert off["strength"] == 0.0
+    assert off["effective_direction"] == 0
+
+
+def test_switching_the_branch_off_leaves_trend_aligned_positions_alone():
+    """Reverse guard: the switch removes one branch, not the strategy."""
+    carries = {"A": 0.5, "B": 0.2, "C": 0.0, "D": -0.2, "E": -0.5}
+    frame, _ = _price_path_cross_section([100.0, 100.0, 104.0, 108.0], carries)
+
+    on = _latest_by_product(build_signals(frame, _config())).loc["A"]
+    off = _latest_by_product(
+        build_signals(frame, _config(allow_trend_opposed=False))
+    ).loc["A"]
+
+    assert on["strength"] == 1.0
+    assert off["strength"] == 1.0
+    assert off["effective_direction"] == on["effective_direction"]
