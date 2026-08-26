@@ -72,12 +72,29 @@ CU 库存只覆盖上海保税区、AL/CU/RB 现货是周频而其余六个是�
   默认排除股指与国债期货这条不变（`FINANCIAL_FUTURES` 常量原样保留）。
 - 任何新策略都需要单独设计与批准；“期货归本仓”不是具体策略的实施授权。
 
-## 股指期货：国信开盘动量（未开工，已排期）
+## 股指期货：国信开盘动量（在建，26/48）
 
 计划 = `docs/superpowers/plans/2026-07-09-guosen-open-momentum.md`（2026-08-25 从 stock_selector
-迁入并按实测重写，47 个 checkbox 全未打勾）。
+迁入并按实测重写）。
 
-**分钟层归属已裁决（2026-08-25，方案 A）**：等 `feature/carry-minute-execution` merge 后，把
-`minute_sessions` / `minute_bars` / `minute_pg_source` / `minute_account` 从 `cta_carry/` 抽到
-`common/minute/`，Carry 与开盘动量各接一个信号层；抽层须保证 Carry 侧 CLI 输出逐点不变。
-⇒ 该分支的落地是本策略 Task 1/2/7 的前置；Task 3~6（纯合成数据的策略逻辑）不受阻，可先做。
+**已完工**：Task 0（分钟层抽层）、Task 3~6（开盘信号 / ATR 与止损 / 持仓路径 / 杠杆组合，
+全部由确定性合成数据覆盖并逐条变异验证）。
+**下一步**：Task 1 → 2 → 7 → 8，闸门已全部解除。
+
+**分钟层抽层已落地（2026-08-26，裁决方案 A）**：`feature/carry-minute-execution` 于 `1b5610b`
+merge 后，`minute_{sessions,bars,pg_source,account}` 已从 `cta_carry/` 抽到 `common/minute/`
+（`9a4ea9b` 净搬 + `74b4e3d` 破商品口径耦合）。
+
+⚠️ 抽层的真正内容不是搬文件：`SESSION_RULES_VERSION` / `DAY_SEGMENTS` 是模块级常量，
+`SessionRule` 硬拒非 `commodity-v1`，loader 给 5,292 条规则统统盖同一份日盘段。现由
+`SessionRuleset` 值对象承载市场特性并由调用方传入；日盘段是**按生效日排序的日程**
+（CFFEX 2016-01-01 缩短过日盘），`SessionSegment` 的边界也从写死的 900 改成结构性上下界
+（15:15 = 第 915 分钟，原来根本构造不出 2016 前的股指日盘）。
+
+Carry 侧逐点不变已量化：全套件 1065 passed（1054 + 新增 11）；真实
+`config/carry_minute_sessions.csv` 在抽层前后加载出的 5,292 条规则 sha256 相同，
+185 个 product-day 的分钟槽与 15 分钟桶逐点一致。新增用例变异验证 8/8。
+
+📌 `minute_backtest.py` / `session_authority.py` / `decision.py` **仍留在 `cta_carry/`**：
+前者是 Carry 策略语义，后两者是商品交易所公告资产。`EquityDepletedError` 因反向依赖被迫
+一并移到 `common/errors.py`，`cta_carry.backtest` 原地再导出，类身份不变。

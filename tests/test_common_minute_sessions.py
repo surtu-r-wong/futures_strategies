@@ -160,5 +160,7 @@ def test_day_only_takes_its_segments_from_the_named_ruleset(registered_two_era):
 
 
 def test_an_unregistered_version_fails_and_names_what_is_registered():
+    # Deliberately a name no market will ever claim. "cffex-v1" would read more
+    # naturally today and stop holding anything down the day Task 1 registers it.
     with pytest.raises(ValueError, match="session_rule_version"):
-        ruleset_for_version("cffex-v1")
+        ruleset_for_version("no-such-market-v0")

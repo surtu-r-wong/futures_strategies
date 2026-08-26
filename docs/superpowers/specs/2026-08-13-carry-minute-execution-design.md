@@ -4,6 +4,12 @@
 **日期：** 2026-08-13
 **范围选择：** 方案 A —— 保留日线信号与风险模型，只严格复现 15 分钟止损和信号后 5 分钟 VWAP
 
+> **2026-08-26 变更（不改本文正文）**：本设计交付后，`minute_sessions` / `minute_bars` /
+> `minute_pg_source` / `minute_account` 已从 `cta_carry/` 抽到 `common/minute/{sessions,bars,
+> pg_source,account}.py`，供第二个消费者（国信开盘动量）复用；`§5.3` 的查询纪律与 `§7.2`
+> 的止损语义原样保留。正文下方仍按旧路径称呼这些模块，读时按上表换算。抽层记录见
+> `docs/superpowers/plans/2026-07-09-guosen-open-momentum.md` 的 Task 0 完工记录。
+
 ## 1. 背景与目标
 
 `cta_carry` 当前是国信《基于 Carry 的商品期货交易策略》的日线研究版。它已经实现分合约期限结构、动态交易池、主次合约、Carry 横截面、动量/缩量缩仓过滤、日线 ATR 风险预算、252 日影子波动率缩放、4 倍杠杆上限、三档吊灯止损和逐合约账户核算。

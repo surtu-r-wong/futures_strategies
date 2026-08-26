@@ -146,12 +146,15 @@ Wind 实时快照表：中金所只有 IC / IM（2026-05-13 起），**无 IF / 
 
 设计 = `docs/superpowers/specs/2026-08-13-carry-minute-execution-design.md`；实现在分支 `feature/carry-minute-execution`（124 commit / 77 文件 / +35,911 行，worktree 在 `.worktrees/carry-minute-execution`，当日仍有未提交改动）。
 
+> **2026-08-26 更新**：分支已 merge（master `1b5610b`）；其中四个模块已按 Task 0 裁决 (A)
+> 抽到 `common/minute/`（commit `9a4ea9b` 净搬 + `74b4e3d` 破商品口径耦合）。下表已按新路径写。
+
 | 模块 | 行数 | 对本策略的价值 |
 |---|---|---|
-| `cta_carry/minute_sessions.py` | 756 | 版本化交易时段 + 交易时钟分钟槽。⚠️ `SESSION_RULES_VERSION = "commodity-v1"`，只含 CZCE/DCE/GFEX/INE/SHFE，**无 CFFEX**；`DAY_SEGMENTS` 是商品日盘段 ⇒ 股指须新起 `cffex-v1` |
-| `cta_carry/minute_bars.py` | 1,018 | 分钟 bar 校验、确定性聚合、合约乘数反推。docstring 已中性（"contract minute bars"） |
-| `cta_carry/minute_pg_source.py` | 1,794 | 有界 PG 访问：按月分批、临时表驱动裸列嵌套循环探针、事务级 `SET LOCAL` 保护 |
-| `cta_carry/minute_account.py` | 454 | 逐事件计价账户；正式账户与未缩放影子账户并行 |
+| `common/minute/sessions.py` | 928 | 版本化交易时段 + 交易时钟分钟槽。~~商品口径写死在模块常量上~~ ⇒ **已解耦**：市场特性移到 `SessionRuleset` 值对象，股指注册一个 `cffex-v1` 即可，见 Task 1 |
+| `common/minute/bars.py` | 1,073 | 分钟 bar 校验、确定性聚合、合约乘数反推。docstring 已中性（"contract minute bars"） |
+| `common/minute/pg_source.py` | 2,084 | 有界 PG 访问：按月分批、临时表驱动裸列嵌套循环探针、事务级 `SET LOCAL` 保护 |
+| `common/minute/account.py` | 454 | 逐事件计价账户；正式账户与未缩放影子账户并行 |
 | `cta_carry/minute_backtest.py` | 2,291 | 15 分钟吊灯止损三档减仓、VWAP 成交窗口、日末冲突合并 |
 | `cta_carry/session_authority.py` | 982 | 以交易所公告为准的时段权威源 |
 | `config/carry_minute_sessions.csv` | 5,293 行 | 时段规则数据（商品） |
@@ -160,7 +163,7 @@ Wind 实时快照表：中金所只有 IC / IM（2026-05-13 起），**无 IF / 
 
 **设计 §5.3 的 TimescaleDB 查询纪律对本策略同样适用、不可豁免**：按自然月分批；候选合约写临时表并驱动对 `m.symbol` **裸列**的嵌套循环索引探针；**禁止在 `m.symbol` 上使用 CASE / 正则 / 截断 / 大小写函数**；分钟表查询事务内 `SET LOCAL max_parallel_workers_per_gather=0` / `work_mem='32MB'` / `statement_timeout='300s'` / `enable_hashjoin=off` / `enable_mergejoin=off`；**任何新查询在全历史运行前都要保存 `EXPLAIN`，计划若包含对 264 个 chunk 的无界全扫描或预计扫描接近 6.6 亿行，验收失败。**
 
-⚠️ 上述模块目前都在 `cta_carry/` 命名空间下、不在 `common/`，且分支在飞。抽层与排期见 Task 0。
+⚠️ `minute_backtest.py`（2,292 行）/ `session_authority.py`（982 行）/ `decision.py` **仍在 `cta_carry/`**：前者是 Carry 的策略语义，后两者是商品交易所公告资产。本策略不复用它们的实现，只复用其形状。
 
 ---
 ## Future Implementation Plan
@@ -177,35 +180,91 @@ Wind 实时快照表：中金所只有 IC / IM（2026-05-13 起），**无 IF / 
   `minute_bars` / `minute_pg_source` / `minute_account` 抽到 `common/minute/`，Carry 与本策略
   各接一个信号层。理由 = 那六个模块正在高频改动（124 commit，裁决当日仍在提交），
   现在接第二个消费者的冲突成本高于等待成本。被否的 (B) = 先只读依赖 `cta_carry.minute_*`。
-- [ ] **落地触发条件 = 该分支 merge 进 master。** 裁决当日实测状态：主计划
+- [x] **落地触发条件 = 该分支 merge 进 master。** ✅ 2026-08-26 18:18 merge（`1b5610b`）。 裁决当日实测状态：主计划
   （`docs/superpowers/plans/2026-08-13-carry-minute-execution.md`）13 个 Task 中 Task 1~11 的代码
   均已在分支上；Task 12（数据库冒烟 / 全量验证 / 文档）在做；Task 13（两个配对研究窗 +
   证据报告）未开始；会话权威批次 A/C/D/E 已过目写入资产，**G / G3 / H 仍待过目**。
   ⇒ **不是即将 merge，等待期以周计——不要空转轮询，也不要因为"等不及"改投 (B)。**
-- [ ] 抽层必须保证 Carry 侧 CLI 输出**逐点不变**（沿用其设计 §3.1 对日线 CLI 的同一条约束），
+- [x] 抽层必须保证 Carry 侧 CLI 输出**逐点不变**（沿用其设计 §3.1 对日线 CLI 的同一条约束），
   以分支上现有的 Carry 分钟测试家族为回归闸
 - [x] 结论已回填本文件与 `docs/ROADMAP.md`
 
-**(A) 的排期后果 —— 哪些现在能做、哪些必须等：**
+**2026-08-26 完工记录（commit `9a4ea9b` + `74b4e3d`）**
+
+抽层分两步落地，第一步净搬、第二步才动耦合：
+
+1. `9a4ea9b` **净搬**：`minute_{sessions,bars,pg_source,account}` → `common/minute/{sessions,bars,pg_source,account}`，
+   零行为改动，全套件仍 **1054 passed**。附带必须搬的一件：`EquityDepletedError` 原定义在
+   `cta_carry/backtest.py`（**日线** Carry 引擎），而 `minute_account` 引用它 —— 不搬就成了
+   `common/` 反向依赖 `cta_carry/`。已移到 `common/errors.py`，`cta_carry.backtest` 原地再导出，
+   所有 raise/except 点看到的**类身份不变**。
+2. `74b4e3d` **破口径耦合**。⚠️ 这一步是抽层的真正内容，此前被低估：搬到 `common/` 并不使它市场中立。
+   `SESSION_RULES_VERSION` / `DAY_SEGMENTS` 是模块级常量，`SessionRule.__post_init__` 直接硬拒
+   非 `commodity-v1` 的版本，`load_session_rules()` 给 5,292 条规则统统盖同一份日盘段（CSV 只带夜盘）。
+   现引入 `SessionRuleset` 值对象承载市场特性（version / capture_start / day_segment_schedule /
+   clock 边界 / allows_night），由调用方传入。
+
+📌 **两条实地发现，直接改写了 Task 1 的形状**：
+
+- **日盘段必须按日期分期，不能是一个 tuple**：CFFEX 2016-01-01 缩短过日盘。所以
+  `SessionRuleset.day_segment_schedule` 是**按生效日排序的日程**，`load_session_rules` 按每行自己的
+  `effective_start` 取段。商品是单条目日程（退化情形），股指两条目。
+- **15:15 = 第 915 分钟，而 `SessionSegment` 原本拒绝 > 900**。⇒ 2016 前的股指日盘**根本构造不出来**。
+  已把结构性边界抽成 `CLOCK_MIN_MINUTE`/`CLOCK_MAX_MINUTE`（-180 / 960），各市场自己更紧的窗口
+  声明在 ruleset 上、建规则时强制。⚠️ 原来那条 900 的守卫**没有任何测试守着**（本次新增了）。
+
+**"逐点不变"是量出来的，不是断言的**（两条独立证据）：
+
+- 全套件 **1065 passed**（1054 + 新增 11）
+- 拿真实的 `config/carry_minute_sessions.csv`，用抽层**前**（`9a4ea9b`）与**后**的代码各跑一遍
+  `load_session_rules`：**5,292 条规则 sha256 完全相同**；再对 185 个 product-day 比
+  `build_trading_slots` 与 `fifteen_minute_buckets`，**逐点一致**。
+
+新增 11 个用例经**变异验证 8/8**，按"打红集合 == 预期集合"验收。📌 其中一条用例是变异逼出来的：
+日程顺序守卫写的是 `>=`，而原用例喂的是**乱序**日期（`>` 也能抓），所以把 `>=` 放宽成 `>`
+当场漏网 —— 补了一个**同日重复**的用例才守住。
+
+**(A) 的排期后果 —— 哪些现在能做、哪些必须等（已全部解除）：**
 
 | Task | 是否被 (A) 阻塞 | 说明 |
 |---|---|---|
-| Task 1 CFFEX 时段版本 | **阻塞** | 目标文件是 `common/minute/sessions.py`，抽层前不存在 |
-| Task 2 15 分钟 K 线 / VWAP | **阻塞** | 薄封装，依赖分钟层 |
+| Task 1 CFFEX 时段版本 | ~~阻塞~~ **可开工** | 目标文件 `common/minute/sessions.py` 已就位 |
+| Task 2 15 分钟 K 线 / VWAP | ~~阻塞~~ **可开工** | 薄封装，依赖分钟层 |
 | **Task 3~6** 开盘信号 / ATR 与止损 / 持仓路径 / 杠杆组合 | **不阻塞** | 纯策略逻辑 + 确定性合成数据，不碰分钟层，可先按 TDD 写完 |
-| Task 7 PG 源与 CLI | **阻塞** | 依赖分钟层的有界访问 |
+| Task 7 PG 源与 CLI | ~~阻塞~~ **可开工** | 依赖分钟层的有界访问 |
 | Task 8 报告与 runbook | 部分 | 报告骨架可先写；数据要求段等 Task 1/2/7 |
 
-⇒ 起手顺序：**Task 3 → 4 → 5 → 6**（全合成数据），期间等分支落地；merge 后做抽层，
-再回来做 Task 1 → 2 → 7 → 8。
+⇒ 起手顺序：~~Task 3 → 4 → 5 → 6~~（已完工）→ ~~抽层~~（已完工 2026-08-26）→
+**下一步 Task 1 → 2 → 7 → 8**。
 
 ### Task 1: CFFEX 时段版本与数据质量闸
 
 **Files:**
 
-- Create: `index_open_momentum/sessions.py`（若 Task 0 选 (A)，改为扩展 `common/minute/sessions.py`）
+- Modify: `common/minute/sessions.py`（注册 `CFFEX_V1` 到 `SESSION_RULESETS`）
 - Create: `config/index_minute_sessions.csv`
 - Test: `tests/test_index_open_momentum_sessions.py`
+
+> **抽层后的形状（2026-08-26）**：`SessionRuleset` 已能表达本 Task 需要的一切，照着写即可 ——
+>
+> ```python
+> CFFEX_V1 = SessionRuleset(
+>     version="cffex-v1",
+>     capture_start=date(2010, 4, 16),          # IF 挂牌日
+>     day_segment_schedule=(
+>         (date(2000, 1, 1), (SessionSegment(555, 690), SessionSegment(780, 915))),
+>         (date(2016, 1, 1), (SessionSegment(570, 690), SessionSegment(780, 900))),
+>     ),
+>     clock_start_minute=540, clock_end_minute=915, allows_night=False,
+> )
+> ```
+>
+> 两条日程条目 + `allows_night=False` 的行为已在 `tests/test_common_minute_sessions.py` 用
+> **同形状的合成 ruleset** 覆盖并变异验证过（那里叫 `test-two-era`），本 Task 只需换成真值
+> 并与 `futures_minute` 实测首尾交叉校验。
+>
+> 📌 注册后 `SESSION_RULESETS` 会有两个成员。`test_an_unregistered_version_fails_and_names_what_is_registered` 已改用一个
+> 永不会被注册的版本名，不会因为本 Task 而失守。
 
 - [ ] 新起 `cffex-v1` 时段版本：2016-01-01 前日盘 `09:15–11:30` / `13:00–15:15`，2016-01-01 起 `09:30–11:30` / `13:00–15:00`；**无夜盘**
 - [ ] 时段规则须与 `futures_minute` 实测首尾时间交叉校验并记录版本；任何时间戳映射不到唯一时段则**硬失败**，不靠"数已有行数"压缩时间
@@ -396,6 +455,7 @@ fixture 是连续自然日，252 个观测恰好只跨 252 天，两种口径选
 - [ ] Write a net-value chart.
 - [ ] Document data requirements for paper-faithful replication.
 - [ ] runbook 记录：数据源为 `public.futures_minute`（最新 bar 2026-08-11，实盘前需补尾）、时段版本 `cffex-v1`、2016 前 15:00–15:15 缺口的披露口径、以及 `EXPLAIN` 存档位置。
+- [ ] **样本外一段单独出**：研报样本 2011-06 起、研报日期 2021-05-13 ⇒ 其样本止于 2021。报告必须把 **2021-05 之后**单独成段，与复刻区间并列呈现，不允许只给全样本合并数。
 
 ## Acceptance Criteria
 
@@ -404,3 +464,7 @@ fixture 是连续自然日，252 个观测恰好只跨 252 天，两种口径选
 - IF/IC/IH 的覆盖度闸与时段映射全部通过后，才允许把结果标注为 paper-faithful；2016 前 `15:00–15:15` 缺口必须在报告中显式披露。
 - 全历史运行之前，每条新查询都有存档的 `EXPLAIN`。
 - 与论文口径对账：样本自 2011-06 起，费后年化 25.79% / Sharpe 1.77 / 最大回撤 7.66% / Calmar 3.37。差异逐项归因，**不调参逼近论文收益**。
+- **样本外（2021-05 之后）必须单独成段呈现**。理由不是谨慎，是本仓已经撞过一次：国信 Carry
+  那篇的样本**恰好止于策略失效前**（见记忆 `guosen-carry-paper-direction-is-wrong` /
+  `carry-decay-four-ruled-out`）。同一家、同一类研报，先验上应当假设这里也一样，而不是等
+  Task 8 全做完才发现。
