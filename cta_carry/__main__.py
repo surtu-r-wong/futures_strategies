@@ -88,6 +88,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-gross-leverage", type=float)
     parser.add_argument("--chandelier-atr-multiple", type=float)
     parser.add_argument("--stop-tranches", type=int)
+    parser.add_argument(
+        "--no-trend-opposed",
+        dest="allow_trend_opposed",
+        action="store_false",
+        default=None,
+        help="drop the branch that trades against a fading trend",
+    )
     parser.add_argument("--trend-band-atr", type=float)
     parser.add_argument("--trend-confirm-days", type=int)
     parser.add_argument(

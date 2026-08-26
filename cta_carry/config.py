@@ -66,6 +66,12 @@ class CarryConfig:
     # oscillating around its MA no longer flips the filter on and off.  0.0
     # disables the band and reproduces the original stateless MA comparison.
     trend_band_atr: float = 0.0
+    # Whether to keep the branch that trades against the trend when volume and
+    # open interest are both fading. Attribution over 2013-2026 puts that
+    # branch at -0.102 across the three loss-making windows, against +0.220 for
+    # the trend-aligned one. Not a tuning knob: it is here so the branch can be
+    # measured without it. Default keeps it, so the baseline does not move.
+    allow_trend_opposed: bool = True
     # Consecutive same-side closes required before the trend state flips.  1
     # flips on the first close and reproduces the original stateless rule.
     trend_confirm_days: int = 1
@@ -101,9 +107,7 @@ class CarryConfig:
             or not isinstance(self.min_shadow_active_days, int)
             or not 1 <= self.min_shadow_active_days <= self.vol_window
         ):
-            raise ValueError(
-                "min_shadow_active_days must be in [1, vol_window]"
-            )
+            raise ValueError("min_shadow_active_days must be in [1, vol_window]")
 
         for field_name in _POSITIVE_NUMERIC_FIELDS:
             value = getattr(self, field_name)
