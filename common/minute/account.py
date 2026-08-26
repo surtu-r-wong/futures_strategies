@@ -6,7 +6,7 @@ import math
 from types import MappingProxyType
 from typing import Mapping
 
-from .backtest import EquityDepletedError
+from common.errors import EquityDepletedError
 
 
 @dataclass(frozen=True, slots=True)

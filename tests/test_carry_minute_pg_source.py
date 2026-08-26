@@ -8,8 +8,8 @@ import pandas as pd
 import psycopg2.extras
 import pytest
 
-from cta_carry.minute_bars import MinuteDataError
-from cta_carry.minute_pg_source import (
+from common.minute.bars import MinuteDataError
+from common.minute.pg_source import (
     _BOUNDARY_COLUMNS,
     MinuteCandidate,
     MinuteSourceAudit,
@@ -680,7 +680,7 @@ def test_session_representative_requires_complete_provenance_before_db_access(
 
 
 def test_iter_month_preserves_legacy_dataframe_compatibility(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _candidate()
     captured = []
@@ -709,7 +709,7 @@ def test_iter_month_preserves_legacy_dataframe_compatibility(monkeypatch):
 def test_iter_month_sets_up_transaction_and_uses_the_same_bounded_select(
     monkeypatch,
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     connection = FakeConnection()
     inserted = []
@@ -770,7 +770,7 @@ def test_iter_month_sets_up_transaction_and_uses_the_same_bounded_select(
 def test_explain_month_returns_an_immutable_serializable_summary_without_select(
     monkeypatch,
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     lower = datetime(2024, 1, 1, tzinfo=SHANGHAI)
     upper = datetime(2024, 2, 1, tzinfo=SHANGHAI)
@@ -824,7 +824,7 @@ def test_explain_month_returns_an_immutable_serializable_summary_without_select(
 def test_explain_month_rejects_an_unsafe_plan_without_select_and_cleans_up(
     monkeypatch,
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     connection = FakeConnection(plan=_safe_plan(chunks=4))
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
@@ -850,7 +850,7 @@ def test_explain_month_rejects_an_unsafe_plan_without_select_and_cleans_up(
 
 
 def test_iter_month_exposes_stable_plan_audit_snapshots(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
     source = _source(FakeConnection(plan=_safe_plan(rows=17, chunks=1)))
@@ -872,7 +872,7 @@ def test_iter_month_exposes_stable_plan_audit_snapshots(monkeypatch):
 def test_source_audit_tracks_exact_table_bounds_and_integer_query_counters(
     monkeypatch,
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
     lower = datetime(2024, 1, 1, tzinfo=SHANGHAI)
@@ -973,7 +973,7 @@ def test_table_bounds_query_failure_rolls_back_and_closes_resources():
 def test_source_audit_snapshots_are_frozen_and_do_not_change_retroactively(
     monkeypatch,
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
     connection = FakeConnection(
@@ -1003,7 +1003,7 @@ def test_source_audit_snapshots_are_frozen_and_do_not_change_retroactively(
 def test_source_audit_counts_repeated_queries_but_deduplicates_candidates(
     monkeypatch,
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
     row = _minute_row(datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI))
@@ -1022,7 +1022,7 @@ def test_source_audit_counts_repeated_queries_but_deduplicates_candidates(
 
 
 def test_source_audit_records_started_failed_query_without_rows(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
     connection = FakeConnection(raise_on="EXPLAIN")
@@ -1045,7 +1045,7 @@ def test_source_audit_records_started_failed_query_without_rows(monkeypatch):
 
 
 def test_source_audit_partial_consumption_counts_only_yielded_rows(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
     first_rows = [_minute_row(datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI))]
@@ -1090,7 +1090,7 @@ def test_table_bounds_reject_empty_naive_regressed_or_partial_metadata(bounds):
 
 
 def test_iter_month_accepts_an_exact_candidate_dataframe(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _candidate()
     frame = pd.DataFrame([candidate.__dict__])
@@ -1117,7 +1117,7 @@ def test_iter_month_accepts_an_exact_candidate_dataframe(monkeypatch):
 def test_dataframe_ingestion_normalizes_trusted_pandas_and_numpy_scalars(
     monkeypatch,
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     start = pd.Timestamp("2024-01-07 21:00:00", tz=SHANGHAI)
     frame = pd.DataFrame(
@@ -1166,7 +1166,7 @@ def test_dataframe_ingestion_normalizes_trusted_pandas_and_numpy_scalars(
 
 
 def test_dataframe_out_of_python_range_numpy_date_is_structured(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     frame = pd.DataFrame([_candidate().__dict__], dtype=object)
     frame.at[0, "trade_date"] = np.datetime64("10000-01-01")
@@ -1323,7 +1323,7 @@ def test_real_candidate_insert_uses_safe_normalized_rows_and_required_ddl(
     ],
 )
 def test_iter_month_rejects_unsafe_or_malformed_plans(monkeypatch, plan):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     connection = FakeConnection(plan=plan)
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
@@ -1352,7 +1352,7 @@ def test_plan_rows_extremes_raise_a_structured_plan_error(
     monkeypatch,
     plan_rows,
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     plan = [
         {
@@ -1386,7 +1386,7 @@ def test_plan_rows_extremes_raise_a_structured_plan_error(
     ids=["json-string", "dict", "list"],
 )
 def test_iter_month_accepts_driver_plan_payload_forms(monkeypatch, payload):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
     connection = FakeConnection(plan=payload)
@@ -1404,7 +1404,7 @@ def test_iter_month_accepts_driver_plan_payload_forms(monkeypatch, payload):
 
 
 def test_plan_counts_logical_chunks_not_compressed_backing_relations(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     plans = []
     for chunk_number in (10, 11):
@@ -1440,7 +1440,7 @@ def test_plan_counts_logical_chunks_not_compressed_backing_relations(monkeypatch
 
 
 def test_iter_month_streams_exact_columns_and_global_order(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     start = datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI)
     connection = FakeConnection(
@@ -1472,7 +1472,7 @@ def test_iter_month_streams_exact_columns_and_global_order(monkeypatch):
 
 
 def test_iter_month_rejects_order_regression_between_fetches(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     start = datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI)
     connection = FakeConnection(
@@ -1497,7 +1497,7 @@ def test_iter_month_rejects_order_regression_between_fetches(monkeypatch):
 
 
 def test_iter_month_rolls_back_cursor_failure(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     connection = FakeConnection(raise_on="fetchmany")
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
@@ -1517,7 +1517,7 @@ def test_iter_month_rolls_back_cursor_failure(monkeypatch):
 
 
 def test_iter_month_preserves_cursor_failure_when_rollback_also_fails(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     connection = FakeConnection(raise_on="fetchmany", rollback_error=True)
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
@@ -1538,7 +1538,7 @@ def test_iter_month_preserves_cursor_failure_when_rollback_also_fails(monkeypatc
 
 
 def test_iter_month_early_close_rolls_back_and_closes(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     start = datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI)
     connection = FakeConnection(stream_chunks=[[_minute_row(start)]])
@@ -1558,7 +1558,7 @@ def test_iter_month_early_close_rolls_back_and_closes(monkeypatch):
 
 
 def test_constructor_forces_public_schema(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     captured_pg = {}
     monkeypatch.setattr(minute_pg_source, "_insert_candidates", lambda *args: None)
@@ -2263,7 +2263,7 @@ def test_metadata_multiplier_rejects_missing_or_noninteger_values(rows):
 
 
 def test_metadata_multiplier_delegates_frame_validation(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     sentinel = object()
     captured = {}
@@ -2449,7 +2449,7 @@ def _night_at(previous, hour, minute):
 
 
 def test_boundary_frame_keeps_the_traded_night_columns(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _session_candidate(date(2024, 1, 8))
     connection = FakeConnection(
@@ -2469,7 +2469,7 @@ def test_boundary_frame_keeps_the_traded_night_columns(monkeypatch):
 
 
 def test_boundary_frame_rejects_a_naive_traded_night_timestamp(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _session_candidate(date(2024, 1, 8))
     connection = FakeConnection(
@@ -2488,7 +2488,7 @@ def test_boundary_frame_rejects_a_naive_traded_night_timestamp(monkeypatch):
 
 
 def test_boundary_frame_rejects_a_non_boolean_auction_flag(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _session_candidate(date(2024, 1, 8))
     connection = FakeConnection(
@@ -2505,7 +2505,7 @@ def test_boundary_frame_rejects_a_non_boolean_auction_flag(monkeypatch):
 
 
 def test_iter_session_boundaries_returns_one_ordered_row_per_candidate(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     first = _session_candidate(date(2024, 1, 8))
     second = _session_candidate(date(2024, 1, 9))
@@ -2535,7 +2535,7 @@ def test_iter_session_boundaries_returns_one_ordered_row_per_candidate(monkeypat
 def test_candidate_metadata_survives_sequence_and_dataframe_canonicalization(
     monkeypatch, as_dataframe
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _session_candidate(
         date(2024, 1, 8),
@@ -2567,7 +2567,7 @@ def test_candidate_metadata_survives_sequence_and_dataframe_canonicalization(
 def test_zero_row_case_variant_representative_keeps_role_specific_failure(
     monkeypatch,
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _session_candidate(
         date(2024, 1, 8),
@@ -2596,7 +2596,7 @@ def test_zero_row_case_variant_representative_keeps_role_specific_failure(
 
 
 def test_zero_row_session_representative_has_exact_role_specific_failure(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _session_candidate(
         date(2024, 1, 8),
@@ -2629,7 +2629,7 @@ def test_zero_row_session_representative_has_exact_role_specific_failure(monkeyp
 
 
 def test_boundary_cardinality_mismatch_structures_unhashable_identity(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     first = _session_candidate(date(2024, 1, 8))
     second = _session_candidate(date(2024, 1, 9))
@@ -2652,7 +2652,7 @@ def test_boundary_cardinality_mismatch_structures_unhashable_identity(monkeypatc
 
 
 def test_iter_session_boundaries_keeps_an_authorized_absent_candidate(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _session_candidate(date(2024, 1, 8))
     connection = FakeConnection(
@@ -2677,7 +2677,7 @@ def test_iter_session_boundaries_keeps_an_authorized_absent_candidate(monkeypatc
 def test_iter_session_boundaries_tolerates_empty_rows_for_a_supplementary_look(
     monkeypatch,
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _session_candidate(date(2024, 1, 8))
     connection = FakeConnection(
@@ -2697,7 +2697,7 @@ def test_iter_session_boundaries_tolerates_empty_rows_for_a_supplementary_look(
 
 
 def test_iter_session_boundaries_still_rejects_an_unregistered_absence(monkeypatch):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     candidate = _session_candidate(date(2024, 1, 8))
     other = _session_candidate(date(2024, 1, 9))
@@ -2728,7 +2728,7 @@ def test_iter_session_boundaries_still_rejects_an_unregistered_absence(monkeypat
 def test_iter_session_boundaries_rejects_unclassified_candidates(
     monkeypatch, failure, expected_check
 ):
-    from cta_carry import minute_pg_source
+    from common.minute import pg_source as minute_pg_source
 
     first = _session_candidate(date(2024, 1, 8))
     second = _session_candidate(date(2024, 1, 9))

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from cta_carry.minute_sessions import (
+from common.minute.sessions import (
     DAY_SEGMENTS,
     SESSION_RULES_CAPTURE_START,
     SESSION_RULES_VERSION,

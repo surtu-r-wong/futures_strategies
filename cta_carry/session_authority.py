@@ -11,7 +11,7 @@ import re
 from types import MappingProxyType
 from typing import Any
 
-from .minute_sessions import SESSION_RULES_VERSION, parse_night_interval
+from common.minute.sessions import SESSION_RULES_VERSION, parse_night_interval
 
 
 AUTHORITY_VERSION = SESSION_RULES_VERSION

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cta_carry.minute_sessions import SESSION_RULES_VERSION
+from common.minute.sessions import SESSION_RULES_VERSION
 from cta_carry.session_authority import (
     AUTHORITY_VERSION,
     EffectiveAuthorityRange,

@@ -21,12 +21,12 @@ import pandas as pd
 
 from cta_carry.config import CarryConfig
 from cta_carry.curve import aggregate_product_liquidity
-from cta_carry.minute_pg_source import (
+from common.minute.pg_source import (
     MinuteCandidate,
     PublicMinuteSource,
     minute_contract_identity,
 )
-from cta_carry.minute_sessions import (
+from common.minute.sessions import (
     SESSION_RULES_CAPTURE_START,
     SESSION_RULES_VERSION,
     SessionRule,

@@ -11,8 +11,8 @@ import pytest
 import cta_carry.__main__ as carry_cli
 import cta_carry.report as carry_report
 from cta_carry.backtest import CarryBacktester
-from cta_carry.minute_bars import MinuteDataError
-from cta_carry.minute_pg_source import MinuteSourceAudit
+from common.minute.bars import MinuteDataError
+from common.minute.pg_source import MinuteSourceAudit
 from cta_carry.report import (
     ReportWriteError,
     console_summary,

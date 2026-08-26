@@ -22,7 +22,7 @@ from psycopg2 import extras, sql
 from common.config import load_config, resolve_settings_path
 from common.db import get_connection, pg_config_from
 
-from .minute_bars import (
+from .bars import (
     MinuteDataError,
     _select_multiplier_sample,
     MultiplierResolution,

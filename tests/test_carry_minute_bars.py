@@ -5,14 +5,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cta_carry.minute_bars import (
+from common.minute.bars import (
     MinuteDataError,
     aggregate_fifteen_minute_bar,
     five_minute_vwap,
     infer_contract_multiplier,
     validate_metadata_multiplier,
 )
-from cta_carry.minute_sessions import (
+from common.minute.sessions import (
     SESSION_RULES_VERSION,
     SessionRule,
     SessionSegment,

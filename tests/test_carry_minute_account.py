@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from cta_carry.backtest import EquityDepletedError
-from cta_carry.minute_account import AccountEvent, EventAccount, ExecutionRecord
+from common.minute.account import AccountEvent, EventAccount, ExecutionRecord
 
 
 TZ = ZoneInfo("Asia/Shanghai")
