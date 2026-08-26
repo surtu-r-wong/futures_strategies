@@ -806,6 +806,30 @@ def test_cli_returns_two_when_database_load_fails(tmp_path, capsys, monkeypatch)
     assert not prefix.with_suffix(".xlsx").exists()
 
 
+def test_a_workbook_keeps_the_local_wall_time_of_an_aware_instant(tmp_path):
+    from zoneinfo import ZoneInfo
+
+    from cta_carry.report import _write_workbook
+
+    # Excel has no concept of an offset, and the minute audit sheets are full
+    # of aware instants -- a whole 2019-2020 run reached the last step and died
+    # there. The instant is written as the wall time a Shanghai trader saw.
+    shanghai = ZoneInfo("Asia/Shanghai")
+    frame = pd.DataFrame(
+        {
+            "bar_time": [datetime(2020, 2, 3, 21, 5, tzinfo=shanghai)],
+            "price": [606.5],
+        }
+    )
+    path = tmp_path / "aware.xlsx"
+
+    _write_workbook((("executions", frame),), path)
+
+    written = pd.read_excel(path, sheet_name="executions")
+    assert written["bar_time"].iloc[0] == pd.Timestamp("2020-02-03 21:05:00")
+    assert written["price"].iloc[0] == 606.5
+
+
 def test_cli_reports_the_notes_attached_to_a_failure(tmp_path, capsys, monkeypatch):
     """The minute source attaches notes when cleanup fails on top of an error.
 

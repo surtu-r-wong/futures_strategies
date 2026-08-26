@@ -8,6 +8,7 @@ import shutil
 import tempfile
 
 import pandas as pd
+from zoneinfo import ZoneInfo
 
 from .backtest import CarryBacktestResult
 
@@ -37,6 +38,7 @@ _MINUTE_AUDIT_SHEETS = (
     "intraday_stops",
     "minute_data_quality",
 )
+_REPORT_TIMEZONE = ZoneInfo("Asia/Shanghai")
 _EXCEL_MAX_DATA_ROWS = 1_048_575
 _EXCEL_MAX_COLUMNS = 16_384
 
@@ -249,13 +251,37 @@ def _cleanup_paths(
     return tuple(errors)
 
 
+def _localised(frame: pd.DataFrame) -> pd.DataFrame:
+    """Drop the offset from aware instants, keeping the local wall time.
+
+    Excel has no concept of a timezone, and the minute audit sheets are full of
+    aware instants: a whole 2019-2020 run reached this step and died on the
+    first of them. Converting to Shanghai before dropping the offset writes the
+    time a trader there saw, which is what every other column in these sheets
+    is keyed to.
+    """
+    aware = [
+        column
+        for column in frame.columns
+        if isinstance(frame[column].dtype, pd.DatetimeTZDtype)
+    ]
+    if not aware:
+        return frame
+    localised = frame.copy()
+    for column in aware:
+        localised[column] = (
+            localised[column].dt.tz_convert(_REPORT_TIMEZONE).dt.tz_localize(None)
+        )
+    return localised
+
+
 def _write_workbook(
     sheets: tuple[tuple[str, pd.DataFrame], ...],
     path: Path,
 ) -> None:
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         for name, frame in sheets:
-            frame.to_excel(writer, sheet_name=name, index=False)
+            _localised(frame).to_excel(writer, sheet_name=name, index=False)
 
 
 def _validate_workbook(

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 import json
 import math
@@ -13,6 +13,7 @@ from numbers import Integral
 import re
 import sys
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,7 @@ from common.db import get_connection, pg_config_from
 
 from .minute_bars import (
     MinuteDataError,
+    _select_multiplier_sample,
     MultiplierResolution,
     infer_contract_multiplier,
     validate_metadata_multiplier,
@@ -138,6 +140,15 @@ WHERE symbol = %s
 ORDER BY trade_date DESC
 LIMIT 60
 """
+_CONTRACT_SAMPLE_QUERY = """
+SELECT bar_time, symbol, open, high, low, close, volume, amount,
+       bar_time::date AS trade_date
+FROM public.futures_minute
+WHERE symbol = %s AND bar_time >= %s AND bar_time < %s
+ORDER BY bar_time
+"""
+_CONTRACT_SAMPLE_DAYS = 45
+_SHANGHAI = ZoneInfo("Asia/Shanghai")
 _TABLE_BOUNDS_QUERY = """
 SELECT min(bar_time), max(bar_time) FROM public.futures_minute
 """
@@ -161,12 +172,66 @@ def _resolution_without_sample(multiplier: int, *, source: str):
     )
 
 
+def _samplable(frame: pd.DataFrame | None, contract: str) -> bool:
+    """Whether these bars can form a multiplier sample at all."""
+    if frame is None:
+        return False
+    try:
+        _select_multiplier_sample(frame, contract=contract)
+    except MinuteDataError:
+        return False
+    return True
+
+
+def _wider_contract_sample(
+    cursor: Any,
+    *,
+    minute_symbol: str,
+    trade_date: date,
+) -> pd.DataFrame | None:
+    """Fetch enough bars of one contract to judge a multiplier by.
+
+    The backtest hands over whatever bars the month happened to load, and a
+    contract that is a candidate on a single day of that month arrives with a
+    single day's window. That is a poor jury: rubber's true multiplier scored
+    0.88 on one day's bars and 1.00 on the month's, because a handful of odd
+    prints dominate a short window. Neither number is a fact about the
+    multiplier, so the sample is widened rather than the verdict weakened.
+    """
+    upper = datetime.combine(trade_date, datetime.min.time(), _SHANGHAI) + timedelta(
+        days=1
+    )
+    lower = upper - timedelta(days=_CONTRACT_SAMPLE_DAYS)
+    cursor.execute(_CONTRACT_SAMPLE_QUERY, (minute_symbol, lower, upper))
+    rows = cursor.fetchall()
+    if not rows:
+        return None
+    frame = pd.DataFrame(
+        list(rows),
+        columns=[
+            "bar_time",
+            "symbol",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "amount",
+            "trade_date",
+        ],
+    )
+    for column in ("open", "high", "low", "close", "volume", "amount"):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").astype(float)
+    return frame
+
+
 def _corroborate(
     frame: pd.DataFrame,
     *,
     contract: str,
     multiplier: int,
     source: str,
+    origin: tuple[str, date] | None = None,
 ):
     """Check a settled multiplier against bars, tolerating too few to check.
 
@@ -186,26 +251,52 @@ def _corroborate(
         )
     except MinuteDataError as exc:
         if exc.check != "contract_multiplier_sample":
+            # Say which query produced the number. The message names the
+            # multiplier and where it came from, but not the arguments that
+            # would let someone reproduce it, and a failure nobody can rerun
+            # costs far more to chase than a longer message does.
+            if origin is not None:
+                exc.add_note(
+                    f"multiplier settled from daily_contract={origin[0]!r} "
+                    f"trade_date={origin[1].isoformat()}"
+                )
             raise
         return _resolution_without_sample(multiplier, source=source)
 
 
-def _daily_turnover_multiplier(
+_MAX_DAILY_MULTIPLIER_CANDIDATES = 64
+_DAILY_MULTIPLIER_MAJORITY = 0.6
+_DAILY_MULTIPLIER_TIE = 1e-9
+
+
+def _daily_multiplier_candidates(
     cursor: Any,
     *,
     daily_contract: str,
     trade_date: date,
-) -> int | None:
-    """Settle a contract multiplier from the daily record, or refuse.
+) -> tuple[int, ...]:
+    """Integers the daily record leaves open for the contract multiplier.
 
-    The daily turnover reconciles on every exchange, including the one whose
-    minute turnover is synthetic, so this is the broadest reliable basis. Each
-    day's mid price stands in for its VWAP, which leaves a little spread; the
-    median absorbs that and is then required to sit close to one integer.
+    Each day fixes ``turnover = vwap * volume * multiplier`` and guarantees the
+    VWAP lies inside that day's range, so every day admits an interval of
+    multipliers and the record as a whole admits their intersection. That
+    intersection is the whole of what the daily record can honestly say.
+
+    A point estimate says more than that and is sometimes wrong: standing the
+    day's mid price in for its VWAP resolved crude oil to 1001 on nine of its
+    final nine days, where volume thins and the two diverge. The interval on
+    those days was [999.28, 1001.91] -- wide enough to hold the wrong answer,
+    which is why checking a point estimate against it caught nothing. On a
+    liquid day the intersection pins one integer; where it leaves several, the
+    bars choose between them.
+
+    Returns () when the record cannot constrain the multiplier at all, which
+    is missing evidence and hands over to the next resolution level.
     """
     cursor.execute(_DAILY_MULTIPLIER_QUERY, (daily_contract, trade_date))
     rows = cursor.fetchall()
-    factors: list[float] = []
+    lows: list[float] = []
+    highs: list[float] = []
     for row in rows or ():
         if not isinstance(row, Sequence) or len(row) < 4:
             continue
@@ -214,37 +305,69 @@ def _daily_turnover_multiplier(
             high, low = float(row[2]), float(row[3])
         except (TypeError, ValueError):
             continue
-        # The day's mid price stands in for its VWAP. The close was tried first
-        # and is worse: on a volatile day it sits far enough from the VWAP that
-        # a four-figure multiplier rounds to the wrong integer, which is how
-        # crude oil came out as 998.
-        mid = (high + low) / 2.0
-        if volume > 0 and mid > 0 and turnover > 0:
-            factors.append(turnover / volume / mid)
-    # Too few rows to settle anything is missing evidence, so it hands over to
-    # the next resolution level. Refusing here punished a newly listed contract
-    # -- a handful of daily rows -- harder than one with no daily record at
-    # all, which fell through cleanly. Refusal is reserved below, for rows that
-    # agree on no integer at all: that is evidence which contradicts.
-    if len(factors) < 10:
-        return None
-    factors.sort()
-    middle = len(factors) // 2
-    median = (
-        factors[middle]
-        if len(factors) % 2
-        else (factors[middle - 1] + factors[middle]) / 2.0
-    )
-    candidate = round(median)
-    if candidate <= 0 or abs(median - candidate) > 0.02 * candidate:
-        raise MinuteDataError(
-            trade_date=trade_date,
-            contract=daily_contract,
-            check="daily_turnover_multiplier",
-            reason="daily turnover does not settle on one integer multiplier",
-            context={"median": median, "nearest": candidate, "rows": len(factors)},
+        if volume <= 0 or turnover <= 0 or low <= 0 or high < low:
+            continue
+        lows.append(turnover / volume / high)
+        highs.append(turnover / volume / low)
+    days = len(lows)
+    if days < 10:
+        return ()
+    # A candidate has to convince nearly every day, not literally all of them.
+    # Insisting on all of them lets one bad row settle nothing: futures_daily
+    # carries duplicated Zhengzhou records from 2015-2017, and one emptied
+    # SF801's candidates on 2017-12-04 while the day before resolved cleanly.
+    # Score the integers around where the days centre. Scoring every integer
+    # any single day could support instead blows the ballot open on four-figure
+    # multipliers -- crude oil's days span two hundred of them -- and the
+    # majority below is what stops a split vote seating anyone, so the ballot
+    # does not have to carry every rival.
+    ordered_low = sorted(lows)
+    ordered_high = sorted(highs)
+    first = max(1, math.floor(ordered_low[days // 2]) - 2)
+    last = math.ceil(ordered_high[days // 2]) + 2
+    if last - first + 1 > _MAX_DAILY_MULTIPLIER_CANDIDATES:
+        return ()
+    # Turnover is stored rounded and the OHLC to four places, so a day that
+    # never moved has low == high and an interval one point wide that the true
+    # multiplier can miss by a couple of parts in ten thousand. Five such days
+    # rejected 10 for soybean #2 and emptied its candidates. The tolerance
+    # absorbs that rounding; a wrong integer sits far outside it.
+    slack = 5e-4
+
+    scores: list[tuple[int, float]] = []
+    for candidate in range(first, last + 1):
+        agreeing = sum(
+            1
+            for lower, upper in zip(lows, highs)
+            if lower - slack * max(1.0, lower)
+            <= candidate
+            <= upper + slack * max(1.0, upper)
         )
-    return int(candidate)
+        scores.append((candidate, agreeing / days))
+    if not scores:
+        return ()
+    best = max(score for _, score in scores)
+    # No fixed share of days will ever all agree on an illiquid contract:
+    # soybean #2 has days whose recorded turnover disagrees with its own range
+    # by seven parts in a thousand. What settles it is the separation -- the
+    # true multiplier was admitted by 85% of days and every neighbour by none.
+    # So the winner is taken, not a quorum, and only when it wins outright.
+    if best < _DAILY_MULTIPLIER_MAJORITY:
+        return ()
+    # Only the outright best go on. Iron ore's true multiplier was admitted by
+    # every day and its neighbours by all but two, so a window around the best
+    # score swept them in and left the bars to break a tie that was not one.
+    # Genuine ties do happen -- four-figure multipliers put their neighbours a
+    # tenth of a percent away, inside a single day's range -- and those are
+    # what the bars are for.
+    admitted = [
+        candidate
+        for candidate, score in scores
+        if score >= best - _DAILY_MULTIPLIER_TIE
+    ]
+    if len(admitted) > _MAX_DAILY_MULTIPLIER_CANDIDATES:
+        return ()
+    return tuple(admitted)
 
 
 def _require_trade_date(value: object, *, contract: str | None = None) -> date:
@@ -1776,30 +1899,119 @@ class PublicMinuteSource:
                     # exchange, including the one whose minute turnover is
                     # synthetic. Only if that is silent do the bars themselves
                     # get a say, and neither path guesses.
-                    daily = _daily_turnover_multiplier(
+                    candidates = _daily_multiplier_candidates(
                         cursor,
                         daily_contract=daily_contract,
                         trade_date=trade_date,
                     )
-                    if daily is not None:
+                    if candidates:
                         # Checking a multiplier against turnover only means
                         # something where the turnover is believed. On the OHLC
-                        # basis it is the untrusted column, so the daily record
-                        # stands on its own. The wider sample is used where a
+                        # basis it is the untrusted column, so the bars cannot
+                        # weigh in at all. The wider sample is used where a
                         # check does run, because the day's own window spans one
                         # trade date and the selector wants three.
                         check_frame = (
                             frame if inference_frame is None else inference_frame
                         )
-                        if check_frame is None or pricing_basis != "amount_vwap":
-                            return _resolution_without_sample(
-                                daily, source="daily_turnover"
+                        adjudicable = (
+                            check_frame is not None and pricing_basis == "amount_vwap"
+                        )
+                        if adjudicable and not _samplable(check_frame, minute_symbol):
+                            wider = _wider_contract_sample(
+                                cursor,
+                                minute_symbol=minute_symbol,
+                                trade_date=trade_date,
                             )
-                        return _corroborate(
-                            check_frame,
-                            contract=minute_symbol,
-                            multiplier=daily,
-                            source="daily_turnover",
+                            if wider is not None and _samplable(wider, minute_symbol):
+                                check_frame = wider
+                        if len(candidates) == 1:
+                            if not adjudicable:
+                                return _resolution_without_sample(
+                                    candidates[0], source="daily_turnover"
+                                )
+                            try:
+                                return _corroborate(
+                                    check_frame,
+                                    contract=minute_symbol,
+                                    multiplier=candidates[0],
+                                    source="daily_turnover",
+                                    origin=(daily_contract, trade_date),
+                                )
+                            except MinuteDataError:
+                                wider = _wider_contract_sample(
+                                    cursor,
+                                    minute_symbol=minute_symbol,
+                                    trade_date=trade_date,
+                                )
+                                if wider is None or len(wider) <= len(check_frame):
+                                    raise
+                                return _corroborate(
+                                    wider,
+                                    contract=minute_symbol,
+                                    multiplier=candidates[0],
+                                    source="daily_turnover",
+                                    origin=(daily_contract, trade_date),
+                                )
+                        if not adjudicable:
+                            raise MinuteDataError(
+                                trade_date=trade_date,
+                                contract=daily_contract,
+                                check="daily_turnover_multiplier",
+                                reason=(
+                                    "the daily record leaves several multipliers "
+                                    "and there are no trusted bars to choose "
+                                    "between them"
+                                ),
+                                context={"candidates": candidates},
+                            )
+                        # Narrowing to a handful is not settling. Let the bars
+                        # say which one they can price a fill with, and insist
+                        # that exactly one of them can.
+                        passing = []
+                        uncheckable = 0
+                        for candidate in candidates:
+                            try:
+                                passing.append(
+                                    validate_metadata_multiplier(
+                                        check_frame,
+                                        contract=minute_symbol,
+                                        multiplier=candidate,
+                                        source="daily_turnover",
+                                    )
+                                )
+                            except MinuteDataError as exc:
+                                # A frame too thin to sample answers neither
+                                # way. Counting that as a rejection failed
+                                # every candidate at once.
+                                if exc.check == "contract_multiplier_sample":
+                                    uncheckable += 1
+                                continue
+                        if len(passing) == 1:
+                            return passing[0]
+                        if uncheckable == len(candidates):
+                            raise MinuteDataError(
+                                trade_date=trade_date,
+                                contract=daily_contract,
+                                check="daily_turnover_multiplier",
+                                reason=(
+                                    "the daily record leaves several multipliers "
+                                    "and the bars could not check any of them"
+                                ),
+                                context={"candidates": candidates},
+                            )
+                        raise MinuteDataError(
+                            trade_date=trade_date,
+                            contract=daily_contract,
+                            check="daily_turnover_multiplier",
+                            reason=(
+                                "the bars single out no one multiplier from the "
+                                "daily record's candidates"
+                            ),
+                            context={
+                                "candidates": candidates,
+                                "passing": tuple(r.multiplier for r in passing),
+                            },
                         )
                     source_frame = frame if inference_frame is None else inference_frame
                     if source_frame is None:
@@ -1812,10 +2024,22 @@ class PublicMinuteSource:
                                 "before trade_date"
                             ),
                         )
-                    return infer_contract_multiplier(
-                        source_frame,
-                        contract=minute_symbol,
-                    )
+                    try:
+                        return infer_contract_multiplier(
+                            source_frame,
+                            contract=minute_symbol,
+                        )
+                    except MinuteDataError as exc:
+                        # Inference runs only because the daily record settled
+                        # nothing. Say which record that was, so the failure
+                        # can be reproduced from the message alone.
+                        exc.add_note(
+                            f"daily record settled nothing for "
+                            f"daily_contract={daily_contract!r} "
+                            f"trade_date={trade_date.isoformat()} "
+                            f"candidates={candidates!r}"
+                        )
+                        raise
                 latest_date = max(item[0] for item in dated_values)
                 latest_values = [
                     value
@@ -1854,6 +2078,7 @@ class PublicMinuteSource:
                     contract=minute_symbol,
                     multiplier=multiplier,
                     source="metadata",
+                    origin=(daily_contract, trade_date),
                 )
             finally:
                 _close_cursor_preserving(cursor)

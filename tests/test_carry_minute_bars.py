@@ -457,6 +457,61 @@ def test_valid_metadata_multiplier_returns_auditable_resolution():
     assert result.pass_rate == 1.0
 
 
+def test_a_failed_multiplier_check_names_where_the_number_came_from():
+    # The same check guards three origins -- contract metadata, the daily
+    # turnover record and bar inference -- but the message only ever said
+    # "metadata". Reading a failure then costs several probes to work out which
+    # path produced the number, so the origin travels with the error.
+    frame = _multiplier_rows()
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        validate_metadata_multiplier(
+            frame, contract=CONTRACT, multiplier=11, source="daily_turnover"
+        )
+
+    assert exc_info.value.context["source"] == "daily_turnover"
+    assert "metadata" not in exc_info.value.reason
+
+
+def test_a_locked_bar_prices_at_its_only_traded_price():
+    # A bar locked at limit has high == low, so the stored turnover's own
+    # rounding decides whether the VWAP lands inside it. Iron ore's VWAP came
+    # out eight thousandths above a range of zero width. That is arithmetic,
+    # not a fill outside the market, so it is tolerated and priced at the one
+    # price that traded.
+    frame = _rows([606.5] * 5, [10.0] * 5, multiplier=100)
+    frame["low"] = 606.5
+    frame["high"] = 606.5
+    frame.loc[0, "amount"] = frame.loc[0, "amount"] + 50.0
+
+    fill = five_minute_vwap(
+        frame,
+        slots=tuple(frame["bar_time"]),
+        contract=CONTRACT,
+        multiplier=100,
+    )
+
+    assert fill.price == 606.5
+
+
+def test_a_price_well_outside_the_range_is_still_refused():
+    # Reverse guard: the tolerance absorbs storage rounding, not a bad fill.
+    frame = _rows([606.5] * 5, [10.0] * 5, multiplier=100)
+    frame["low"] = 606.5
+    frame["high"] = 606.5
+    frame["amount"] = frame["amount"] * 1.02
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        five_minute_vwap(
+            frame,
+            slots=tuple(frame["bar_time"]),
+            contract=CONTRACT,
+            multiplier=100,
+        )
+
+    _assert_error(exc_info, "execution_vwap")
+
+
 def test_metadata_multiplier_tolerates_a_single_out_of_range_bar():
     # At a sixty-bar sample a 0.99 gate means "every bar must pass": 59/60 is
     # 0.9833. Real archives put one bar a tick outside the day's range often
@@ -472,18 +527,18 @@ def test_metadata_multiplier_tolerates_a_single_out_of_range_bar():
 
 
 def test_metadata_multiplier_still_refuses_a_sample_below_the_floor():
-    # Reverse guard. Correct multipliers measured no worse than 91.67% and
-    # wrong ones no better than about 35%, so the floor sits in an empty band
-    # and a sample beneath it must still refuse.
+    # Reverse guard. Correct multipliers measured 0.85 to 1.00 and wrong ones
+    # 0.00 to 0.35, so the floor sits in an empty band and a sample beneath it
+    # must still refuse.
     frame = _multiplier_rows()
-    frame.loc[0:7, "amount"] = 1005.0
+    frame.loc[0:29, "amount"] = 1005.0
 
     with pytest.raises(MinuteDataError) as exc_info:
         validate_metadata_multiplier(frame, contract=CONTRACT, multiplier=10)
 
     _assert_error(exc_info, "metadata_multiplier")
-    assert exc_info.value.context["pass_rate"] == pytest.approx(52 / 60)
-    assert exc_info.value.context["required_pass_rate"] == 0.90
+    assert exc_info.value.context["pass_rate"] == pytest.approx(30 / 60)
+    assert exc_info.value.context["required_pass_rate"] == 0.60
 
 
 def test_the_relaxed_gate_does_not_reach_multiplier_inference():

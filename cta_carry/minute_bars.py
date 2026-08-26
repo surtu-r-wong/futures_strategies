@@ -544,6 +544,18 @@ def _epsilon(low: float, high: float) -> float:
     return 1e-6 * max(1.0, abs(low), abs(high))
 
 
+def _fill_epsilon(low: float, high: float) -> float:
+    """How far outside its own range a fill price may land on rounding alone.
+
+    Turnover is stored rounded, so a bar locked at limit -- high == low, a
+    range of zero width -- can imply a VWAP a hair outside it. Iron ore's came
+    out eight thousandths above 606.5. That is arithmetic, not a fill outside
+    the market. A hundredth of a percent covers it and stays far inside any
+    real excursion.
+    """
+    return 1e-4 * max(1.0, abs(low), abs(high))
+
+
 def _candidate_pass_rate(sample: pd.DataFrame, multiplier: int) -> float:
     price = sample["amount"] / sample["volume"] / multiplier
     low = sample["low"].to_numpy(dtype=float)
@@ -820,14 +832,18 @@ def _range_diagnostics(
 # integers out and the answer unique. Validation checks one already-chosen
 # multiplier, where the only question is whether the bars corroborate it.
 #
-# Validation sits at 0.90 because at a sixty-bar sample 0.99 means "every bar
-# must pass" (59/60 = 0.9833), and a correct multiplier misses that on ordinary
-# archive noise: 135 of 805 representative contract-months did. Measured,
-# correct multipliers pass no worse than 91.67% and wrong ones no better than
-# about 35%, so 0.90 sits in an empty band 56 points wide.
+# Validation sits at 0.60. At a sixty-bar sample 0.99 means "every bar must
+# pass" (59/60 = 0.9833), which a correct multiplier misses on ordinary archive
+# noise: 135 of 805 representative contract-months did. 0.90 then held until
+# illiquid contracts turned up, where the recorded turnover disagrees with the
+# recorded range often enough that even a widened sample scores lower --
+# soybean #2 scored 0.85 and rubber 0.88 on multipliers since confirmed
+# correct. Measured across every case seen so far, correct multipliers score
+# 0.85 to 1.00 and wrong ones 0.00 to 0.35, so 0.60 sits mid-band with about
+# twenty-five points of margin either side.
 # Evidence: docs/research/2026-08-25-multiplier-pass-rate-threshold.md
 INFERENCE_PASS_RATE = 0.99
-VALIDATION_PASS_RATE = 0.90
+VALIDATION_PASS_RATE = 0.60
 
 
 def _qualifying_multipliers(sample: pd.DataFrame) -> tuple[int, ...]:
@@ -909,8 +925,8 @@ def validate_metadata_multiplier(
             clock=clock,
             contract=contract,
             check="metadata_multiplier",
-            reason="metadata multiplier must be a positive actual integer",
-            context={"multiplier": multiplier},
+            reason="contract multiplier must be a positive actual integer",
+            context={"multiplier": multiplier, "source": source},
         )
     sample, clock = _select_multiplier_sample(frame, contract=contract)
     resolution = _resolution(sample, multiplier=multiplier, source=source)
@@ -920,9 +936,13 @@ def validate_metadata_multiplier(
             contract=contract,
             timestamp=sample.iloc[0]["bar_time"],
             check="metadata_multiplier",
-            reason="metadata multiplier failed price-range validation",
+            reason="contract multiplier failed price-range validation",
             context={
                 "multiplier": multiplier,
+                # Three origins share this check: contract metadata, the daily
+                # turnover record and bar inference. Which one produced the
+                # number decides where to look, so it travels with the error.
+                "source": source,
                 "pass_rate": resolution.pass_rate,
                 "required_pass_rate": VALIDATION_PASS_RATE,
                 "sample_rows": resolution.sample_rows,
@@ -1008,7 +1028,7 @@ def five_minute_vwap(
 
     low = float(traded["low"].min())
     high = float(traded["high"].max())
-    epsilon = _epsilon(low, high)
+    epsilon = _fill_epsilon(low, high)
     if not low - epsilon <= price <= high + epsilon:
         raise _minute_error(
             clock=clock,
@@ -1017,6 +1037,10 @@ def five_minute_vwap(
             reason="VWAP is outside the traded price range",
             context={"vwap": price, "low": low, "high": high},
         )
+
+    # Inside the tolerance but outside the range is still a price that never
+    # traded, so the fill is taken at the nearest one that did.
+    price = min(max(price, low), high)
     return VwapFill(
         contract=contract,
         start=slot_values[0],

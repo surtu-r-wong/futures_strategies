@@ -490,8 +490,17 @@ class FakeCursor:
             self.mode = "metadata"
         elif "FROM public.futures_daily" in normalized:
             self.mode = "daily"
+        elif (
+            "FROM public.futures_minute" in normalized and "WHERE symbol" in normalized
+        ):
+            # The widened multiplier sample. Serving daily rows here would hand
+            # the checker a frame with the wrong columns entirely.
+            self.mode = "contract_sample"
         elif "SELECT min(bar_time), max(bar_time)" in normalized:
             self.mode = "table_bounds"
+
+    def contract_sample_rows(self):
+        return list(getattr(self.connection, "sample_rows", ()))
 
     def fetchone(self):
         if self.mode == "table_bounds":
@@ -500,11 +509,13 @@ class FakeCursor:
         return (self.connection.plan,)
 
     def fetchall(self):
-        assert self.mode in {"metadata", "boundary", "daily"}
+        assert self.mode in {"metadata", "boundary", "daily", "contract_sample"}
         if self.mode == "boundary":
             return list(self.connection.boundary_rows)
         if self.mode == "daily":
             return list(self.connection.daily_rows)
+        if self.mode == "contract_sample":
+            return self.contract_sample_rows()
         return list(self.connection.metadata_rows)
 
     def fetchmany(self, size):
@@ -538,6 +549,7 @@ class FakeConnection:
         ),
         raise_on=None,
         rollback_error=False,
+        sample_rows=(),
     ):
         self.plan = _safe_plan() if plan is None else plan
         self.stream_chunks = list(stream_chunks)
@@ -545,6 +557,7 @@ class FakeConnection:
         self.metadata_rows = list(metadata_rows)
         self.daily_rows = list(daily_rows)
         self.table_bounds = table_bounds
+        self.sample_rows = list(sample_rows)
         self.raise_on = raise_on
         self.rollback_error = rollback_error
         self.events = []
@@ -1625,16 +1638,20 @@ def test_metadata_multiplier_falls_back_to_inference_when_history_is_absent():
     assert resolution.source == "inferred"
 
 
-def _daily_rows(multiplier, mid=2500.0, n=40, close_bias=0.0):
-    # turnover = volume * the day's mid price * multiplier. close_bias moves the
-    # close away from the mid, which is what a volatile day does and what made
-    # a close-based derivation round crude oil to 998 instead of 1000.
+def _daily_rows(
+    multiplier, mid=2500.0, n=40, close_bias=0.0, spread=0.001, vwap_bias=0.0
+):
+    # turnover = volume * the day's VWAP * multiplier. spread sets the high and
+    # low around the mid, which decides how tightly the daily record can pin
+    # the multiplier. vwap_bias moves the real VWAP off the mid, which is what
+    # a thin day does and what makes a mid-based point estimate round to a
+    # neighbour: crude oil resolved to 1001 on nine of its final days that way.
     return [
         (
             float(1000 + index),
-            float(1000 + index) * mid * multiplier,
-            mid * 1.001,
-            mid * 0.999,
+            float(1000 + index) * mid * (1.0 + vwap_bias) * multiplier,
+            mid * (1.0 + spread),
+            mid * (1.0 - spread),
             mid * (1.0 + close_bias),
         )
         for index in range(n)
@@ -1767,9 +1784,12 @@ def test_a_daily_multiplier_the_bars_contradict_is_still_refused():
     assert exc_info.value.check == "metadata_multiplier"
 
 
-def test_daily_multiplier_uses_the_mid_price_not_the_close():
-    # A close 0.15% away from the mid is enough to round a 1000 multiplier to
-    # 998 if the close is used, which is exactly what crude oil did.
+def test_where_the_day_closed_cannot_move_the_multiplier():
+    # Replaces a test that pinned a mid-price proxy against a close-price one.
+    # Neither is used now: the multiplier comes from the interval every day's
+    # range implies, and where the close sits inside that range says nothing
+    # about it. A close 0.15% off the mid used to be enough to resolve crude
+    # oil to 998.
     connection = FakeConnection(
         metadata_rows=[], daily_rows=_daily_rows(1000, mid=425.0, close_bias=0.0015)
     )
@@ -1777,12 +1797,17 @@ def test_daily_multiplier_uses_the_mid_price_not_the_close():
     resolution = _source(connection).resolve_metadata_multiplier(
         daily_contract="SC1904.INE",
         trade_date=date(2019, 2, 11),
+        frame=_inferable_frame(contract="SC1904", multiplier=1000),
     )
 
     assert resolution.multiplier == 1000
 
 
-def test_daily_turnover_multiplier_refuses_a_non_integer_result():
+def test_a_daily_record_admitting_no_integer_hands_over_and_still_refuses():
+    # A record whose interval holds no integer settles nothing, so it hands
+    # over like any other unusable source rather than aborting on the spot.
+    # With nothing to hand over to, the run still refuses -- handing over is
+    # not giving up. This used to raise from the daily branch directly.
     connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(7.4))
 
     with pytest.raises(MinuteDataError) as exc_info:
@@ -1791,7 +1816,338 @@ def test_daily_turnover_multiplier_refuses_a_non_integer_result():
             trade_date=date(2019, 6, 3),
         )
 
+    assert exc_info.value.check == "metadata_multiplier"
+    assert "no contract multiplier metadata" in exc_info.value.reason
+
+
+def test_a_daily_record_admitting_no_integer_lets_the_bars_settle_it():
+    # The other half: handing over reaches inference, which can settle it.
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(7.4))
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="RM909.CZC",
+        trade_date=date(2019, 6, 3),
+        frame=_inferable_frame(contract="RM1909"),
+    )
+
+    assert resolution.multiplier == 10
+    assert resolution.source == "inferred"
+
+
+def test_a_failed_corroboration_says_which_daily_record_it_used(monkeypatch):
+    # The error names the multiplier and its origin but not the query that
+    # produced it, so a failure cannot be reproduced from the message alone.
+    # Four separate probes went into one such failure before this was added.
+    contradicting = _inferable_frame(contract="RM1909", multiplier=97)
+    connection = FakeConnection(metadata_rows=[], daily_rows=_daily_rows(10))
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="RM909.CZC",
+            trade_date=date(2019, 6, 3),
+            frame=contradicting,
+        )
+
+    notes = " ".join(getattr(exc_info.value, "__notes__", ()))
+    assert "RM909.CZC" in notes
+    assert "2019-06-03" in notes
+
+
+def test_the_bars_pick_the_multiplier_the_daily_record_cannot_narrow():
+    # Each day guarantees only that the VWAP sits inside its range, so the
+    # daily record pins an interval, not a number. On a thin day that interval
+    # holds several integers, and rounding a point estimate picks among them
+    # by accident: crude oil resolved to 1001 on nine of its final days that
+    # way, on data whose interval was [999.28, 1001.91].
+    connection = FakeConnection(
+        metadata_rows=[],
+        daily_rows=_daily_rows(1000, mid=500.0, spread=0.001, vwap_bias=0.0006),
+    )
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="SC1901.INE",
+        trade_date=date(2018, 12, 18),
+        frame=_inferable_frame(contract="SC1901", multiplier=1000),
+    )
+
+    assert resolution.multiplier == 1000
+    assert resolution.source == "daily_turnover"
+
+
+def test_several_candidates_with_no_bars_to_choose_between_them_are_refused():
+    # Narrowing to a handful is not settling. With nothing to adjudicate, the
+    # run refuses rather than picking the middle one.
+    connection = FakeConnection(
+        metadata_rows=[], daily_rows=_daily_rows(1000, mid=500.0, spread=0.001)
+    )
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="SC1901.INE",
+            trade_date=date(2018, 12, 18),
+        )
+
     assert exc_info.value.check == "daily_turnover_multiplier"
+
+
+def test_several_candidates_are_refused_where_the_turnover_is_untrusted():
+    # On the OHLC basis the bars' own turnover is the untrusted column, so it
+    # cannot adjudicate either. Zhengzhou's multipliers are small enough that
+    # the interval settles them on its own; anything wider refuses.
+    czce = _inferable_frame(contract="RM1909", multiplier=1000).copy()
+    czce["amount"] = czce["volume"] * 90.0 * 1000
+    connection = FakeConnection(
+        metadata_rows=[], daily_rows=_daily_rows(1000, mid=500.0, spread=0.001)
+    )
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="RM909.CZC",
+            trade_date=date(2019, 6, 3),
+            frame=czce,
+            pricing_basis="ohlc_typical",
+        )
+
+    assert exc_info.value.check == "daily_turnover_multiplier"
+
+
+def test_a_failed_inference_says_which_daily_record_came_up_empty(monkeypatch):
+    # Inference is only reached because the daily record settled nothing, so
+    # its failure has to name the record that did not, or the run cannot be
+    # reproduced from the message.
+    connection = FakeConnection(metadata_rows=[], daily_rows=[])
+    thin = _inferable_frame(contract="SF1801").iloc[:20].copy()
+    thin["trade_date"] = date(2017, 11, 30)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="SF801.CZC",
+            trade_date=date(2017, 11, 30),
+            frame=thin,
+        )
+
+    notes = " ".join(getattr(exc_info.value, "__notes__", ()))
+    assert "SF801.CZC" in notes
+
+
+def test_a_clean_daily_record_settles_without_needing_the_bars():
+    # Every day agreeing on one integer is stronger evidence than most days
+    # agreeing on several, so it is used first. Relaxing straight to a vote
+    # widened iron ore to (100, 101) on data where every day said 100.
+    connection = FakeConnection(
+        metadata_rows=[], daily_rows=_daily_rows(100, mid=478.0)
+    )
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="I1709.DCE",
+        trade_date=date(2017, 8, 1),
+    )
+
+    assert resolution.multiplier == 100
+    assert resolution.source == "daily_turnover"
+
+
+def test_a_sample_too_thin_to_check_is_not_a_rejection():
+    # Adjudication asks the bars which candidate they can price a fill with.
+    # A frame too thin to sample answers neither way, and counting that as a
+    # rejection failed every candidate at once.
+    rows = _daily_rows(1000, mid=500.0, spread=0.001, vwap_bias=0.0006)
+    thin = _inferable_frame(contract="SC1901", multiplier=1000).iloc[:20].copy()
+    thin["trade_date"] = date(2018, 12, 18)
+    connection = FakeConnection(metadata_rows=[], daily_rows=rows)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="SC1901.INE",
+            trade_date=date(2018, 12, 18),
+            frame=thin,
+        )
+
+    assert exc_info.value.check == "daily_turnover_multiplier"
+    assert "could not check" in exc_info.value.reason
+
+
+def _sample_rows(contract, multiplier, n=180):
+    from datetime import timedelta as _td
+
+    start = datetime(2019, 10, 1, 9, 0, tzinfo=SHANGHAI)
+    out = []
+    for index in range(n):
+        moment = start + _td(days=index // 6, minutes=index % 6)
+        price = 100.0
+        volume = 10.0
+        out.append(
+            (
+                moment,
+                contract,
+                price,
+                price,
+                price,
+                price,
+                volume,
+                price * volume * multiplier,
+                moment.date(),
+            )
+        )
+    return out
+
+
+def test_a_verdict_from_one_days_bars_is_retried_on_a_wider_sample():
+    # The backtest hands over whatever bars the month happened to load, and a
+    # contract that is a candidate on a single day arrives with a single day's
+    # window. Rubber's true multiplier scored 0.88 there and 1.00 on the
+    # month's bars, so the sample is widened before the verdict stands.
+    one_day = _inferable_frame(contract="RU2001", multiplier=10).copy()
+    one_day.loc[one_day.index[:30], "amount"] = one_day["amount"].iloc[0] * 3.0
+    connection = FakeConnection(
+        metadata_rows=[],
+        daily_rows=_daily_rows(10, mid=11500.0),
+        sample_rows=_sample_rows("RU2001", 10),
+    )
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="RU2001.SHF",
+        trade_date=date(2019, 11, 1),
+        frame=one_day,
+    )
+
+    assert resolution.multiplier == 10
+
+
+def test_a_wider_sample_that_also_disagrees_still_refuses():
+    # Reverse guard: widening looks for more evidence, not for a friendlier
+    # answer. Bars that reject the multiplier at any width still refuse.
+    one_day = _inferable_frame(contract="RU2001", multiplier=10).copy()
+    one_day.loc[one_day.index[:30], "amount"] = one_day["amount"].iloc[0] * 3.0
+    connection = FakeConnection(
+        metadata_rows=[],
+        daily_rows=_daily_rows(10, mid=11500.0),
+        sample_rows=_sample_rows("RU2001", 97),
+    )
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="RU2001.SHF",
+            trade_date=date(2019, 11, 1),
+            frame=one_day,
+        )
+
+    assert exc_info.value.check == "metadata_multiplier"
+
+
+def test_an_illiquid_contract_settles_on_the_multiplier_that_wins_outright():
+    # Soybean #2 has days whose recorded turnover disagrees with its own range
+    # by up to seven parts in a thousand, so no fixed share of days will ever
+    # all agree. The separation is what settles it: the true multiplier is
+    # admitted by 85% of days and every neighbour by none.
+    rows = _daily_rows(10, mid=2860.0, n=60)
+    for index in range(9):
+        volume, _, high, low, close = rows[index]
+        rows[index] = (volume, volume * 2860.0 * 10.04, high, low, close)
+
+    connection = FakeConnection(metadata_rows=[], daily_rows=rows)
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="B1907.DCE",
+        trade_date=date(2019, 5, 21),
+    )
+
+    assert resolution.multiplier == 10
+
+
+def test_a_record_where_nothing_wins_settles_nothing():
+    # Reverse guard: winning by a nose is not winning. Where no integer is
+    # admitted by even half the days, the record hands over instead.
+    rows = _daily_rows(10, mid=2860.0, n=60)
+    for index in range(40):
+        volume, _, high, low, close = rows[index]
+        rows[index] = (volume, volume * 2860.0 * 17.3, high, low, close)
+
+    connection = FakeConnection(metadata_rows=[], daily_rows=rows)
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="B1907.DCE",
+        trade_date=date(2019, 5, 21),
+        frame=_inferable_frame(contract="B1907"),
+    )
+
+    assert resolution.source == "inferred"
+
+
+def test_a_zero_range_day_still_admits_the_multiplier_it_rounds_off():
+    # A day that never moved has low == high, so its interval is a single
+    # point and the rounding in the stored turnover decides whether the true
+    # multiplier lands inside it. Five such days rejected 10 for soybean #2 by
+    # two parts in ten thousand, taking the whole candidate set with them.
+    rows = _daily_rows(10, mid=2860.0, n=43)
+    for index in range(5):
+        volume, _, _, _, close = rows[index]
+        flat = 2860.0
+        rows[index] = (volume, volume * flat * 10.003, flat, flat, close)
+
+    connection = FakeConnection(metadata_rows=[], daily_rows=rows)
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="B1906.DCE",
+        trade_date=date(2019, 4, 4),
+    )
+
+    assert resolution.multiplier == 10
+
+
+def test_the_rounding_tolerance_does_not_admit_a_wrong_multiplier():
+    # Reverse guard: the tolerance absorbs storage rounding, not a wrong
+    # answer. A neighbouring integer is ten percent away here, far outside it.
+    rows = _daily_rows(10, mid=2860.0, n=43)
+    connection = FakeConnection(metadata_rows=[], daily_rows=rows)
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="B1906.DCE",
+        trade_date=date(2019, 4, 4),
+    )
+
+    assert resolution.multiplier == 10
+
+
+def test_one_contradictory_daily_row_does_not_empty_the_candidate_set():
+    # Requiring every day to admit the multiplier lets a single bad row settle
+    # nothing at all: futures_daily carries duplicated Zhengzhou records from
+    # 2015-2017, and one of them emptied SF801's candidates on 2017-12-04
+    # while the day before resolved cleanly. A candidate has to convince nearly
+    # every day, not literally all of them.
+    rows = _daily_rows(5, mid=6000.0, n=60)
+    volume, _, high, low, close = rows[7]
+    rows[7] = (volume, volume * 6000.0 * 9.0, high, low, close)
+
+    connection = FakeConnection(metadata_rows=[], daily_rows=rows)
+
+    resolution = _source(connection).resolve_metadata_multiplier(
+        daily_contract="SF801.CZC",
+        trade_date=date(2017, 12, 4),
+    )
+
+    assert resolution.multiplier == 5
+
+
+def test_a_candidate_most_days_reject_is_not_admitted():
+    # Reverse guard: tolerating a bad row is not tolerating a bad answer. A
+    # multiplier that only a handful of days admit stays out.
+    rows = _daily_rows(5, mid=6000.0, n=60)
+    for index in range(30):
+        volume, _, high, low, close = rows[index]
+        rows[index] = (volume, volume * 6000.0 * 9.0, high, low, close)
+
+    connection = FakeConnection(metadata_rows=[], daily_rows=rows)
+
+    with pytest.raises(MinuteDataError) as exc_info:
+        _source(connection).resolve_metadata_multiplier(
+            daily_contract="SF801.CZC",
+            trade_date=date(2017, 12, 4),
+        )
+
+    # Half the days each: neither wins outright, so the record settles nothing
+    # and hands over rather than seating a candidate on a split vote.
+    assert exc_info.value.check == "metadata_multiplier"
 
 
 def test_a_thin_daily_record_falls_through_to_minute_inference():
