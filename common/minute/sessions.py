@@ -1,4 +1,9 @@
-"""Versioned commodity-session rules and authoritative trading-minute clocks."""
+"""Versioned session rules and authoritative trading-minute clocks.
+
+A market's particulars -- which day segments it runs, whether it has a night
+session, how wide its clock is -- live on a :class:`SessionRuleset` and are
+passed in. Nothing here is allowed to assume one market.
+"""
 
 import csv
 from bisect import bisect_left
@@ -10,9 +15,14 @@ from zoneinfo import ZoneInfo
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-SESSION_RULES_VERSION = "commodity-v1"
-SESSION_RULES_CAPTURE_START = date(2011, 1, 1)
-DAY_SEGMENTS = ((540, 615), (630, 690), (810, 900))
+
+# Structural bounds on the trade-date minute offset this module counts in: a
+# negative offset is the previous evening, 0..539 the small hours that still
+# belong to the trade date, and 540 or more the day session. These are the
+# outer limits any market has to fit inside; each market's own, tighter window
+# is declared on its ruleset and enforced when rules are built.
+CLOCK_MIN_MINUTE = -180
+CLOCK_MAX_MINUTE = 960
 
 _SESSION_RULE_COLUMNS = (
     "exchange",
@@ -86,8 +96,162 @@ class SessionSegment:
             raise ValueError("session_segment_offsets: offsets must be actual integers")
         if self.end_minute <= self.start_minute:
             raise ValueError("session segment end must be after start")
-        if self.start_minute < -180 or self.end_minute > 900:
-            raise ValueError("session segment is outside the commodity clock")
+        if (
+            self.start_minute < CLOCK_MIN_MINUTE
+            or self.end_minute > CLOCK_MAX_MINUTE
+        ):
+            raise ValueError("session segment is outside the trading clock")
+
+
+@dataclass(frozen=True)
+class SessionRuleset:
+    """Everything about one market's clock that the rules themselves don't carry.
+
+    A rule row in the versioned CSV asset says who and when, plus the night
+    interval. The day segments, the width of the clock, and whether a night
+    session is legal at all are properties of the market, so they live here and
+    are passed to the loader rather than read off a module-level constant.
+
+    ``day_segment_schedule`` is a schedule, not one tuple, because a market can
+    move its own hours: CFFEX shortened the stock-index day session on
+    2016-01-01. Each entry is the date its segments take effect, earliest first.
+    """
+
+    version: str
+    capture_start: date
+    day_segment_schedule: tuple[tuple[date, tuple[SessionSegment, ...]], ...]
+    clock_start_minute: int
+    clock_end_minute: int
+    allows_night: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.version, str) or not self.version.strip():
+            raise ValueError("session_ruleset_version: version must be a nonempty string")
+        if type(self.capture_start) is not date:
+            raise ValueError(
+                "session_ruleset_capture_start: capture_start must be a concrete date"
+            )
+        if type(self.clock_start_minute) is not int or type(self.clock_end_minute) is not int:
+            raise ValueError(
+                "session_ruleset_clock: clock bounds must be actual integers"
+            )
+        if self.clock_start_minute < CLOCK_MIN_MINUTE or self.clock_end_minute > CLOCK_MAX_MINUTE:
+            raise ValueError(
+                "session_ruleset_clock: clock bounds must fall inside "
+                f"[{CLOCK_MIN_MINUTE}, {CLOCK_MAX_MINUTE}]"
+            )
+        if self.clock_end_minute <= self.clock_start_minute:
+            raise ValueError(
+                "session_ruleset_clock: clock end must be after clock start"
+            )
+        if type(self.allows_night) is not bool:
+            raise ValueError("session_ruleset_night: allows_night must be a bool")
+
+        try:
+            schedule = tuple(
+                (effective_start, tuple(segments))
+                for effective_start, segments in self.day_segment_schedule
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "session_ruleset_schedule: schedule must be pairs of a date and "
+                "its segments"
+            ) from exc
+        if not schedule:
+            raise ValueError(
+                "session_ruleset_schedule: require at least one dated entry"
+            )
+        for effective_start, segments in schedule:
+            if type(effective_start) is not date:
+                raise ValueError(
+                    "session_ruleset_schedule: entry dates must be concrete dates"
+                )
+            if not segments or not all(
+                isinstance(item, SessionSegment) for item in segments
+            ):
+                raise ValueError(
+                    "session_ruleset_schedule: require nonempty SessionSegment values"
+                )
+            for segment in segments:
+                if (
+                    segment.start_minute < self.clock_start_minute
+                    or segment.end_minute > self.clock_end_minute
+                ):
+                    raise ValueError(
+                        f"session_ruleset_schedule: segment {segment!r} falls "
+                        f"outside the {self.version} clock "
+                        f"[{self.clock_start_minute}, {self.clock_end_minute}]"
+                    )
+        if any(
+            schedule[index - 1][0] >= schedule[index][0]
+            for index in range(1, len(schedule))
+        ):
+            raise ValueError(
+                "session_ruleset_schedule: entry dates must strictly increase"
+            )
+        object.__setattr__(self, "day_segment_schedule", schedule)
+
+    def day_segments_for(self, effective_start: date) -> tuple[SessionSegment, ...]:
+        """The day segments this market ran on ``effective_start``."""
+        if type(effective_start) is not date:
+            raise ValueError(
+                "session_ruleset_lookup: effective_start must be a concrete date"
+            )
+        chosen: tuple[SessionSegment, ...] | None = None
+        for entry_start, segments in self.day_segment_schedule:
+            if entry_start > effective_start:
+                break
+            chosen = segments
+        if chosen is None:
+            raise ValueError(
+                f"session_ruleset_lookup: {self.version} has no day segments in "
+                f"effect on {effective_start}; earliest entry is "
+                f"{self.day_segment_schedule[0][0]}"
+            )
+        return chosen
+
+
+COMMODITY_V1 = SessionRuleset(
+    version="commodity-v1",
+    capture_start=date(2011, 1, 1),
+    day_segment_schedule=(
+        (
+            date(2000, 1, 1),
+            (
+                SessionSegment(540, 615),
+                SessionSegment(630, 690),
+                SessionSegment(810, 900),
+            ),
+        ),
+    ),
+    clock_start_minute=-180,
+    clock_end_minute=900,
+    allows_night=True,
+)
+
+SESSION_RULESETS: dict[str, SessionRuleset] = {COMMODITY_V1.version: COMMODITY_V1}
+
+_DAY_ONLY_EFFECTIVE_START = date(2000, 1, 1)
+
+# Shorthand for the commodity consumer, which predates the ruleset seam. New
+# consumers pass a SessionRuleset instead of reading these.
+SESSION_RULES_VERSION = COMMODITY_V1.version
+SESSION_RULES_CAPTURE_START = COMMODITY_V1.capture_start
+DAY_SEGMENTS = tuple(
+    (segment.start_minute, segment.end_minute)
+    for segment in COMMODITY_V1.day_segments_for(_DAY_ONLY_EFFECTIVE_START)
+)
+
+
+def ruleset_for_version(version: str) -> SessionRuleset:
+    """Look up a registered ruleset, or fail loudly naming what is registered."""
+    try:
+        return SESSION_RULESETS[version]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(
+            f"session_rule_version: expected one of {tuple(SESSION_RULESETS)!r}; "
+            f"got {version!r}"
+        ) from exc
 
 
 def night_label_to_offset(value: str) -> int:
@@ -176,20 +340,18 @@ class SessionRule:
             raise ValueError(
                 "session_rule_segments: require nonempty SessionSegment values"
             )
-        if self.version != SESSION_RULES_VERSION:
-            raise ValueError(
-                f"session_rule_version: expected {SESSION_RULES_VERSION!r}; "
-                f"got {self.version!r}"
-            )
+        ruleset_for_version(self.version)
 
     @classmethod
     def day_only(cls, exchange: str, product: str, *, version: str) -> "SessionRule":
         return cls(
             exchange=exchange,
             product=product,
-            effective_start=date(2000, 1, 1),
+            effective_start=_DAY_ONLY_EFFECTIVE_START,
             effective_end=None,
-            segments=tuple(SessionSegment(*item) for item in DAY_SEGMENTS),
+            segments=ruleset_for_version(version).day_segments_for(
+                _DAY_ONLY_EFFECTIVE_START
+            ),
             version=version,
         )
 
@@ -214,7 +376,11 @@ def _parse_csv_date(*, row_number: int, field: str, value: str) -> date:
         ) from exc
 
 
-def load_session_rules(path: Path) -> tuple[SessionRule, ...]:
+def load_session_rules(
+    path: Path,
+    *,
+    ruleset: SessionRuleset = COMMODITY_V1,
+) -> tuple[SessionRule, ...]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         actual_columns = tuple(reader.fieldnames or ())
@@ -225,7 +391,6 @@ def load_session_rules(path: Path) -> tuple[SessionRule, ...]:
             )
 
         rules: list[SessionRule] = []
-        day_segments = tuple(SessionSegment(*item) for item in DAY_SEGMENTS)
         for row_number, row in enumerate(reader, start=2):
             if None in row or any(value is None for value in row.values()):
                 raise ValueError(
@@ -241,10 +406,10 @@ def load_session_rules(path: Path) -> tuple[SessionRule, ...]:
                     )
 
             version = row["version"]
-            if version != SESSION_RULES_VERSION:
+            if version != ruleset.version:
                 raise ValueError(
                     f"session_rules_csv_version: row {row_number} field version "
-                    f"value {version!r}: expected {SESSION_RULES_VERSION!r}"
+                    f"value {version!r}: expected {ruleset.version!r}"
                 )
             night_start = row["night_start"]
             night_end = row["night_end"]
@@ -279,7 +444,14 @@ def load_session_rules(path: Path) -> tuple[SessionRule, ...]:
                     "effective_start must not exceed effective_end"
                 )
 
-            segments = day_segments
+            if night_segment is not None and not ruleset.allows_night:
+                raise ValueError(
+                    f"session_rules_csv_night: row {row_number} fields "
+                    f"night_start/night_end values "
+                    f"{night_start!r}/{night_end!r}: ruleset {ruleset.version!r} "
+                    "has no night session"
+                )
+            segments = ruleset.day_segments_for(effective_start)
             if night_segment is not None:
                 segments = (night_segment, *segments)
             rules.append(
