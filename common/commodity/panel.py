@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
+import math
 
 import pandas as pd
 
@@ -110,12 +111,18 @@ def build_session_bars(
         bar = aggregate_fifteen_minute_bar(
             bucket_frame, slots=bucket, contract=contract
         )
-        traded_bucket = bucket_frame.loc[bucket_frame["volume"] > 0]
-        open_interest = (
-            None
-            if traded_bucket.empty
-            else float(traded_bucket["open_interest"].iloc[-1])
+        traded_bucket = bucket_frame.loc[bucket_frame["volume"] > 0].sort_values(
+            "bar_time", kind="mergesort"
         )
+        open_interest = None
+        if not traded_bucket.empty:
+            try:
+                candidate_oi = float(traded_bucket["open_interest"].iloc[-1])
+            except (TypeError, ValueError):
+                pass
+            else:
+                if math.isfinite(candidate_oi):
+                    open_interest = candidate_oi
         window = slots[(index + 1) * 15 : (index + 1) * 15 + FILL_MINUTES]
         pending = len(window) < FILL_MINUTES
         fill_time = None if pending else window[-1]
@@ -429,6 +436,24 @@ _BOOL_COLUMNS = ("no_trade", "fill_pending", "fill_unpriceable")
 _TEXT_COLUMNS = ("product", "contract", "pricing_basis")
 
 
+def _normalise_aware_time_column(
+    values: pd.Series, *, column: str
+) -> pd.Series:
+    for value in values:
+        if pd.isna(value):
+            continue
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise ValueError(
+                f"panel_{column}_timezone: {column} values must be timezone-aware"
+            )
+    return (
+        pd.to_datetime(values, utc=True)
+        .dt.tz_convert("Asia/Shanghai")
+        .astype("datetime64[ns, Asia/Shanghai]")
+    )
+
+
 def normalise_panel(frame: pd.DataFrame) -> pd.DataFrame:
     """把面板的列类型定死，使它既能写 parquet 也能被下游安全地做算术。
 
@@ -442,11 +467,7 @@ def normalise_panel(frame: pd.DataFrame) -> pd.DataFrame:
     # "Cannot losslessly cast '1709596 ms' to s" —— 写得出、读不回，是最坏的一种。
     out["trade_date"] = pd.to_datetime(out["trade_date"]).astype("datetime64[ns]")
     for column in ("slot_end", "fill_time"):
-        out[column] = (
-            pd.to_datetime(out[column], utc=True)
-            .dt.tz_convert("Asia/Shanghai")
-            .astype("datetime64[ns, Asia/Shanghai]")
-        )
+        out[column] = _normalise_aware_time_column(out[column], column=column)
     for column in _FLOAT_COLUMNS:
         out[column] = pd.to_numeric(out[column], errors="coerce").astype("float64")
     for column in _BOOL_COLUMNS:

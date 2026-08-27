@@ -91,6 +91,53 @@ def test_panel_carries_oi_and_actual_fill_time(session, minute_frame):
     assert pd.Timestamp(rows[0]["fill_time"]) > pd.Timestamp(rows[0]["slot_end"])
 
 
+def test_panel_takes_open_interest_from_the_chronologically_last_trade(
+    session, minute_frame
+):
+    shuffled = minute_frame.iloc[::-1].reset_index(drop=True)
+    rows = build_session_bars(
+        shuffled,
+        slots=session.slots,
+        buckets=session.buckets,
+        contract="RB2405.SHF",
+        multiplier=10,
+    )
+    assert rows[0]["open_interest"] == 114.0
+
+
+@pytest.mark.parametrize(
+    "last_open_interest", [None, float("nan"), float("inf"), float("-inf")]
+)
+def test_panel_does_not_fall_back_when_the_last_traded_oi_is_not_finite(
+    session, minute_frame, last_open_interest
+):
+    minute_frame["open_interest"] = minute_frame["open_interest"].astype(object)
+    minute_frame.loc[14, "open_interest"] = last_open_interest
+    rows = build_session_bars(
+        minute_frame,
+        slots=session.slots,
+        buckets=session.buckets,
+        contract="RB2405.SHF",
+        multiplier=10,
+    )
+    assert rows[0]["open_interest"] is None
+
+
+def test_panel_emits_no_open_interest_when_every_traded_oi_is_null(
+    session, minute_frame
+):
+    minute_frame["open_interest"] = minute_frame["open_interest"].astype(object)
+    minute_frame.loc[:14, "open_interest"] = None
+    rows = build_session_bars(
+        minute_frame,
+        slots=session.slots,
+        buckets=session.buckets,
+        contract="RB2405.SHF",
+        multiplier=10,
+    )
+    assert rows[0]["open_interest"] is None
+
+
 def test_panel_drops_zero_volume_minutes_before_aggregating(session):
     """空 K 线带的是前收结转价而非成交价，直接聚合会造出根本没成交过的极值。"""
     rule, slots, buckets = session.rule, session.slots, session.buckets
@@ -427,6 +474,25 @@ def test_empty_panel_has_the_normalised_schema():
     assert panel["multiplier"].dtype == "int64"
     assert str(panel["slot_end"].dtype) == "datetime64[ns, Asia/Shanghai]"
     assert str(panel["fill_time"].dtype) == "datetime64[ns, Asia/Shanghai]"
+
+
+def test_normalise_panel_rejects_naive_fill_times():
+    _, panel = _panel()
+    naive = panel.copy()
+    naive["fill_time"] = naive["fill_time"].dt.tz_localize(None)
+
+    with pytest.raises(ValueError, match="fill_time.*timezone-aware"):
+        normalise_panel(naive)
+
+
+def test_normalise_panel_preserves_timezone_dtype_for_all_nat_fill_times():
+    _, panel = _panel()
+    panel["fill_time"] = pd.NaT
+
+    normalised = normalise_panel(panel)
+
+    assert normalised["fill_time"].isna().all()
+    assert str(normalised["fill_time"].dtype) == "datetime64[ns, Asia/Shanghai]"
 
 
 def test_a_no_trade_bar_reads_as_nan_not_zero():
