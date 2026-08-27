@@ -4,6 +4,8 @@
 只钉搬迁本身改变的两件事：`universe` 从"有默认值"变成"必填"，以及股指侧的默认值仍在。
 """
 
+import math
+
 import pytest
 
 import common.leverage as shared
@@ -48,3 +50,41 @@ def test_index_side_re_exports_the_shared_implementation():
 def test_zero_atr_takes_no_position_rather_than_the_cap():
     """除零处研报没写。按字面截到 4 等于在数据坏掉那天上满杠杆，是最差的一种解读。"""
     assert shared.atr_leverage(close=4000.0, atr=0.0) == 0.0
+
+
+def test_final_leverage_accepts_a_strategy_specific_volatility_target():
+    assert shared.final_leverage(
+        close=100.0,
+        atr=1.0,
+        realized_vol=0.20,
+        target_annual_vol=0.10,
+    ) == pytest.approx(0.25)
+
+
+def test_final_leverage_keeps_the_shared_default_volatility_target():
+    assert shared.final_leverage(
+        close=100.0,
+        atr=1.0,
+        realized_vol=0.20,
+    ) == pytest.approx(0.375)
+
+
+@pytest.mark.parametrize("target", [0.0, -0.1, math.nan, math.inf])
+def test_final_leverage_rejects_non_positive_or_non_finite_targets(target):
+    with pytest.raises(ValueError, match="target annual volatility"):
+        shared.final_leverage(
+            close=100.0,
+            atr=1.0,
+            realized_vol=0.20,
+            target_annual_vol=target,
+        )
+
+
+def test_final_leverage_validates_realized_vol_before_the_target():
+    with pytest.raises(ValueError, match="realized volatility"):
+        shared.final_leverage(
+            close=100.0,
+            atr=1.0,
+            realized_vol=0.0,
+            target_annual_vol=0.0,
+        )

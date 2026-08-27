@@ -8,13 +8,14 @@ import math
 
 import pytest
 
-from cta_continuous.indicators import (
-    atr_series,
-    delta_tnr,
-    ema,
-    gap_widening,
-    tnr_series,
-)
+import common.commodity.indicators as shared
+import cta_continuous.indicators as legacy
+from cta_continuous.indicators import delta_tnr, gap_widening, tnr_series
+
+
+def test_shared_indicators_are_direct_compatibility_re_exports():
+    for name in ("_as_float_array", "atr_series", "ema", "true_range"):
+        assert getattr(legacy, name) is getattr(shared, name)
 
 
 def test_tnr_is_one_on_a_monotone_path():
@@ -55,13 +56,6 @@ def test_delta_tnr_is_positive_when_noise_is_falling():
     assert delta_tnr([0.3, 0.6, 0.9], k=3)[2] > 0
 
 
-def test_ema_uses_alpha_two_over_span_plus_one_without_adjustment():
-    """D12：alpha = 2/(span+1)，adjust=False。span=2 ⇒ alpha=2/3。"""
-    values = ema([1.0, 2.0], span=2)
-    assert values[0] == pytest.approx(1.0)
-    assert values[1] == pytest.approx(2.0 * (2 / 3) + 1.0 * (1 / 3))
-
-
 def test_gap_widening_compares_absolute_distance_to_the_previous_bar():
     """『二者距离扩大』—— 距离取绝对值，扩大是与上一根比。"""
     widening = gap_widening([1.0, 2.0, 1.5], [0.0, 0.0, 0.0])
@@ -74,26 +68,3 @@ def test_gap_widening_is_true_when_a_short_ma_pulls_further_below():
     """空头一侧距离也在扩大 —— 绝对值，不是带符号的差。"""
     widening = gap_widening([-1.0, -2.0], [0.0, 0.0])
     assert widening[1] is True
-
-
-def test_atr_averages_true_range_over_the_window():
-    """TR = max(h−l, |h−前收|, |l−前收|)；ATR 是它的移动平均。
-
-    手算三根 bar：
-      #0 无前收        ⇒ TR = 110 − 100 = 10
-      #1 前收 105      ⇒ TR = max(112−106=6, |112−105|=7, |106−105|=1) = 7
-      #2 前收 110      ⇒ TR = max(118−110=8, |118−110|=8, |110−110|=0) = 8
-    window=2 ⇒ 第三根的 ATR = (7 + 8)/2 = 7.5。
-    """
-    high = [110.0, 112.0, 118.0]
-    low = [100.0, 106.0, 110.0]
-    close = [105.0, 110.0, 112.0]
-    values = atr_series(high, low, close, window=2)
-    assert values[2] == pytest.approx(7.5)
-    assert values[1] == pytest.approx((10.0 + 7.0) / 2)
-
-
-def test_first_bar_true_range_falls_back_to_the_bar_range():
-    """没有前收时 TR 只能是 h−l。"""
-    values = atr_series([110.0, 111.0], [100.0, 109.0], [105.0, 110.0], window=1)
-    assert values[0] == pytest.approx(10.0)

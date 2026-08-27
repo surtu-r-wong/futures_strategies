@@ -59,9 +59,13 @@ def realized_volatility(
 
 
 def final_leverage(
-    *, close: float, atr: float | None, realized_vol: float | None
+    *,
+    close: float,
+    atr: float | None,
+    realized_vol: float | None,
+    target_annual_vol: float = TARGET_ANNUAL_VOL,
 ) -> float:
-    """`clip(Lev_ATR * 0.15 / realized_vol, 0, 4)`，其中 `Lev_ATR` 自己已截到 4。
+    """`clip(Lev_ATR * target_annual_vol / realized_vol, 0, 4)`。
 
     **两道截断的顺序有实质差别**：close=4000、atr=2、已实现波动 60% 时，先截
     得 1.0，不先截得 2.5。
@@ -76,7 +80,14 @@ def final_leverage(
         raise ValueError(
             f"realized volatility must be finite and positive; got {realized_vol!r}"
         )
-    scaled = atr_leverage(close=close, atr=atr) * TARGET_ANNUAL_VOL / realized_vol
+    if not math.isfinite(target_annual_vol) or target_annual_vol <= 0:
+        raise ValueError(
+            "target annual volatility must be finite and positive; "
+            f"got {target_annual_vol!r}"
+        )
+    scaled = (
+        atr_leverage(close=close, atr=atr) * target_annual_vol / realized_vol
+    )
     return min(scaled, MAX_LEVERAGE)
 
 
