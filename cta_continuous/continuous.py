@@ -156,11 +156,12 @@ def adjustment_factors(
     *,
     closes: Mapping[tuple[date, str], float],
 ) -> pd.DataFrame:
-    """沿展期链累乘后复权因子。列：`product` / `trade_date` / `contract` / `adj_factor`。
+    """沿展期链累乘后复权因子，并标记行情连续段。
 
     `closes` 是 `(trade_date, contract) -> 收盘价`。正常展期使用判定日前一交易日的
     新旧收盘；若旧主力退市造成主力链空档，则使用判定日之前最近一个新旧合约都有
-    收盘的日期。找不到共同日期仍报错 —— 悄悄取 1.0 会造出假的无跳空序列。
+    收盘的日期。只有旧合约行情严格早于新合约行情时才开始新连续段；其他找不到共同
+    日期的情形仍报错 —— 悄悄取 1.0 会造出假的无跳空序列。
     """
     ordered = sorted(choices, key=lambda c: (c.product, c.trade_date))
     closes_by_contract: dict[str, dict[date, float]] = {}
@@ -178,10 +179,12 @@ def adjustment_factors(
 
     records: list[dict[str, object]] = []
     factor = 1.0
+    segment = 0
     previous: DominantChoice | None = None
     for choice in ordered:
         if previous is None or previous.product != choice.product:
             factor = 1.0
+            segment = 0
         else:
             old_key = canonical_contract(previous.contract, previous.trade_date) or previous.contract
             new_key = canonical_contract(choice.contract, choice.trade_date) or choice.contract
@@ -193,28 +196,55 @@ def adjustment_factors(
                     value for value in common_dates if value <= choice.selected_from
                 ]
                 anchor = max(eligible_dates) if eligible_dates else None
-                old = old_closes.get(anchor) if anchor is not None else None
-                new = new_closes.get(anchor) if anchor is not None else None
-                if old is None or new is None or not new:
-                    raise ValueError(
-                        "roll_close_missing: 展期判定日前没有新旧合约共同收盘价，"
-                        "无法算复权因子；"
-                        f"not_after={choice.selected_from} {previous.contract!r} "
-                        f"-> {choice.contract!r} (anchor={anchor!r}, old={old!r}, "
-                        f"new={new!r})"
-                    )
-                factor *= float(old) / float(new)
+                if anchor is None:
+                    old_dates = set(old_closes)
+                    new_dates = set(new_closes)
+                    if (
+                        old_dates
+                        and new_dates
+                        and max(old_dates) < min(new_dates)
+                    ):
+                        segment += 1
+                        factor = 1.0
+                    else:
+                        raise ValueError(
+                            "roll_close_missing: 展期判定日前没有新旧合约共同收盘价，"
+                            "无法算复权因子；"
+                            f"not_after={choice.selected_from} {previous.contract!r} "
+                            f"-> {choice.contract!r} (anchor={anchor!r}, old=None, "
+                            "new=None)"
+                        )
+                else:
+                    old = old_closes.get(anchor)
+                    new = new_closes.get(anchor)
+                    if old is None or new is None or not new:
+                        raise ValueError(
+                            "roll_close_missing: 展期判定日前没有新旧合约共同收盘价，"
+                            "无法算复权因子；"
+                            f"not_after={choice.selected_from} {previous.contract!r} "
+                            f"-> {choice.contract!r} (anchor={anchor!r}, old={old!r}, "
+                            f"new={new!r})"
+                        )
+                    factor *= float(old) / float(new)
         records.append(
             {
                 "product": choice.product,
                 "trade_date": choice.trade_date,
                 "contract": choice.contract,
                 "adj_factor": factor,
+                "continuity_segment": segment,
             }
         )
         previous = choice
     return pd.DataFrame.from_records(
-        records, columns=["product", "trade_date", "contract", "adj_factor"]
+        records,
+        columns=[
+            "product",
+            "trade_date",
+            "contract",
+            "adj_factor",
+            "continuity_segment",
+        ],
     )
 
 

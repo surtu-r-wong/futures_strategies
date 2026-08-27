@@ -206,9 +206,28 @@ def test_adjusted_series_has_no_roll_gap():
 def test_adjustment_refuses_to_default_a_missing_roll_close():
     """缺前一日收盘价时必须报错。悄悄取 1.0 会造出一个假的无跳空序列。"""
     choices, closes = _chain()
+    closes[(D[0], "RB2501.SHF")] = 249.0
     closes.pop((D[3], "RB2501.SHF"))
     with pytest.raises(ValueError, match="roll_close_missing"):
         adjustment_factors(choices, closes=closes)
+
+
+def test_adjustment_starts_a_new_segment_for_disjoint_contract_histories():
+    old = DominantChoice(
+        date(2018, 3, 30), "FU", "FU1804.SHF", 1, 1, date(2018, 3, 29)
+    )
+    new = DominantChoice(
+        date(2018, 7, 17), "FU", "FU1901.SHF", 1, 1, date(2018, 7, 16)
+    )
+    factors = adjustment_factors(
+        (old, new),
+        closes={
+            (date(2018, 3, 30), "FU1804.SHF"): 3200.0,
+            (date(2018, 7, 16), "FU1901.SHF"): 2800.0,
+        },
+    )
+    assert list(factors["adj_factor"]) == [1.0, 1.0]
+    assert list(factors["continuity_segment"]) == [0, 1]
 
 
 def test_adjustment_uses_the_latest_common_close_before_a_dominant_gap():
