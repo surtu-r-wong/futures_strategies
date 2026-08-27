@@ -240,7 +240,13 @@ def build_contexts(
     contexts: dict[tuple[date, str], SessionContext] = {}
     previous_by_product: dict[str, date] = {}
     for choice in ordered:
-        previous = previous_by_product.get(choice.product)
+        predecessor = previous_by_product.get(choice.product)
+        selected_from = getattr(choice, "selected_from", None)
+        previous = (
+            selected_from
+            if type(selected_from) is date and selected_from < choice.trade_date
+            else predecessor
+        )
         previous_by_product[choice.product] = choice.trade_date
         if previous is None:
             continue

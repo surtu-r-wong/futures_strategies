@@ -12,6 +12,7 @@ import pytest
 
 from common.minute.sessions import (
     SessionRule,
+    SessionSegment,
     build_trading_slots,
     fifteen_minute_buckets,
 )
@@ -303,6 +304,31 @@ def test_contexts_do_not_depend_on_the_order_choices_arrive_in():
     assert sorted(ordered) == sorted(shuffled)
     for key in ordered:
         assert ordered[key].slots == shuffled[key].slots
+
+
+def test_context_after_a_dominant_gap_uses_its_causal_source_session():
+    """主力空档后的夜盘属于换月判定日前夜，不属于上一个有效主力日的前夜。"""
+    predecessor = DominantChoice(
+        date(2024, 3, 4), "RB", "RB2405.SHF", 1, 1, date(2024, 3, 1)
+    )
+    resumed = DominantChoice(
+        date(2024, 3, 11), "RB", "RB2410.SHF", 1, 1, date(2024, 3, 8)
+    )
+
+    night_rule = SessionRule(
+        exchange="SHFE",
+        product="RB",
+        effective_start=date(2020, 1, 1),
+        effective_end=None,
+        segments=(
+            SessionSegment(-180, -120),
+            *_day_only_rule().segments,
+        ),
+        version="commodity-v1",
+    )
+    contexts = build_contexts((predecessor, resumed), rules=[night_rule])
+
+    assert contexts[(resumed.trade_date, "RB")].slots[0].date() == date(2024, 3, 8)
 
 
 def test_month_context_choices_keep_only_the_last_predecessor_per_product():

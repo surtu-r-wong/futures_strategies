@@ -9,6 +9,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
+from common.dominant import DominantChoice
 from cta_continuous.continuous import (
     adjustment_factors,
     choose_dominant_commodity,
@@ -68,6 +69,31 @@ def test_dominant_keeps_the_previous_contract_when_nobody_is_both_max():
     )
     choices = choose_dominant_commodity(frame, products=("RB",))
     assert [c.contract for c in choices] == ["RB2405.SHF", "RB2405.SHF"]
+
+
+def test_dominant_goes_missing_when_the_held_contract_leaves_the_daily_pool():
+    """D11 只允许沿用仍可交易的旧主力；合约消失后不得伪造零量主力日。"""
+    days = [date(2024, 3, day) for day in (1, 4, 5, 6)]
+    frame = _pool(
+        [
+            (days[0], "RB2405.SHF", 100, 300),
+            (days[0], "RB2410.SHF", 90, 100),
+            # 旧主力从池中消失，两个新合约又各占一个最大值：没有双最大。
+            (days[1], "RB2410.SHF", 100, 100),
+            (days[1], "RB2501.SHF", 90, 300),
+            (days[2], "RB2410.SHF", 100, 300),
+            (days[2], "RB2501.SHF", 90, 100),
+            (days[3], "RB2410.SHF", 100, 300),
+            (days[3], "RB2501.SHF", 90, 100),
+        ]
+    )
+
+    choices = choose_dominant_commodity(frame, products=("RB",))
+
+    assert [(c.trade_date, c.contract) for c in choices] == [
+        (days[1], "RB2405.SHF"),
+        (days[3], "RB2410.SHF"),
+    ]
 
 
 def test_dominant_never_rolls_backwards():
@@ -143,8 +169,6 @@ def _chain():
 
 
 def _choice(trade_date, contract):
-    from common.dominant import DominantChoice
-
     return DominantChoice(
         trade_date=trade_date,
         product="RB",
@@ -185,3 +209,48 @@ def test_adjustment_refuses_to_default_a_missing_roll_close():
     closes.pop((D[3], "RB2501.SHF"))
     with pytest.raises(ValueError, match="roll_close_missing"):
         adjustment_factors(choices, closes=closes)
+
+
+def test_adjustment_uses_the_latest_common_close_before_a_dominant_gap():
+    """旧主力退市造成空档时，以换月前最近的新旧同日收盘衔接，不拿 1.0 顶替。"""
+    old_day = date(2019, 12, 16)
+    old_choice = DominantChoice(
+        trade_date=date(2019, 12, 17),
+        product="AU",
+        contract="AU1912.SHF",
+        oi=1,
+        volume=1,
+        selected_from=old_day,
+    )
+    new_choice = DominantChoice(
+        trade_date=date(2019, 12, 30),
+        product="AU",
+        contract="AU2006.SHF",
+        oi=1,
+        volume=1,
+        selected_from=date(2019, 12, 27),
+    )
+
+    factors = adjustment_factors(
+        (old_choice, new_choice),
+        closes={
+            (date(2019, 12, 13), "AU1912.SHF"): 331.0,
+            (date(2019, 12, 13), "AU2006.SHF"): 334.62,
+            (old_day, "AU1912.SHF"): 333.0,
+            (old_day, "AU2006.SHF"): 338.24,
+        },
+    )
+
+    assert list(factors["adj_factor"]) == pytest.approx([1.0, 333.0 / 338.24])
+
+
+def test_czce_symbol_alias_change_is_not_a_roll():
+    """TA701 与 TA1701 是同一合约；代码位数变化不能产生虚假复权跳点。"""
+    choices = (
+        DominantChoice(date(2016, 1, 18), "TA", "TA701.CZC", 1, 1, date(2016, 1, 15)),
+        DominantChoice(date(2016, 1, 19), "TA", "TA1701.CZC", 1, 1, date(2016, 1, 18)),
+    )
+
+    factors = adjustment_factors(choices, closes={})
+
+    assert list(factors["adj_factor"]) == [1.0, 1.0]

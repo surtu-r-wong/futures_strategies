@@ -75,14 +75,29 @@ def choose_dominant_commodity(
         raise ValueError(f"dominant_columns: 缺列 {sorted(missing)}")
 
     frame = daily.copy()
-    frame["product"] = [
-        (canonical.split(":")[1] if canonical else None)
-        for canonical in (
-            canonical_contract(symbol, trade_date)
-            for symbol, trade_date in zip(frame["symbol"], frame["trade_date"])
-        )
+    canonical = [
+        canonical_contract(symbol, trade_date)
+        for symbol, trade_date in zip(frame["symbol"], frame["trade_date"])
     ]
+    frame["contract_key"] = canonical
+    frame["product"] = [value.split(":")[1] if value else None for value in canonical]
     frame = frame.loc[frame["product"].notna()]
+
+    # 2015--2017 年 CZCE 同一张合约会同时以三位、四位交割码出现。它们若参与
+    # `_both_max`，同一个最大值会被误判成两个 winner；先按规范合约键去重。
+    twins = frame.groupby(["contract_key", "trade_date"], sort=False)[
+        ["oi", "volume"]
+    ].nunique()
+    disagreement = twins.loc[(twins["oi"] > 1) | (twins["volume"] > 1)]
+    if len(disagreement):
+        contract_key, trade_date = disagreement.index[0]
+        raise ValueError(
+            "dominant_duplicate_disagreement: 同一张合约的孪生日线量仓不一致；"
+            f"{trade_date} {contract_key}"
+        )
+    frame = frame.drop_duplicates(
+        subset=["contract_key", "trade_date"], keep="first"
+    )
 
     sessions = sorted(set(frame["trade_date"]))
     chosen: list[DominantChoice] = []
@@ -90,7 +105,7 @@ def choose_dominant_commodity(
         rows = frame.loc[frame["product"] == product]
         if rows.empty:
             raise ValueError(f"dominant_missing_product: 日线里没有 {product!r}")
-        held: str | None = None
+        held_key: str | None = None
         held_month: tuple[int, int] | None = None
         for index in range(lag, len(sessions)):
             trade_date = sessions[index]
@@ -103,18 +118,23 @@ def choose_dominant_commodity(
             if candidate is not None:
                 month = delivery_month(candidate, source_date)
                 if held_month is None or month >= held_month:
-                    held, held_month = candidate, month
-            if held is None:
+                    held_key = canonical_contract(candidate, source_date)
+                    held_month = month
+            if held_key is None:
                 continue
 
-            row = pool.loc[pool["symbol"] == held]
+            row = pool.loc[pool["contract_key"] == held_key]
+            # D11 的「沿用」只适用于旧主力仍在当日合约池的情形。已经退市/缺档的
+            # 合约不能被伪造成 oi=volume=0 的可交易主力；等下一张双最大出现再恢复。
+            if row.empty:
+                continue
             chosen.append(
                 DominantChoice(
                     trade_date=trade_date,
                     product=product,
-                    contract=held,
-                    oi=int(row["oi"].iloc[0]) if len(row) else 0,
-                    volume=int(row["volume"].iloc[0]) if len(row) else 0,
+                    contract=str(row["symbol"].iloc[0]),
+                    oi=int(row["oi"].iloc[0]),
+                    volume=int(row["volume"].iloc[0]),
                     selected_from=source_date,
                 )
             )
@@ -138,26 +158,52 @@ def adjustment_factors(
 ) -> pd.DataFrame:
     """沿展期链累乘后复权因子。列：`product` / `trade_date` / `contract` / `adj_factor`。
 
-    `closes` 是 `(trade_date, contract) -> 收盘价`，只需覆盖每次展期**前一交易日**的
-    新旧两张合约。缺任何一边都报错 —— 悄悄取 1.0 会造出一个假的、看起来无跳空的序列。
+    `closes` 是 `(trade_date, contract) -> 收盘价`。正常展期使用判定日前一交易日的
+    新旧收盘；若旧主力退市造成主力链空档，则使用判定日之前最近一个新旧合约都有
+    收盘的日期。找不到共同日期仍报错 —— 悄悄取 1.0 会造出假的无跳空序列。
     """
     ordered = sorted(choices, key=lambda c: (c.product, c.trade_date))
+    closes_by_contract: dict[str, dict[date, float]] = {}
+    for (trade_date, contract), close in closes.items():
+        key = canonical_contract(contract, trade_date) or str(contract)
+        values = closes_by_contract.setdefault(key, {})
+        value = float(close)
+        previous_value = values.get(trade_date)
+        if previous_value is not None and previous_value != value:
+            raise ValueError(
+                "roll_close_alias_disagreement: 同一张合约的别名收盘价不一致；"
+                f"{trade_date} {key} ({previous_value!r}, {value!r})"
+            )
+        values[trade_date] = value
+
     records: list[dict[str, object]] = []
     factor = 1.0
     previous: DominantChoice | None = None
     for choice in ordered:
         if previous is None or previous.product != choice.product:
             factor = 1.0
-        elif previous.contract != choice.contract:
-            old = closes.get((previous.trade_date, previous.contract))
-            new = closes.get((previous.trade_date, choice.contract))
-            if old is None or new is None or not new:
-                raise ValueError(
-                    "roll_close_missing: 展期前一日缺收盘价，无法算复权因子；"
-                    f"{previous.trade_date} {previous.contract!r} -> {choice.contract!r} "
-                    f"(old={old!r}, new={new!r})"
-                )
-            factor *= float(old) / float(new)
+        else:
+            old_key = canonical_contract(previous.contract, previous.trade_date) or previous.contract
+            new_key = canonical_contract(choice.contract, choice.trade_date) or choice.contract
+            if old_key != new_key:
+                old_closes = closes_by_contract.get(old_key, {})
+                new_closes = closes_by_contract.get(new_key, {})
+                common_dates = old_closes.keys() & new_closes.keys()
+                eligible_dates = [
+                    value for value in common_dates if value <= choice.selected_from
+                ]
+                anchor = max(eligible_dates) if eligible_dates else None
+                old = old_closes.get(anchor) if anchor is not None else None
+                new = new_closes.get(anchor) if anchor is not None else None
+                if old is None or new is None or not new:
+                    raise ValueError(
+                        "roll_close_missing: 展期判定日前没有新旧合约共同收盘价，"
+                        "无法算复权因子；"
+                        f"not_after={choice.selected_from} {previous.contract!r} "
+                        f"-> {choice.contract!r} (anchor={anchor!r}, old={old!r}, "
+                        f"new={new!r})"
+                    )
+                factor *= float(old) / float(new)
         records.append(
             {
                 "product": choice.product,
