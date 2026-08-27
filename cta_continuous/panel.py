@@ -57,6 +57,7 @@ PANEL_COLUMNS = (
     "volume",
     "no_trade",
     "adj_factor",
+    "continuity_segment",
     "fill_price",
     "fill_pending",
     "fill_unpriceable",
@@ -86,6 +87,7 @@ def build_session_bars(
     product: str | None = None,
     trade_date: date | None = None,
     adj_factor: float = 1.0,
+    continuity_segment: int = 0,
 ) -> list[dict[str, object]]:
     """把一个品种-日的分钟行折成 15 分钟 bar，并给每根配好它的成交价。
 
@@ -132,6 +134,7 @@ def build_session_bars(
                 "volume": bar.volume,
                 "no_trade": bar.no_trade,
                 "adj_factor": adj_factor,
+                "continuity_segment": continuity_segment,
                 "fill_price": price,
                 "fill_pending": pending,
                 "fill_unpriceable": unpriceable,
@@ -297,6 +300,7 @@ def build_panel(
     pricing_basis_by_exchange: Mapping[str, str],
     multiplier_resolver,
     adjustment_factor_by_key: Mapping[tuple[date, str], float],
+    continuity_segment_by_key: Mapping[tuple[date, str], int],
 ) -> pd.DataFrame:
     """按月分批把面板建出来。
 
@@ -315,6 +319,12 @@ def build_panel(
         raise ValueError(
             "panel_adjustment_factor_missing: 缺少品种日后复权因子；"
             f"first={missing_factors[0]!r} count={len(missing_factors)}"
+        )
+    missing_segments = sorted(set(contexts) - set(continuity_segment_by_key))
+    if missing_segments:
+        raise ValueError(
+            "panel_continuity_segment_missing: 缺少品种日连续分段；"
+            f"first={missing_segments[0]!r} count={len(missing_segments)}"
         )
 
     keys = sorted(contexts)
@@ -382,6 +392,7 @@ def build_panel(
                 product=product,
                 trade_date=candidate.trade_date,
                 adj_factor=adjustment_factor_by_key[key],
+                continuity_segment=int(continuity_segment_by_key[key]),
             )
             rows.extend(day_rows)
             pending[product] = len(rows) - 1
@@ -403,6 +414,7 @@ _FLOAT_COLUMNS = (
 )
 _BOOL_COLUMNS = ("no_trade", "fill_pending", "fill_unpriceable")
 _TEXT_COLUMNS = ("product", "contract", "pricing_basis")
+_INT_COLUMNS = ("continuity_segment", "multiplier")
 
 
 def normalise_panel(frame: pd.DataFrame) -> pd.DataFrame:
@@ -426,5 +438,6 @@ def normalise_panel(frame: pd.DataFrame) -> pd.DataFrame:
         out[column] = out[column].astype("bool")
     for column in _TEXT_COLUMNS:
         out[column] = out[column].astype("string")
-    out["multiplier"] = pd.to_numeric(out["multiplier"]).astype("int64")
+    for column in _INT_COLUMNS:
+        out[column] = pd.to_numeric(out[column]).astype("int64")
     return out

@@ -231,12 +231,14 @@ def _panel():
     contexts = build_contexts(_choices(), rules=rules)
     source = _FakeSource(contexts)
     factors = {key: 1.0 + index for index, key in enumerate(sorted(contexts))}
+    segments = {key: index for index, key in enumerate(sorted(contexts))}
     return contexts, build_panel(
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange={},
         multiplier_resolver=lambda candidate, frame: 10,
         adjustment_factor_by_key=factors,
+        continuity_segment_by_key=segments,
     )
 
 
@@ -283,9 +285,24 @@ def test_panel_carries_the_product_days_adjustment_factor():
     } == expected
 
 
+def test_panel_carries_the_product_days_continuity_segment():
+    contexts, panel = _panel()
+    observed = (
+        panel[["trade_date", "product", "continuity_segment"]]
+        .drop_duplicates()
+        .assign(trade_date=lambda frame: frame["trade_date"].dt.date)
+    )
+    expected = {key: index for index, key in enumerate(sorted(contexts))}
+    assert {
+        (row.trade_date, row.product): row.continuity_segment
+        for row in observed.itertuples(index=False)
+    } == expected
+
+
 def test_panel_refuses_a_missing_adjustment_factor():
     contexts = build_contexts(_choices(), rules=[_day_only_rule()])
     source = _FakeSource(contexts)
+    segments = {key: index for index, key in enumerate(sorted(contexts))}
 
     with pytest.raises(ValueError, match="panel_adjustment_factor_missing"):
         build_panel(
@@ -294,6 +311,23 @@ def test_panel_refuses_a_missing_adjustment_factor():
             pricing_basis_by_exchange={},
             multiplier_resolver=lambda candidate, frame: 10,
             adjustment_factor_by_key={},
+            continuity_segment_by_key=segments,
+        )
+
+
+def test_panel_refuses_a_missing_continuity_segment():
+    contexts = build_contexts(_choices(), rules=[_day_only_rule()])
+    source = _FakeSource(contexts)
+    factors = {key: 1.0 + index for index, key in enumerate(sorted(contexts))}
+
+    with pytest.raises(ValueError, match="panel_continuity_segment_missing"):
+        build_panel(
+            contexts=contexts,
+            source=source,
+            pricing_basis_by_exchange={},
+            multiplier_resolver=lambda candidate, frame: 10,
+            adjustment_factor_by_key=factors,
+            continuity_segment_by_key={},
         )
 
 
@@ -370,6 +404,7 @@ def test_panel_round_trips_through_parquet(tmp_path):
     assert len(restored) == len(panel)
     assert restored["close"].dtype == "float64"
     assert restored["no_trade"].dtype == "bool"
+    assert restored["continuity_segment"].dtype == "int64"
     # 单位必须是 ns：datetime64[s] 写得出去但读不回来。
     assert str(restored["trade_date"].dtype) == "datetime64[ns]"
     assert str(restored["slot_end"].dtype) == "datetime64[ns, Asia/Shanghai]"
