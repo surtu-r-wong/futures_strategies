@@ -26,7 +26,10 @@ from common.db import get_connection, pg_config_from  # noqa: E402
 from common.minute.pg_source import PublicMinuteSource  # noqa: E402
 from common.minute.sessions import load_session_rules  # noqa: E402
 from cta_carry.session_authority import load_pricing_bases, pricing_basis_for  # noqa: E402
-from cta_continuous.continuous import choose_dominant_commodity  # noqa: E402
+from cta_continuous.continuous import (  # noqa: E402
+    adjustment_factors,
+    choose_dominant_commodity,
+)
 from cta_continuous.panel import (  # noqa: E402
     build_contexts,
     build_panel,
@@ -71,20 +74,47 @@ def main(argv: list[str] | None = None) -> int:
     rules = load_session_rules(SESSION_RULES)
     bases = load_pricing_bases(PRICING_BASES)
 
-    # 宇宙要看过去半年，主力要看展期链，所以日线一次拉够，往前多取一年。
-    daily_from = date(args.start.year - 1, args.start.month, 1)
+    # 后复权因子必须沿**全历史**展期链累乘；从目标月往前截一年会让每次续跑
+    # 都把因子重置为 1，月界就不再是同一条连续价。研报基期是 2010-01-01。
+    daily_from = date(2010, 1, 1)
     with get_connection(pg) as conn, conn.cursor() as cur:
         cur.execute("SET statement_timeout='900s'")
         stats = _copy(
             cur,
-            "SELECT symbol, trade_date, oi, volume, turnover FROM public.futures_daily "
+            "SELECT symbol, trade_date, oi, volume, turnover, close "
+            "FROM public.futures_daily "
             f"WHERE trade_date >= DATE '{daily_from}' AND trade_date < DATE '{_next_month(args.end)}' "
             "AND oi IS NOT NULL AND volume IS NOT NULL",
-            ["symbol", "trade_date", "oi", "volume", "turnover"],
+            ["symbol", "trade_date", "oi", "volume", "turnover", "close"],
         )
     print(f"日线 {len(stats):,} 行", flush=True)
     turnover = product_daily_turnover(
         stats.loc[:, ["symbol", "trade_date", "turnover"]]
+    )
+
+    products_by_month: dict[date, tuple[str, ...]] = {}
+    month = args.start
+    while month <= args.end:
+        products_by_month[month] = universe_for_month(turnover, month_start=month)
+        month = _next_month(month)
+    history_products = tuple(
+        sorted({product for products in products_by_month.values() for product in products})
+    )
+    choices = choose_dominant_commodity(stats, products=history_products)
+    closes = {
+        (trade_date, str(symbol)): float(close)
+        for trade_date, symbol, close in stats.loc[
+            stats["close"].notna(), ["trade_date", "symbol", "close"]
+        ].itertuples(index=False, name=None)
+    }
+    factor_rows = adjustment_factors(choices, closes=closes)
+    factor_by_key = {
+        (row.trade_date, row.product): float(row.adj_factor)
+        for row in factor_rows.itertuples(index=False)
+    }
+    print(
+        f"全历史主力 {len(choices):,} 个品种日，后复权因子 {len(factor_by_key):,} 个",
+        flush=True,
     )
 
     source = PublicMinuteSource(pg=pg)
@@ -107,35 +137,29 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         started = time.monotonic()
-        products = universe_for_month(turnover, month_start=month)
+        products = products_by_month[month]
         if not products:
             print(f"{month:%Y-%m} 宇宙为空，跳过", flush=True)
             month = _next_month(month)
             continue
 
-        # 主力链需要跨月连续，所以给它前后各留一个月的日线。
-        window = stats.loc[
-            (stats["trade_date"] >= date(month.year - 1, month.month, 1))
-            & (stats["trade_date"] < _next_month(month))
+        eligible_choices = tuple(
+            choice for choice in choices if choice.product in products
+        )
+        this_month = [
+            choice
+            for choice in eligible_choices
+            if choice.trade_date.year == month.year
+            and choice.trade_date.month == month.month
         ]
-        keep = (
-            window["symbol"].str.upper().str.replace(r"[^A-Z].*$", "", regex=True)
-        ).isin(products)
-        try:
-            choices = choose_dominant_commodity(window.loc[keep], products=products)
-        except ValueError as error:
-            print(f"{month:%Y-%m} 主力选择失败：{error}", flush=True)
-            month = _next_month(month)
-            continue
-
-        this_month = [c for c in choices if c.trade_date.month == month.month
-                      and c.trade_date.year == month.year]
         if not this_month:
             print(f"{month:%Y-%m} 当月无主力，跳过", flush=True)
             month = _next_month(month)
             continue
 
-        context_choices = context_choices_for_month(choices, month_start=month)
+        context_choices = context_choices_for_month(
+            eligible_choices, month_start=month
+        )
         contexts = build_contexts(context_choices, rules=rules)
         contexts = {
             key: value for key, value in contexts.items()
@@ -149,6 +173,9 @@ def main(argv: list[str] | None = None) -> int:
                 for exchange in {c.candidate.exchange for c in contexts.values()}
             },
             multiplier_resolver=resolve_multiplier,
+            adjustment_factor_by_key={
+                key: factor_by_key[key] for key in contexts
+            },
         )
         panel.to_parquet(shard, index=False)
         print(

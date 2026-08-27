@@ -56,6 +56,7 @@ PANEL_COLUMNS = (
     "close",
     "volume",
     "no_trade",
+    "adj_factor",
     "fill_price",
     "fill_pending",
     "fill_unpriceable",
@@ -84,6 +85,7 @@ def build_session_bars(
     pricing_basis: str = "amount_vwap",
     product: str | None = None,
     trade_date: date | None = None,
+    adj_factor: float = 1.0,
 ) -> list[dict[str, object]]:
     """把一个品种-日的分钟行折成 15 分钟 bar，并给每根配好它的成交价。
 
@@ -129,6 +131,7 @@ def build_session_bars(
                 "close": bar.close,
                 "volume": bar.volume,
                 "no_trade": bar.no_trade,
+                "adj_factor": adj_factor,
                 "fill_price": price,
                 "fill_pending": pending,
                 "fill_unpriceable": unpriceable,
@@ -287,6 +290,7 @@ def build_panel(
     source,
     pricing_basis_by_exchange: Mapping[str, str],
     multiplier_resolver,
+    adjustment_factor_by_key: Mapping[tuple[date, str], float],
 ) -> pd.DataFrame:
     """按月分批把面板建出来。
 
@@ -299,6 +303,13 @@ def build_panel(
     """
     if not contexts:
         return pd.DataFrame(columns=list(PANEL_COLUMNS))
+
+    missing_factors = sorted(set(contexts) - set(adjustment_factor_by_key))
+    if missing_factors:
+        raise ValueError(
+            "panel_adjustment_factor_missing: 缺少品种日后复权因子；"
+            f"first={missing_factors[0]!r} count={len(missing_factors)}"
+        )
 
     keys = sorted(contexts)
     by_month: dict[tuple[int, int], list[tuple[date, str]]] = {}
@@ -364,6 +375,7 @@ def build_panel(
                 pricing_basis=basis,
                 product=product,
                 trade_date=candidate.trade_date,
+                adj_factor=adjustment_factor_by_key[key],
             )
             rows.extend(day_rows)
             pending[product] = len(rows) - 1
@@ -374,7 +386,15 @@ def build_panel(
 #: 无成交 bar 的 O/H/L/C 与发不出的成交价都是 ``None``，落进 DataFrame 会变成
 #: object 列。fastparquet 推不出 object 列的类型（本仓没装 pyarrow），而且 object
 #: 列在下游做算术时会静默退化成逐元素 Python 运算。所以面板出厂前一律定死列类型。
-_FLOAT_COLUMNS = ("open", "high", "low", "close", "volume", "fill_price")
+_FLOAT_COLUMNS = (
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "adj_factor",
+    "fill_price",
+)
 _BOOL_COLUMNS = ("no_trade", "fill_pending", "fill_unpriceable")
 _TEXT_COLUMNS = ("product", "contract", "pricing_basis")
 

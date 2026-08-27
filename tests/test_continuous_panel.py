@@ -229,11 +229,13 @@ def _panel():
     rules = [_day_only_rule()]
     contexts = build_contexts(_choices(), rules=rules)
     source = _FakeSource(contexts)
+    factors = {key: 1.0 + index for index, key in enumerate(sorted(contexts))}
     return contexts, build_panel(
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange={},
         multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key=factors,
     )
 
 
@@ -264,6 +266,34 @@ def test_panel_covers_every_bucket_of_every_context():
     contexts, panel = _panel()
     expected = sum(len(context.buckets) for context in contexts.values())
     assert len(panel) == expected
+
+
+def test_panel_carries_the_product_days_adjustment_factor():
+    contexts, panel = _panel()
+    expected = {key: 1.0 + index for index, key in enumerate(sorted(contexts))}
+    observed = (
+        panel.loc[:, ["trade_date", "product", "adj_factor"]]
+        .drop_duplicates()
+        .assign(trade_date=lambda frame: frame["trade_date"].dt.date)
+    )
+    assert {
+        (row.trade_date, row.product): row.adj_factor
+        for row in observed.itertuples(index=False)
+    } == expected
+
+
+def test_panel_refuses_a_missing_adjustment_factor():
+    contexts = build_contexts(_choices(), rules=[_day_only_rule()])
+    source = _FakeSource(contexts)
+
+    with pytest.raises(ValueError, match="panel_adjustment_factor_missing"):
+        build_panel(
+            contexts=contexts,
+            source=source,
+            pricing_basis_by_exchange={},
+            multiplier_resolver=lambda candidate, frame: 10,
+            adjustment_factor_by_key={},
+        )
 
 
 def test_contexts_do_not_depend_on_the_order_choices_arrive_in():
