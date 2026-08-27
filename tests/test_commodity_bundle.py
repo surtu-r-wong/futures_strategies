@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +28,7 @@ from scripts.commodity.build_panel import (  # noqa: E402
     DigestingMinuteSource,
     _effective_config_sha256,
     _roll_candidate,
+    _source_revision,
     adjust_signal_bars,
     build_parser,
     build_roll_fills,
@@ -715,6 +717,38 @@ def _minute_digest(price, *, reverse=False):
     return source.minute_content_sha256
 
 
+def _minute_open_digest(value):
+    choices = _roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(ROLL_DATES[1], "RB")]
+
+    class Source(_RollSource):
+        def iter_month(self, candidates, lower, upper):
+            for frame in super().iter_month(candidates, lower, upper):
+                frame.loc[0, "open"] = value
+                yield frame
+
+    source = DigestingMinuteSource(
+        Source(context.slots, {"RB2410.SHF": 1.0}),
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+    )
+    source.set_phase("bars")
+    candidate = _roll_candidate(choices[1], context, role="panel")
+    list(source.iter_month([candidate], candidate.window_start, candidate.window_end))
+    return source.minute_content_sha256
+
+
+def test_minute_digest_preserves_adjacent_ieee_754_values():
+    one = 1.0
+    adjacent = math.nextafter(one, 2.0)
+
+    assert one != adjacent
+    assert _minute_open_digest(one) != _minute_open_digest(adjacent)
+
+
 def test_minute_digest_is_content_sensitive_with_equal_rows_and_candidates():
     original = _minute_digest(200.0)
     assert original == _minute_digest(200.0, reverse=True)
@@ -768,15 +802,33 @@ def test_effective_config_digest_redacts_credentials_and_tracks_safe_settings(tm
         },
     }
     different_safe = {**first, "research": {"turnover_window": 21}}
+    source_revision = {
+        "git_head": "a" * 40,
+        "production_python_sha256": "b" * 64,
+    }
 
-    digest, safe = _effective_config_sha256(first, sessions, pricing)
-    secret_digest, secret_safe = _effective_config_sha256(
-        different_secret, sessions, pricing
+    digest, safe = _effective_config_sha256(
+        first, sessions, pricing, source_revision=source_revision
     )
-    safe_digest, _ = _effective_config_sha256(different_safe, sessions, pricing)
+    secret_digest, secret_safe = _effective_config_sha256(
+        different_secret,
+        sessions,
+        pricing,
+        source_revision=source_revision,
+    )
+    safe_digest, _ = _effective_config_sha256(
+        different_safe, sessions, pricing, source_revision=source_revision
+    )
+    source_digest, _ = _effective_config_sha256(
+        first,
+        sessions,
+        pricing,
+        source_revision={**source_revision, "production_python_sha256": "c" * 64},
+    )
 
     assert digest == secret_digest
     assert digest != safe_digest
+    assert digest != source_digest
     encoded = json.dumps(safe, sort_keys=True)
     assert safe == secret_safe
     assert "alice" not in encoded and "top-secret-one" not in encoded
@@ -801,3 +853,48 @@ def test_publish_failure_never_leaves_a_manifest_for_partial_tables(
     assert not list(tmp_path.glob(".*.tmp"))
     with pytest.raises(ValueError, match="bundle_manifest_missing"):
         read_bundle(tmp_path)
+
+
+def test_source_revision_hashes_all_production_python_without_emitting_contents(
+    tmp_path, monkeypatch
+):
+    import scripts.commodity.build_panel as builder_module
+
+    def fixed_git_metadata(root, *arguments):
+        if arguments[0] == "ls-files":
+            return (
+                b"scripts/commodity/build_panel.py\0"
+                b"common/commodity/universe.py\0"
+                b"tests/test_universe.py\0"
+            )
+        return ("a" * 40 + "\n").encode("ascii")
+
+    monkeypatch.setattr(builder_module, "_git_command", fixed_git_metadata)
+    builder = tmp_path / "scripts" / "commodity" / "build_panel.py"
+    dependency = tmp_path / "common" / "commodity" / "universe.py"
+    ignored_test = tmp_path / "tests" / "test_universe.py"
+    for path, content in (
+        (builder, "BUILDER_SENTINEL = 1\n"),
+        (dependency, "DEPENDENCY_SECRET_SENTINEL = 1\n"),
+        (ignored_test, "IGNORED_TEST_SENTINEL = 1\n"),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    first = _source_revision(tmp_path)
+    ignored_test.write_text("IGNORED_TEST_SENTINEL = 2\n", encoding="utf-8")
+    ignored_change = _source_revision(tmp_path)
+    dependency.write_text("DEPENDENCY_SECRET_SENTINEL = 2\n", encoding="utf-8")
+    dependency_change = _source_revision(tmp_path)
+
+    assert first == ignored_change
+    assert dependency_change["git_head"] == first["git_head"]
+    assert (
+        first["production_python_sha256"]
+        != (dependency_change["production_python_sha256"])
+    )
+    assert first["git_head"] == "a" * 40
+    assert set(first) == {"git_head", "production_python_sha256"}
+    emitted = json.dumps(first, sort_keys=True)
+    assert "SENTINEL" not in emitted
+    assert str(dependency) not in emitted

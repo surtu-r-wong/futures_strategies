@@ -12,8 +12,11 @@ from datetime import date, datetime, timedelta
 import hashlib
 import io
 import json
+from numbers import Integral, Real
 from pathlib import Path
 import re
+import struct
+import subprocess
 import sys
 from typing import Mapping, Sequence
 
@@ -195,6 +198,79 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+_SOURCE_EXCLUDED_PARTS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    ".worktrees",
+    "__pycache__",
+    "generated",
+    "output",
+    "tests",
+    "venv",
+}
+
+
+def _production_python_path(root: Path, relative: Path) -> bool:
+    return (
+        relative.suffix == ".py"
+        and not any(part in _SOURCE_EXCLUDED_PARTS for part in relative.parts)
+        and (root / relative).is_file()
+        and not (root / relative).is_symlink()
+    )
+
+
+def _git_command(root: Path, *arguments: str) -> bytes | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *arguments],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def _source_revision(project_root: str | Path = _REPO_ROOT) -> dict[str, str]:
+    """Identify executable source by revision and exact working-tree bytes."""
+    root = Path(project_root).resolve()
+    tracked = _git_command(root, "ls-files", "-z", "--", "*.py")
+    if tracked is None:
+        candidates = (path.relative_to(root) for path in root.rglob("*.py"))
+    else:
+        candidates = (Path(raw.decode("utf-8")) for raw in tracked.split(b"\0") if raw)
+    relative_paths = sorted(
+        {
+            relative
+            for relative in candidates
+            if _production_python_path(root, relative)
+        },
+        key=lambda path: path.as_posix(),
+    )
+    digest = hashlib.sha256()
+    digest.update(b"commodity-production-python-v1\0")
+    for relative in relative_paths:
+        encoded_path = relative.as_posix().encode("utf-8")
+        content = (root / relative).read_bytes()
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+
+    raw_head = _git_command(root, "rev-parse", "--verify", "HEAD")
+    head = raw_head.decode("ascii", errors="ignore").strip() if raw_head else ""
+    if not re.fullmatch(r"[0-9a-fA-F]{40,64}", head):
+        head = "unavailable"
+    return {
+        "git_head": head.lower(),
+        "production_python_sha256": digest.hexdigest(),
+    }
+
+
 _CREDENTIAL_KEY = re.compile(
     r"(?:password|passwd|secret|token|credential|api[_-]?key|private[_-]?key|"
     r"dsn|user(?:name)?)",
@@ -243,6 +319,8 @@ def _effective_config_sha256(
     cfg: Mapping[str, object],
     session_rules_path: Path,
     pricing_bases_path: Path,
+    *,
+    source_revision: Mapping[str, str] | None = None,
 ) -> tuple[str, dict[str, object]]:
     """Hash only non-secret effective settings and immutable build authorities."""
     safe_settings = _safe_config_value(cfg)
@@ -251,10 +329,7 @@ def _effective_config_sha256(
         "session_rules_sha256": _file_sha256(session_rules_path),
         "pricing_basis_sha256": _file_sha256(pricing_bases_path),
         "bundle_version": BUNDLE_VERSION,
-        "builder_code_sha256": _file_sha256(Path(__file__).resolve()),
-        "bundle_code_sha256": _file_sha256(
-            _REPO_ROOT / "common" / "commodity" / "bundle.py"
-        ),
+        "source_revision": dict(source_revision or _source_revision()),
     }
     encoded = json.dumps(
         payload,
@@ -285,24 +360,64 @@ def _candidate_digest_record(candidate) -> dict[str, object]:
     }
 
 
-def _minute_row_lines(frame: pd.DataFrame) -> list[str]:
+def _encoded_field(tag: bytes, payload: bytes = b"") -> bytes:
+    return tag + len(payload).to_bytes(8, "big") + payload
+
+
+def _minute_scalar_bytes(column: str, value: object) -> bytes:
+    """Encode one scalar without text or floating-point precision loss."""
+    try:
+        missing = bool(pd.isna(value))
+    except (TypeError, ValueError):
+        missing = False
+    if value is None or missing:
+        return _encoded_field(b"N")
+
+    if column == "trade_date":
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is not None or timestamp != timestamp.normalize():
+            raise ValueError(f"panel_minute_digest_date: invalid trade_date={value!r}")
+        return _encoded_field(b"D", timestamp.date().isoformat().encode("ascii"))
+
+    if column == "bar_time":
+        timestamp = pd.Timestamp(value)
+        if timestamp.tzinfo is None:
+            payload = b"N" + struct.pack(">q", timestamp.value)
+        else:
+            payload = b"A" + struct.pack(">q", timestamp.tz_convert("UTC").value)
+        return _encoded_field(b"T", payload)
+
+    if isinstance(value, bool):
+        return _encoded_field(b"B", b"1" if bool(value) else b"0")
+    if isinstance(value, Integral):
+        return _encoded_field(b"I", str(int(value)).encode("ascii"))
+    if isinstance(value, Real):
+        return _encoded_field(b"F", struct.pack(">d", float(value)))
+    if isinstance(value, str):
+        return _encoded_field(b"S", value.encode("utf-8"))
+    raise ValueError(
+        f"panel_minute_digest_type: column={column!r} type={type(value).__name__!r}"
+    )
+
+
+def _minute_row_payloads(frame: pd.DataFrame) -> list[bytes]:
     missing = set(_MINUTE_DIGEST_COLUMNS) - set(frame.columns)
     if missing:
         raise ValueError(f"panel_minute_digest_columns: missing={sorted(missing)!r}")
-    canonical = frame.loc[:, _MINUTE_DIGEST_COLUMNS].copy()
-    canonical["trade_date"] = canonical["trade_date"].map(
-        lambda value: pd.Timestamp(value).date().isoformat()
+    schema = b"commodity-minute-row-v2\0" + b"".join(
+        _encoded_field(b"C", column.encode("utf-8"))
+        for column in _MINUTE_DIGEST_COLUMNS
     )
-    canonical["bar_time"] = canonical["bar_time"].map(
-        lambda value: pd.Timestamp(value).isoformat()
-    )
-    return canonical.to_json(
-        orient="records",
-        lines=True,
-        date_format="iso",
-        double_precision=15,
-        force_ascii=False,
-    ).splitlines()
+    rows = frame.loc[:, _MINUTE_DIGEST_COLUMNS].itertuples(index=False, name=None)
+    return [
+        schema
+        + b"R"
+        + b"".join(
+            _minute_scalar_bytes(column, value)
+            for column, value in zip(_MINUTE_DIGEST_COLUMNS, row, strict=True)
+        )
+        for row in rows
+    ]
 
 
 class DigestingMinuteSource:
@@ -363,14 +478,12 @@ class DigestingMinuteSource:
         row_digest_sum = 0
         try:
             for frame in self._source.iter_month(candidate_stream, lower, upper):
-                lines = _minute_row_lines(frame)
+                lines = _minute_row_payloads(frame)
                 row_count += len(lines)
                 for line in lines:
                     row_digest_sum = (
                         row_digest_sum
-                        + int.from_bytes(
-                            hashlib.sha256(line.encode("utf-8")).digest(), "big"
-                        )
+                        + int.from_bytes(hashlib.sha256(line).digest(), "big")
                     ) % _DIGEST_MODULUS
                 yield frame
         finally:
@@ -768,8 +881,12 @@ def main(argv: list[str] | None = None) -> int:
     dominants = _dominant_frame(choices, contexts=contexts, factor_by_key=factor_by_key)
 
     audit = source.audit
+    source_revision = _source_revision()
     effective_config_sha256, _ = _effective_config_sha256(
-        cfg, SESSION_RULES, PRICING_BASES
+        cfg,
+        SESSION_RULES,
+        PRICING_BASES,
+        source_revision=source_revision,
     )
     bundle = write_bundle(
         args.output_dir,
@@ -791,6 +908,7 @@ def main(argv: list[str] | None = None) -> int:
             "effective_config_sha256": effective_config_sha256,
         },
         provenance={
+            **source_revision,
             "session_rules_file": SESSION_RULES.relative_to(_REPO_ROOT).as_posix(),
             "session_rules_sha256": _file_sha256(SESSION_RULES),
             "session_rules_reliable_end": reliable_end.isoformat(),
