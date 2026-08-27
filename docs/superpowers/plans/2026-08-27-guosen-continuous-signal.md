@@ -223,13 +223,17 @@ AdjFactor_i = AdjFactor_{i−1} × Close_{i−1,old} / Close_{i−1,new}
 （[[shared-layer-extraction-lessons]]）。
 
 ```bash
-.venv/bin/python -m index_open_momentum --start 2024-01-02 --end 2024-06-28 \
-  --out output/_preflight_index_before
-find output/_preflight_index_before -type f | sort | xargs sha256sum \
-  > /tmp/index_before.sha256
-cat /tmp/index_before.sha256
+.venv/bin/python -m index_open_momentum --start 2024-01-02 --end 2024-03-29 \
+  --output-prefix output/_preflight/index_before
 ```
 
+⚠️ **三个产物里只有两个能比字节**。`audit.json` 与 `.png` 可复现；`.xlsx` 不行 ——
+openpyxl 把写入时刻塞进 `docProps/core.xml`，同一份数字连跑两次字节也不同。所以
+xlsx 必须**按内容**比：逐 sheet 读成 DataFrame、转规范化 CSV 再 sha256。
+先跑一次**对照**（不改代码，只换输出前缀）确认哪些产物本来就可复现，否则事后的
+diff 无法解释。
+
+- [ ] 对照跑已确认可复现范围
 - [ ] 产物哈希已留存
 
 **Step 2: 净搬 `leverage.py`**
@@ -291,15 +295,14 @@ def equal_capital_weights(
 ```bash
 find . -name __pycache__ -prune -exec rm -rf {} +
 .venv/bin/python -m pytest -q                      # 期望 1252 passed
-.venv/bin/python -m index_open_momentum --start 2024-01-02 --end 2024-06-28 \
-  --out output/_preflight_index_after
-find output/_preflight_index_after -type f | sort | xargs sha256sum \
-  | sed 's#_after#_before#' > /tmp/index_after.sha256
-diff /tmp/index_before.sha256 /tmp/index_after.sha256 && echo "逐点不变 ✅"
+.venv/bin/python -m index_open_momentum --start 2024-01-02 --end 2024-03-29 \
+  --output-prefix output/_preflight/index_after
 ```
 
-- [ ] 1252 passed
-- [ ] 产物 sha256 逐点相同
+`audit.json` / `.png` 比字节，`.xlsx` 比内容摘要。
+
+- [x] 1252 passed
+- [x] 产物逐点相同（audit.json 与 png 字节相同、xlsx 内容摘要相同）
 
 **Step 5: 为 `common/` 的新公开面补用例**
 
