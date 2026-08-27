@@ -61,6 +61,33 @@ def _copy(cur, sql: str, columns: list[str]) -> pd.DataFrame:
     return frame.loc[:, columns]
 
 
+def _validate_existing_shard(path: Path) -> None:
+    expected_column = "continuity_segment"
+    expected_dtype = "int64"
+    try:
+        segment = pd.read_parquet(path, columns=[expected_column])
+        observed_dtype = str(segment[expected_column].dtype)
+    except Exception as exc:
+        raise ValueError(
+            "panel_shard_schema_mismatch: "
+            f"path={path} expected_column={expected_column} "
+            f"expected_dtype={expected_dtype}"
+        ) from exc
+    if observed_dtype != expected_dtype:
+        raise ValueError(
+            "panel_shard_schema_mismatch: "
+            f"path={path} expected_column={expected_column} "
+            f"expected_dtype={expected_dtype} observed={observed_dtype}"
+        )
+
+
+def _existing_shard_can_be_skipped(path: Path) -> bool:
+    if not path.exists():
+        return False
+    _validate_existing_shard(path)
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", required=True, type=_month)
@@ -138,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     month = args.start
     while month <= args.end:
         shard = args.out / f"panel-{month:%Y-%m}.parquet"
-        if shard.exists():
+        if _existing_shard_can_be_skipped(shard):
             print(f"{month:%Y-%m} 已存在，跳过", flush=True)
             month = _next_month(month)
             continue

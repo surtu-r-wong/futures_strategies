@@ -465,6 +465,7 @@ def test_adjusted_returns_have_no_roll_gap():
 | `open/high/low/close/volume` | 15 分钟 K 线（`volume=0` 的分钟行**已滤掉**） |
 | `no_trade` | 该 15 分钟无成交 |
 | `adj_factor` | 当期后复权因子 |
+| `continuity_segment` | 品种内连续段；遇到可证明的市场断代时递增 |
 | `fill_price` | **下** 5 分钟 VWAP（D14：跨时段时取下一时段前 5 分钟） |
 | `multiplier` / `pricing_basis` | 乘数与计价基准（郑商所走 `ohlc_typical`） |
 
@@ -521,6 +522,10 @@ ssh -p 2223 ghls@100.120.152.1 "cd ~/futures_strategies && setsid nohup \
 **Files:**
 - Create: `cta_continuous/indicators.py`
 - Test: `tests/test_continuous_indicators.py`
+
+EMA / ATR / TNR / U2P 必须按 `(product, continuity_segment)` 分组计算；
+切段时所有递推与窗口状态归零，新段必须重新完成各自的预热窗口后才能产生信号，
+不得跨市场断代携带任何指标状态。
 
 **Step 1: 写失败的测试**
 
@@ -608,6 +613,8 @@ def test_long_signal_value_is_up_prob_and_short_is_negative_down_prob():
 - 成交在 `fill_price`（下 5 分钟 VWAP），成本按**成交名义额** 1.3bp。
 - `Mul_vol` 每月末回看过去 252 个交易日的**策略自身**日收益；不足则该月不建仓（沿用
   `common.leverage.final_leverage` 的裁定）。
+- 回测必须按 `(product, continuity_segment)` 隔离 EMA / ATR / TNR / U2P 与信号状态；
+  新段重新预热完成前保持空仓，不得将旧段的指标、信号或仓位跨断代接续。
 - 换手要**分解**：信号进出 / 宇宙进出 / 等权再平衡 / 展期，四类分开记（见 §6 风险 ①）。
 
 **Step 1: 写失败的测试**
@@ -628,6 +635,10 @@ def test_turnover_is_attributed_to_the_four_causes():
 
 def test_no_position_before_the_first_month_with_a_full_year_of_returns():
     """D8。"""
+
+
+def test_a_new_continuity_segment_cannot_signal_before_renewed_warmup():
+    """EMA / ATR / TNR / U2P 不得跨断代携带状态。"""
 
 
 def test_costs_scale_linearly_with_traded_notional():
