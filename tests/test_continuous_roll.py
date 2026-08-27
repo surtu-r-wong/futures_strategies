@@ -218,22 +218,58 @@ def test_adjustment_refuses_to_default_a_missing_roll_close():
     assert choices[-1].contract in message
 
 
-def test_adjustment_starts_a_new_segment_for_disjoint_contract_histories():
-    old = DominantChoice(
-        date(2018, 3, 30), "FU", "FU1804.SHF", 1, 1, date(2018, 3, 29)
+def test_adjustment_resets_factor_for_disjoint_contract_histories():
+    first = DominantChoice(
+        date(2018, 2, 27), "FU", "FU1803.SHF", 1, 1, date(2018, 2, 26)
     )
-    new = DominantChoice(
+    overlapping = DominantChoice(
+        date(2018, 3, 1), "FU", "FU1804.SHF", 1, 1, date(2018, 2, 28)
+    )
+    disjoint = DominantChoice(
         date(2018, 7, 17), "FU", "FU1901.SHF", 1, 1, date(2018, 7, 16)
     )
     factors = adjustment_factors(
-        (old, new),
+        (first, overlapping, disjoint),
         closes={
+            (date(2018, 2, 28), "FU1803.SHF"): 3300.0,
+            (date(2018, 2, 28), "FU1804.SHF"): 3200.0,
             (date(2018, 3, 30), "FU1804.SHF"): 3200.0,
             (date(2018, 7, 16), "FU1901.SHF"): 2800.0,
         },
     )
-    assert list(factors["adj_factor"]) == [1.0, 1.0]
-    assert list(factors["continuity_segment"]) == [0, 1]
+    assert list(factors["adj_factor"]) == pytest.approx(
+        [1.0, 3300.0 / 3200.0, 1.0]
+    )
+    assert list(factors["continuity_segment"]) == [0, 0, 1]
+
+
+@pytest.mark.parametrize(
+    "closes",
+    [
+        {(date(2020, 1, 23), "FU2005.SHF"): 2200.0},
+        {
+            (date(2020, 1, 25), "FU2001.SHF"): 2250.0,
+            (date(2020, 1, 23), "FU2005.SHF"): 2200.0,
+        },
+        {
+            (date(2020, 1, 25), "FU2001.SHF"): 2250.0,
+            (date(2020, 1, 25), "FU2005.SHF"): 2200.0,
+        },
+    ],
+    ids=["empty-old-history", "reverse-disjoint", "common-only-after-selection"],
+)
+def test_adjustment_rejects_histories_that_do_not_prove_a_forward_break(closes):
+    choices = (
+        DominantChoice(
+            date(2020, 1, 20), "FU", "FU2001.SHF", 1, 1, date(2020, 1, 19)
+        ),
+        DominantChoice(
+            date(2020, 1, 27), "FU", "FU2005.SHF", 1, 1, date(2020, 1, 24)
+        ),
+    )
+
+    with pytest.raises(ValueError, match="roll_close_missing"):
+        adjustment_factors(choices, closes=closes)
 
 
 def test_adjustment_resets_segment_for_each_product_and_returns_exact_columns():
