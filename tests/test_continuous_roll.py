@@ -184,6 +184,7 @@ def test_adjust_factor_chains_across_two_rolls():
     choices, closes = _chain()
     factors = adjustment_factors(choices, closes=closes)
     assert list(factors["adj_factor"]) == pytest.approx([1.0, 1.0, 0.8, 0.8, 0.64])
+    assert list(factors["continuity_segment"]) == [0, 0, 0, 0, 0]
 
 
 def test_first_dominant_gets_factor_one():
@@ -208,8 +209,13 @@ def test_adjustment_refuses_to_default_a_missing_roll_close():
     choices, closes = _chain()
     closes[(D[0], "RB2501.SHF")] = 249.0
     closes.pop((D[3], "RB2501.SHF"))
-    with pytest.raises(ValueError, match="roll_close_missing"):
+    with pytest.raises(ValueError) as exc_info:
         adjustment_factors(choices, closes=closes)
+    message = str(exc_info.value)
+    assert "roll_close_missing" in message
+    assert f"not_after={choices[-1].selected_from}" in message
+    assert choices[-2].contract in message
+    assert choices[-1].contract in message
 
 
 def test_adjustment_starts_a_new_segment_for_disjoint_contract_histories():
@@ -228,6 +234,38 @@ def test_adjustment_starts_a_new_segment_for_disjoint_contract_histories():
     )
     assert list(factors["adj_factor"]) == [1.0, 1.0]
     assert list(factors["continuity_segment"]) == [0, 1]
+
+
+def test_adjustment_resets_segment_for_each_product_and_returns_exact_columns():
+    choices = (
+        DominantChoice(
+            date(2018, 3, 30), "FU", "FU1804.SHF", 1, 1, date(2018, 3, 29)
+        ),
+        DominantChoice(
+            date(2018, 7, 17), "FU", "FU1901.SHF", 1, 1, date(2018, 7, 16)
+        ),
+        DominantChoice(
+            date(2018, 3, 30), "RB", "RB1810.SHF", 1, 1, date(2018, 3, 29)
+        ),
+    )
+    factors = adjustment_factors(
+        choices,
+        closes={
+            (date(2018, 3, 30), "FU1804.SHF"): 3200.0,
+            (date(2018, 7, 16), "FU1901.SHF"): 2800.0,
+            (date(2018, 3, 30), "RB1810.SHF"): 3700.0,
+        },
+    )
+
+    assert list(factors["product"]) == ["FU", "FU", "RB"]
+    assert list(factors["continuity_segment"]) == [0, 1, 0]
+    assert list(factors.columns) == [
+        "product",
+        "trade_date",
+        "contract",
+        "adj_factor",
+        "continuity_segment",
+    ]
 
 
 def test_adjustment_uses_the_latest_common_close_before_a_dominant_gap():
@@ -273,3 +311,4 @@ def test_czce_symbol_alias_change_is_not_a_roll():
     factors = adjustment_factors(choices, closes={})
 
     assert list(factors["adj_factor"]) == [1.0, 1.0]
+    assert list(factors["continuity_segment"]) == [0, 0]
