@@ -211,6 +211,18 @@ def test_metrics_split_rejects_nonfinite_or_nonnumeric_returns(
         split_metrics(daily_returns, in_sample_end=date(2021, 9, 30))
 
 
+@pytest.mark.parametrize("net_return", [-1.0, -1.01])
+def test_metrics_split_rejects_returns_that_deplete_equity(
+    net_return: float,
+) -> None:
+    daily_returns = pd.DataFrame(
+        {"trade_date": [date(2021, 9, 30)], "net_return": [net_return]}
+    )
+
+    with pytest.raises(ValueError, match="reporting_net_return.*greater than -1"):
+        split_metrics(daily_returns, in_sample_end=date(2021, 9, 30))
+
+
 @pytest.mark.parametrize(
     "cutoff",
     [

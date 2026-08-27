@@ -74,6 +74,8 @@ def _return_value(value: object) -> float:
     numeric = float(value)
     if not math.isfinite(numeric):
         raise ValueError("reporting_net_return: expected finite numeric data")
+    if numeric <= -1.0:
+        raise ValueError("reporting_net_return: net_return must be greater than -1")
     return numeric
 
 
@@ -144,7 +146,11 @@ def split_metrics(
 
 
 def fidelity_frame(rows: Iterable[Mapping[str, object]]) -> pd.DataFrame:
-    """Validate and return a deterministic, normalized fidelity ledger."""
+    """Validate and return a deterministic, normalized fidelity ledger.
+
+    Fidelity text remains data here. Report exporters must prevent spreadsheet
+    formula interpretation and XML-invalid controls at the serialization boundary.
+    """
     if isinstance(rows, (str, bytes, pd.DataFrame, Mapping)) or not isinstance(
         rows, Iterable
     ):
