@@ -1,0 +1,527 @@
+"""Versioned, content-addressed commodity panel bundles."""
+
+from __future__ import annotations
+
+import dataclasses
+import hashlib
+import json
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+pytest_plugins = ("tests.commodity_fixtures",)
+
+from common.commodity.bundle import (  # noqa: E402
+    BUNDLE_VERSION,
+    TABLE_FILES,
+    TABLE_SCHEMAS,
+    PanelBundle,
+    read_bundle,
+    write_bundle,
+)
+from common.commodity.panel import build_contexts
+from common.dominant import DominantChoice
+from common.minute.sessions import SessionRule
+from scripts.commodity.build_panel import (
+    adjust_signal_bars,
+    build_parser,
+    build_roll_fills,
+)
+
+
+ROLL_DATES = (pd.Timestamp("2024-03-05").date(), pd.Timestamp("2024-03-06").date())
+
+
+def _manifest(path: Path) -> dict[str, object]:
+    return json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+
+
+def test_bundle_round_trip_preserves_all_tables(tmp_path, bundle_frames):
+    write_bundle(tmp_path, **bundle_frames)
+    loaded = read_bundle(tmp_path)
+
+    assert isinstance(loaded, PanelBundle)
+    for table in TABLE_FILES:
+        assert getattr(loaded, table).equals(bundle_frames[table])
+    assert loaded.manifest == _manifest(tmp_path)
+    assert dataclasses.fields(PanelBundle)
+    with pytest.raises((dataclasses.FrozenInstanceError, AttributeError)):
+        loaded.bars = pd.DataFrame()
+
+
+def test_bundle_refuses_a_changed_table(tmp_path, bundle_frames):
+    write_bundle(tmp_path, **bundle_frames)
+    (tmp_path / "bars.parquet").write_bytes(b"tampered")
+
+    with pytest.raises(ValueError, match="bundle_digest_mismatch"):
+        read_bundle(tmp_path)
+
+
+def test_bundle_checks_every_digest_before_reading_any_parquet(
+    tmp_path, bundle_frames, monkeypatch
+):
+    write_bundle(tmp_path, **bundle_frames)
+    (tmp_path / "roll_fills.parquet").write_bytes(b"tampered")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("parquet read happened before all digest checks")
+
+    monkeypatch.setattr(pd, "read_parquet", forbidden)
+    with pytest.raises(ValueError, match="bundle_digest_mismatch"):
+        read_bundle(tmp_path)
+
+
+def test_manifest_has_exact_versioned_table_inventory_and_provenance(
+    tmp_path, bundle_frames
+):
+    write_bundle(
+        tmp_path,
+        **bundle_frames,
+        inputs={"daily_relation": "public.futures_daily", "start": "2024-03-05"},
+        provenance={"session_rules_sha256": "a" * 64, "pricing_rules_sha256": "b" * 64},
+    )
+    manifest = _manifest(tmp_path)
+
+    assert BUNDLE_VERSION == 1
+    assert TABLE_FILES == {
+        "bars": "bars.parquet",
+        "universes": "universes.parquet",
+        "dominants": "dominants.parquet",
+        "roll_fills": "roll_fills.parquet",
+    }
+    assert set(manifest) == {"bundle_version", "inputs", "provenance", "tables"}
+    assert manifest["bundle_version"] == 1
+    assert set(manifest["tables"]) == set(TABLE_FILES)
+    for table, filename in TABLE_FILES.items():
+        entry = manifest["tables"][table]
+        assert entry == {
+            "filename": filename,
+            "sha256": hashlib.sha256((tmp_path / filename).read_bytes()).hexdigest(),
+        }
+
+
+def test_bundle_manifest_is_deterministic(tmp_path, bundle_frames):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    write_bundle(first, **bundle_frames, inputs={"end": "2024-03-06"})
+    write_bundle(second, **bundle_frames, inputs={"end": "2024-03-06"})
+
+    assert (first / "manifest.json").read_bytes() == (
+        second / "manifest.json"
+    ).read_bytes()
+
+
+def test_manifest_is_replaced_from_a_temporary_file_in_the_bundle_directory(
+    tmp_path, bundle_frames, monkeypatch
+):
+    observed = {}
+    original = Path.replace
+
+    def recording_replace(source, target):
+        observed["source"] = source
+        observed["target"] = Path(target)
+        observed["manifest_existed"] = (tmp_path / "manifest.json").exists()
+        return original(source, target)
+
+    monkeypatch.setattr(Path, "replace", recording_replace)
+    write_bundle(tmp_path, **bundle_frames)
+
+    assert observed["source"].parent == tmp_path
+    assert observed["source"].name != "manifest.json"
+    assert observed["target"] == tmp_path / "manifest.json"
+    assert observed["manifest_existed"] is False
+
+
+def test_read_refuses_a_missing_table_before_parquet_read(
+    tmp_path, bundle_frames, monkeypatch
+):
+    write_bundle(tmp_path, **bundle_frames)
+    (tmp_path / "dominants.parquet").unlink()
+    monkeypatch.setattr(
+        pd,
+        "read_parquet",
+        lambda *args, **kwargs: pytest.fail("missing table must fail before parquet read"),
+    )
+
+    with pytest.raises(ValueError, match="bundle_table_missing"):
+        read_bundle(tmp_path)
+
+
+@pytest.mark.parametrize("version", [0, 2, "1", None])
+def test_read_refuses_an_unsupported_bundle_version(tmp_path, bundle_frames, version):
+    write_bundle(tmp_path, **bundle_frames)
+    manifest = _manifest(tmp_path)
+    manifest["bundle_version"] = version
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="bundle_version_unsupported"):
+        read_bundle(tmp_path)
+
+
+@pytest.mark.parametrize("table", ["bars", "universes", "dominants", "roll_fills"])
+def test_write_refuses_missing_or_extra_schema_columns(tmp_path, bundle_frames, table):
+    missing = {name: frame.copy() for name, frame in bundle_frames.items()}
+    missing[table] = missing[table].drop(columns=[missing[table].columns[-1]])
+    with pytest.raises(ValueError, match="bundle_schema_columns"):
+        write_bundle(tmp_path / "missing", **missing)
+
+    extra = {name: frame.copy() for name, frame in bundle_frames.items()}
+    extra[table]["unexpected"] = 1
+    with pytest.raises(ValueError, match="bundle_schema_columns"):
+        write_bundle(tmp_path / "extra", **extra)
+
+
+def test_write_refuses_invalid_production_dtype(tmp_path, bundle_frames):
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    frames["dominants"]["oi"] = "not-an-integer"
+
+    with pytest.raises(ValueError, match="bundle_schema_dtype"):
+        write_bundle(tmp_path, **frames)
+
+
+def test_read_revalidates_schema_after_verified_parquet_read(tmp_path, bundle_frames):
+    write_bundle(tmp_path, **bundle_frames)
+    bars_path = tmp_path / "bars.parquet"
+    bars = pd.read_parquet(bars_path)
+    bars["unexpected"] = 1
+    bars.to_parquet(bars_path, index=False)
+    manifest = _manifest(tmp_path)
+    manifest["tables"]["bars"]["sha256"] = hashlib.sha256(
+        bars_path.read_bytes()
+    ).hexdigest()
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="bundle_schema_columns"):
+        read_bundle(tmp_path)
+
+
+def test_schema_constants_declare_all_production_columns():
+    assert tuple(TABLE_SCHEMAS["bars"]) == (
+        "product", "contract", "trade_date", "slot_end", "open", "high", "low",
+        "close", "volume", "open_interest", "no_trade", "adj_factor", "fill_time",
+        "fill_price", "fill_pending", "fill_unpriceable", "pricing_basis", "multiplier",
+    )
+    assert tuple(TABLE_SCHEMAS["universes"]) == ("month_start", "product")
+    assert tuple(TABLE_SCHEMAS["dominants"]) == (
+        "trade_date", "product", "contract", "oi", "volume", "selected_from",
+        "adj_factor",
+    )
+    assert tuple(TABLE_SCHEMAS["roll_fills"]) == (
+        "trade_date", "product", "old_contract", "new_contract", "fill_time",
+        "old_price", "new_price", "old_pricing_basis", "new_pricing_basis",
+    )
+
+
+def test_manifest_rejects_secret_bearing_provenance(tmp_path, bundle_frames):
+    with pytest.raises(ValueError, match="bundle_manifest_sensitive"):
+        write_bundle(
+            tmp_path,
+            **bundle_frames,
+            provenance={"database_password": "must-not-leak"},
+        )
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def _roll_choices():
+    return (
+        DominantChoice(
+            trade_date=ROLL_DATES[0],
+            product="RB",
+            contract="RB2405.SHF",
+            oi=100,
+            volume=90,
+            selected_from=pd.Timestamp("2024-03-04").date(),
+        ),
+        DominantChoice(
+            trade_date=ROLL_DATES[1],
+            product="RB",
+            contract="RB2410.SHF",
+            oi=110,
+            volume=100,
+            selected_from=ROLL_DATES[0],
+        ),
+    )
+
+
+def _roll_minute_frame(candidate, slots, price):
+    rows = []
+    for index, slot in enumerate(slots[:5]):
+        level = price + index
+        rows.append(
+            {
+                "trade_date": candidate.trade_date,
+                "product": candidate.product,
+                "daily_contract": candidate.daily_contract,
+                "bar_time": slot,
+                "symbol": candidate.minute_symbol,
+                "exchange": candidate.exchange,
+                "open": level,
+                "high": level + 0.5,
+                "low": level - 0.5,
+                "close": level,
+                "volume": 1.0,
+                "amount": level * 10.0,
+                "open_interest": 1000.0 + index,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+class _RollSource:
+    def __init__(self, slots, prices):
+        self.slots = slots
+        self.prices = prices
+        self.requests = []
+
+    def iter_month(self, candidates, lower, upper):
+        self.requests.append(tuple(candidates))
+        frames = [
+            _roll_minute_frame(candidate, self.slots, self.prices[candidate.daily_contract])
+            for candidate in candidates
+            if candidate.daily_contract in self.prices
+        ]
+        if frames:
+            yield pd.concat(frames, ignore_index=True)
+
+
+def test_roll_fill_requests_both_raw_contracts_and_records_exact_window():
+    choices = _roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(ROLL_DATES[1], "RB")]
+    source = _RollSource(
+        context.slots,
+        {"RB2405.SHF": 100.0, "RB2410.SHF": 200.0},
+    )
+
+    fills = build_roll_fills(
+        choices=choices,
+        contexts=contexts,
+        source=source,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+        multiplier_resolver=lambda candidate, frame: 10,
+    )
+
+    assert len(source.requests) == 1
+    request = source.requests[0]
+    assert {candidate.daily_contract for candidate in request} == {
+        "RB2405.SHF",
+        "RB2410.SHF",
+    }
+    assert {candidate.candidate_role for candidate in request} == {
+        "roll_old",
+        "roll_new",
+    }
+    assert all(candidate.window_start == context.slots[0] for candidate in request)
+    assert all(
+        candidate.window_end == context.slots[4] + pd.Timedelta(minutes=1)
+        for candidate in request
+    )
+    assert fills.loc[0, "old_price"] == pytest.approx(102.0)
+    assert fills.loc[0, "new_price"] == pytest.approx(202.0)
+    assert fills.loc[0, "fill_time"] == context.slots[4]
+    assert fills.loc[0, "old_pricing_basis"] == "amount_vwap"
+    assert fills.loc[0, "new_pricing_basis"] == "amount_vwap"
+
+
+def test_roll_fill_hard_fails_when_either_raw_leg_is_unavailable():
+    choices = _roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(ROLL_DATES[1], "RB")]
+    source = _RollSource(context.slots, {"RB2410.SHF": 200.0})
+
+    with pytest.raises(ValueError, match="roll_fill_unpriceable"):
+        build_roll_fills(
+            choices=choices,
+            contexts=contexts,
+            source=source,
+            pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+            multiplier_resolver=lambda candidate, frame: 10,
+        )
+
+
+def test_signal_bars_are_adjusted_without_adjusting_actual_fills(bundle_frames):
+    raw = bundle_frames["bars"].iloc[[2]].copy()
+    raw.loc[:, ["open", "high", "low", "close"]] = [100.0, 110.0, 90.0, 105.0]
+    raw.loc[:, "adj_factor"] = 0.5
+    raw.loc[:, "fill_price"] = 103.0
+
+    adjusted = adjust_signal_bars(raw)
+
+    assert adjusted.loc[0, ["open", "high", "low", "close"]].tolist() == [
+        50.0,
+        55.0,
+        45.0,
+        52.5,
+    ]
+    assert adjusted.loc[0, "fill_price"] == 103.0
+    assert raw.iloc[0]["close"] == 105.0
+
+
+def test_shared_builder_cli_accepts_exact_smoke_arguments(tmp_path):
+    args = build_parser().parse_args(
+        [
+            "--start",
+            "2023-01-03",
+            "--end",
+            "2023-01-31",
+            "--output-dir",
+            str(tmp_path),
+            "--settings",
+            "/safe/settings.yaml",
+        ]
+    )
+
+    assert args.start == pd.Timestamp("2023-01-03").date()
+    assert args.end == pd.Timestamp("2023-01-31").date()
+    assert args.output_dir == tmp_path
+    assert args.settings == Path("/safe/settings.yaml")
+
+
+def test_legacy_continuous_builder_delegates_to_shared_entry_point():
+    import scripts.commodity.build_panel as shared_builder
+    import scripts.continuous.build_panel as legacy_builder
+
+    assert legacy_builder.main is shared_builder.main
+
+
+def test_builder_keeps_shadow_panel_contexts_outside_monthly_universe():
+    rb_choices = _roll_choices()
+    ta_choices = (
+        DominantChoice(
+            trade_date=ROLL_DATES[0],
+            product="TA",
+            contract="TA405.CZC",
+            oi=100,
+            volume=90,
+            selected_from=pd.Timestamp("2024-03-04").date(),
+        ),
+        DominantChoice(
+            trade_date=ROLL_DATES[1],
+            product="TA",
+            contract="TA405.CZC",
+            oi=110,
+            volume=100,
+            selected_from=ROLL_DATES[0],
+        ),
+    )
+
+    contexts = __import__(
+        "scripts.commodity.build_panel", fromlist=["_target_contexts"]
+    )._target_contexts(
+        choices=(*rb_choices, *ta_choices),
+        rules=[
+            SessionRule.day_only("SHFE", "RB", version="commodity-v1"),
+            SessionRule.day_only("CZCE", "TA", version="commodity-v1"),
+        ],
+        start=ROLL_DATES[1],
+        end=ROLL_DATES[1],
+    )
+
+    assert set(contexts) == {
+        (ROLL_DATES[1], "RB"),
+        (ROLL_DATES[1], "TA"),
+    }
+
+
+def test_write_refuses_to_replace_bundle_with_different_inputs(tmp_path, bundle_frames):
+    write_bundle(tmp_path, **bundle_frames, inputs={"start": "2024-03-05"})
+    original = {
+        path.name: path.read_bytes()
+        for path in tmp_path.iterdir()
+        if path.is_file()
+    }
+
+    with pytest.raises(ValueError, match="bundle_manifest_mismatch"):
+        write_bundle(tmp_path, **bundle_frames, inputs={"start": "2024-03-06"})
+
+    assert {
+        path.name: path.read_bytes()
+        for path in tmp_path.iterdir()
+        if path.is_file()
+    } == original
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("open", float("inf")),
+        ("open_interest", float("-inf")),
+        ("fill_price", float("inf")),
+        ("volume", -1.0),
+    ],
+)
+def test_bundle_refuses_semantically_invalid_bar_values(
+    tmp_path, bundle_frames, column, value
+):
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    frames["bars"].loc[0, column] = value
+
+    with pytest.raises(ValueError, match="bundle_schema_value"):
+        write_bundle(tmp_path, **frames)
+
+
+def test_legacy_month_end_clamps_only_to_same_month_rule_authority():
+    builder = __import__("scripts.commodity.build_panel", fromlist=["_resolve_end"])
+    reliable = pd.Timestamp("2026-01-30").date()
+
+    assert builder._resolve_end(
+        pd.Timestamp("2026-01-31").date(),
+        reliable_end=reliable,
+        legacy_month=True,
+    ) == reliable
+    with pytest.raises(ValueError, match="panel_session_authority"):
+        builder._resolve_end(
+            pd.Timestamp("2026-01-31").date(),
+            reliable_end=reliable,
+            legacy_month=False,
+        )
+
+
+def test_input_frame_digest_is_order_independent_and_content_sensitive():
+    builder = __import__("scripts.commodity.build_panel", fromlist=["_frame_sha256"])
+    left = pd.DataFrame(
+        {
+            "trade_date": pd.to_datetime(["2024-03-05", "2024-03-06"]).date,
+            "symbol": ["RB2405.SHF", "RB2405.SHF"],
+            "close": [100.0, 101.0],
+        }
+    )
+    reordered = left.iloc[::-1].reset_index(drop=True)
+    changed = left.copy()
+    changed.loc[1, "close"] = 102.0
+
+    assert builder._frame_sha256(left) == builder._frame_sha256(reordered)
+    assert builder._frame_sha256(left) != builder._frame_sha256(changed)
+
+
+def test_copy_daily_returns_validated_production_frame():
+    builder = __import__("scripts.commodity.build_panel", fromlist=["_copy_daily"])
+
+    class Cursor:
+        sql = None
+
+        def copy_expert(self, sql, buffer):
+            self.sql = sql
+            buffer.write(
+                "symbol,trade_date,oi,volume,turnover,close\n"
+                "RB2405.SHF,2024-03-05,100,90,900000,101.5\n"
+            )
+
+    cursor = Cursor()
+    frame = builder._copy_daily(cursor, end=pd.Timestamp("2024-03-06").date())
+
+    assert list(frame.columns) == [
+        "symbol", "trade_date", "oi", "volume", "turnover", "close"
+    ]
+    assert frame.loc[0, "trade_date"] == pd.Timestamp("2024-03-05").date()
+    assert "trade_date < DATE '2024-03-07'" in cursor.sql
