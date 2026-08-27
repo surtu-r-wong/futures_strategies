@@ -152,6 +152,7 @@ AdjFactor_i = AdjFactor_{i−1} × Close_{i−1,old} / Close_{i−1,new}
 | D12 | EMA 递推约定 | `alpha = 2/(span+1)`，`adjust=False` | 研报只写「移动平均（EMA）算法」 |
 | D13 | 无成交 bar 的 TR / TNR | **只在有成交的 bar 上取值**，无成交 bar 不入 ATR/TNR 窗口 | `volume=0` 的空 K 线带的是结转价不是成交价（见表 COMMENT 与 [[futures-minute-ingestion]]） |
 | D14 | 信号落在时段最后一根 bar 时的成交窗口 | 顺延到该品种**下一交易时段的前 5 分钟** | 研报未写。与 `index_open_momentum` 的 `fill_window` 姿势一致 |
+| D15 | 「日均成交额」的分母 | 窗口内**全市场观测到的交易日数**，品种缺席那天按 0 计 | 按品种自己的观测天数取平均，会让刚挂牌、只交易三天但每天 200 亿的品种被算成「日均 200 亿」入池 |
 
 **预注册网格（D9）**，样本内 = `≤ 2023-05-31`，选点后样本外只报不选：
 
@@ -328,13 +329,17 @@ git commit -m "refactor: lift the appendix-2 leverage and dominant choice to com
 
 **Step 1: 写失败的测试**
 
+⚠️ **去重键不是 `(symbol, trade_date)`**（写计划时想错了，实测更正）：孪生记录是同一张
+合约的 **3 位与 4 位两种交割码**，`symbol` 本来就不同。必须先用
+`common.minute.pg_source.minute_contract_identity` 把交割码归一到四位再去重。
+
 ```python
 def test_universe_sums_all_contracts_of_a_product():
     """成交额是品种级的，要把该品种全部合约加起来，不是只看主力。"""
 
 
-def test_universe_deduplicates_repeated_daily_rows():
-    """2015-2017 郑商所有 2,565 对重复记录；不去重会把成交额算成两倍。"""
+def test_universe_deduplicates_the_czce_three_and_four_digit_twins():
+    """2015-2017 郑商所有 2,565 对孪生记录；不去重会把成交额算成两倍。"""
 
 
 def test_universe_excludes_financial_futures():
@@ -373,13 +378,17 @@ def universe_for_month(
 **Step 5: 拿真实数据出一张宇宙轨迹表**
 
 ```bash
-.venv/bin/python -m cta_continuous.universe --start 2012-01 --end 2026-01 \
-  --out output/continuous/universe_trace.csv
+.venv/bin/python scripts/continuous/2026-08-27-universe-trace.py
 ```
 
-肉眼核对：2012 年个位数到十几个、2023 年五十几个、单月进出不应出现几十个品种同时翻转。
+**实测（2026-08-27）**：169 个月，品种数 **14（2012-01）→ 59（2026-01）**，中位数 36。
+每月进出合计的分布：**0 个变动 88 个月、1 个 55 个月、2 个 18 个月、3 个 6 个月、4 个 1 个月**，
+唯一的 14 是首月建池。宇宙抖动极小 —— 按月重算这条裁决（D10）达到了它的目的，
+后面 §6 风险 ① 的换手主要来自闸门而非宇宙。
+`product_daily_turnover` 的「孪生记录成交额不相等就报错」在全历史上**从未触发**，
+反过来证实了上游那 2,565 对确实逐字段相同。
 
-- [ ] 轨迹表已核对
+- [x] 轨迹表已核对
 
 **Step 6: Commit**
 
@@ -622,7 +631,7 @@ def test_costs_scale_linearly_with_traded_notional():
 1. **样本内 / 样本外分段指标**（切点 2023-05-31）。样本外不许缺席，格式沿用
    `index_open_momentum/report.py::segment_metrics`。
 2. **分年度表**，列对齐研报表 7（收益 / 最大回撤 / 夏普 / 波动 / Calmar / 月度胜率）。
-3. **保真度台账**：D1~D14 逐条列出裁决与依据，外加 §4 的已知缺口。
+3. **保真度台账**：D1~D15 逐条列出裁决与依据，外加 §4 的已知缺口。
 4. **成本敏感性**：1.3 / 1.8 / 2.5 个基点三档，对齐研报表 8。
 5. **换手四分解**与各自的成本贡献。
 6. **平均杠杆时序**，与研报图 15 的「均值 2.5 倍」对照。
@@ -631,7 +640,7 @@ def test_costs_scale_linearly_with_traded_notional():
 def test_report_refuses_to_omit_the_out_of_sample_segment():
 
 
-def test_fidelity_ledger_lists_every_decision_from_d1_to_d14():
+def test_fidelity_ledger_lists_every_decision_from_d1_to_d15():
 ```
 
 **Step 5: Commit**
