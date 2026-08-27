@@ -266,11 +266,44 @@ Wind 实时快照表：中金所只有 IC / IM（2026-05-13 起），**无 IF / 
 > 📌 注册后 `SESSION_RULESETS` 会有两个成员。`test_an_unregistered_version_fails_and_names_what_is_registered` 已改用一个
 > 永不会被注册的版本名，不会因为本 Task 而失守。
 
-- [ ] 新起 `cffex-v1` 时段版本：2016-01-01 前日盘 `09:15–11:30` / `13:00–15:15`，2016-01-01 起 `09:30–11:30` / `13:00–15:00`；**无夜盘**
-- [ ] 时段规则须与 `futures_minute` 实测首尾时间交叉校验并记录版本；任何时间戳映射不到唯一时段则**硬失败**，不靠"数已有行数"压缩时间
-- [ ] 把「本库 2016 前最后一根 bar 是 14:59、官方到 15:15」显式登记为已知缺口，进质量审计与保真度报告
-- [ ] 覆盖度闸：IF/IC/IH 在请求窗口内的逐年交易日数与 `public.trading_calendar` 对账，缺口超阈值即拒绝标注 paper-faithful
-- [ ] 测试：时段版本切换日、午休边界、无夜盘、映射失败硬失败、覆盖度闸拒绝路径
+- [x] 新起 `cffex-v1` 时段版本：2016-01-01 前日盘 `09:15–11:30` / `13:00–15:15`，2016-01-01 起 `09:30–11:30` / `13:00–15:00`；**无夜盘**
+- [x] 时段规则须与 `futures_minute` 实测首尾时间交叉校验并记录版本；任何时间戳映射不到唯一时段则**硬失败**，不靠"数已有行数"压缩时间
+- [x] 把「本库 2016 前最后一根 bar 是 14:59、官方到 15:15」显式登记为已知缺口，进质量审计与保真度报告
+- [x] 覆盖度闸：IF/IC/IH 在请求窗口内的逐年交易日数与 `public.trading_calendar` 对账，缺口超阈值即拒绝标注 paper-faithful
+- [x] 测试：时段版本切换日、午休边界、无夜盘、映射失败硬失败、覆盖度闸拒绝路径
+
+**2026-08-27 完工记录**
+
+交付：`common/minute/sessions.py` 注册 `CFFEX_V1` / `config/index_minute_sessions.csv`
+（7 行：IF/IC/IH 各两个年代 + IM 一个）/ `index_open_momentum/sessions.py`
+（资产加载 + 已知缺口登记 + 时间戳映射硬失败 + 覆盖度闸）/
+`tests/test_index_open_momentum_sessions.py`（42 用例）。
+
+**全套件 1107 passed**（基线 1065 + 新增 42）。**变异验证 17/17**。
+证据 = `docs/research/2026-08-27-cffex-session-crosscheck.md`。
+
+📌 **三处与本 Task 原文不符，已按实测改**：
+
+1. **Step 4 的字面写法不可执行** —— `public.trading_calendar` 只有
+   `sfe / hkxe / comex / lme / nyse / tse / sgx`，**没有 CFFEX 列**。改用 `sfe`，
+   并先证等价：2010–2025 逐年与 IF/IC/IH/IM 的日线行数**一个不差**。
+   （2026 差 6 天 = 已知的 `futures_daily` 2026-03 空洞传导，不是口径不符。）
+2. **Step 3/4 的代码没有归宿** —— Files 段只列了 ruleset、CSV、测试三样。已新建
+   `index_open_momentum/sessions.py` 承载缺口登记与闸门；取数留给 Task 7
+   （闸门本身是纯函数，按验收标准"先由确定性合成数据覆盖"）。
+3. **阈值未定** —— Step 4 写"缺口超阈值"但没给阈值。取 `max_missing_days=0`
+   fail-closed 为默认，可由调用方放宽；放宽只改 `paper_faithful` 一个判定，
+   缺口本身照报不误。
+
+⚠️ **实测逼出的一条设计约束**：2016 前官方段长 **270** 分钟，而本库只有 **255** 根
+（缺 15:00–15:14）。ruleset 记**官方**口径，那 15 分钟由 `CFFEX_ARCHIVE_GAPS`
+登记为授权缺席 —— **不能**把 915 改成 900 去迁就档案，否则将来补上数据后，
+15:00 之后真出现的 bar 反而会被当成非法数据拒掉。
+不登记的话，任何"每个 slot 都应有 bar"的完整性校验会在 2016 前**每一个**交易日上硬失败。
+
+⚠️ **给 Task 7 的实测约束**：同一条探针，时间边界从 join 列推导 ⇒ **264 个 chunk 全部
+进计划**、planning 209 ms；改成 `TIMESTAMPTZ` 字面量 ⇒ **1 个 chunk**、planning 4.9 ms。
+**chunk 排除只在边界是计划期常量时才发生** —— 按月分批的意义正在于让边界成为常量。
 
 ### Task 2: 15 分钟 K 线与 5 分钟 VWAP
 
@@ -279,13 +312,13 @@ Wind 实时快照表：中金所只有 IC / IM（2026-05-13 起），**无 IF / 
 - Create: `index_open_momentum/bars.py`（薄封装；聚合与乘数解析复用分钟层）
 - Test: `tests/test_index_open_momentum_bars.py`
 
-- [ ] 15 分钟 K 线按连续 15 个**交易时钟分钟槽**构造，绝不跨休市拼成一根
-- [ ] 5 分钟成交窗口按五个交易时钟分钟槽计数；`vwap = sum(amount) / sum(volume) / contract_multiplier`，只汇总 `volume > 0` 的分钟
-- [ ] VWAP 落在窗口 `[min(low) - eps, max(high) + eps]`（`eps = 1e-6 * max(1, |low|, |high|)`）之外则硬失败
-- [ ] IF/IC/IH/IM 合约乘数优先取 `public.futures_contract_info`，缺失时按分钟层既有规则反推（确定性抽样、99% 价域通过率、唯一解，否则硬失败）；记录 `metadata` / `inferred` 来源
-- [ ] 一根 15 分钟 K 线若无任何正成交量，记 `no_trade_bar`，不更新吊灯极值、不触发止损
-- [ ] 一个必需的 5 分钟成交窗口若总成交量为零，**运行硬失败**，不顺延到更晚窗口
-- [ ] 测试：跨午休不拼接、跨时段版本切换日、零成交 bar、乘数反推与元数据冲突、VWAP 越界硬失败
+- [x] 15 分钟 K 线按连续 15 个**交易时钟分钟槽**构造，绝不跨休市拼成一根
+- [x] 5 分钟成交窗口按五个交易时钟分钟槽计数；`vwap = sum(amount) / sum(volume) / contract_multiplier`，只汇总 `volume > 0` 的分钟
+- [x] VWAP 落在窗口 `[min(low) - eps, max(high) + eps]`（`eps = 1e-6 * max(1, |low|, |high|)`）之外则硬失败
+- [x] IF/IC/IH/IM 合约乘数优先取 `public.futures_contract_info`，缺失时按分钟层既有规则反推（确定性抽样、99% 价域通过率、唯一解，否则硬失败）；记录 `metadata` / `inferred` 来源
+- [x] 一根 15 分钟 K 线若无任何正成交量，记 `no_trade_bar`，不更新吊灯极值、不触发止损
+- [x] 一个必需的 5 分钟成交窗口若总成交量为零，**运行硬失败**，不顺延到更晚窗口
+- [x] 测试：跨午休不拼接、跨时段版本切换日、零成交 bar、乘数反推与元数据冲突、VWAP 越界硬失败
 
 ### Task 3: Implement Opening Trend Signals
 
@@ -429,6 +462,40 @@ fixture 是连续自然日，252 个观测恰好只跨 252 天，两种口径选
 📌 抓到并修掉一条自指断言：截断测试原先拿 `MAX_LEVERAGE` 当期望值，常量改了测试跟着改，
 等于没有断言（变异"上限 4→8"当场漏网）。已全部换成手写字面量 `4.0`。
 
+**2026-08-27 完工记录**
+
+交付：`index_open_momentum/bars.py`（`IndexBar` / `build_index_bars` /
+`resolve_index_multiplier` / `relative_excursion` / `index_execution_fill`）+
+`tests/test_index_open_momentum_bars.py`（27 用例）。
+另改 `backtest.py` 与 `signals.py` 以承载 no-trade 语义（见下）。
+**变异验证 14/14**，证据 `docs/research/2026-08-27-cffex-session-crosscheck.md` §五~八。
+
+📌 **三处与本 Task 原文不符，已按实测裁**：
+
+1. **eps 取 1e-6 还是 1e-4** —— 本 Task 写 `1e-6`，共享层 `five_minute_vwap` 实际用
+   `_fill_epsilon = 1e-4`（理由是**商品**涨停锁死 bar 的 turnover 取整残差）。
+   实测 IF/IC/IH 主力四年 **2,139 个真实执行窗口，最大相对越界 = 0.0**（含一个涨停
+   锁死窗口）⇒ 按本 Task 口径收紧到 **1e-6**。两条边界：**零宽窗口豁免紧闸**
+   （只可能成交在这一个价上，越界只能是取整残差；但 `relative_excursion()` 仍如实报出），
+   且**本层的闸只能更紧、越不过共享层的 1e-4**。
+2. **`futures_contract_info` 是快照不是历史** —— 实测只覆盖 2025-12-22 起。所以
+   「优先元数据、缺失才反推」在 2011–2025 **绝大部分走反推**。元数据在场也要过价域校验。
+3. **no-trade 语义没有归宿** —— 本 Task 要求"不更新吊灯极值、不触发止损"，但那发生在
+   Task 5 的 `simulate_session` 里。已把它的入参从 `Sequence[Bar]` 改为
+   `Sequence[Bar | None]`，`None` 即"这根没成交"。**不用平行布尔数组**：那样调用方
+   得伪造一根 `Bar` 占位，正是 `types.Bar` 反对的事，且两个序列还能对不齐。
+   Task 3~6 的既有用例全部原样通过。
+
+⚠️ ~~**实测：no-trade 是冷路径**~~ —— **该结论已于同日被端到端真跑推翻**：
+2016 Q1 的 IF 主力 58 个 product-day 里有 **14 根**整桶零成交（`missing_slots=0`）。
+先前那句依据的是 2012/2015/2018/2024 四年抽样，**2016 不在样本里**。
+⇒ no-trade 是**常规路径**，`atr_series` 必须能穿过它（真跑当场炸在这里）。
+
+⚠️ **新增复刻假设（第 9 条）**：研报没写无成交 bar 算不算数。取**「打断反向信号的
+连续计数」**而非「透明跳过」—— 透明跳过是在断言"这段时间价格没动过"，比数据支持的更强。
+同理，空头当日收盘平仓必须用**入场之后**有成交的 bar：退到入场那根本身是回看，
+一根都没有则硬失败。
+
 ### Task 7: 数据源与 CLI
 
 **Files:**
@@ -437,11 +504,35 @@ fixture 是连续自然日，252 个观测恰好只跨 252 天，两种口径选
 - Create: `index_open_momentum/__main__.py`
 - Test: `tests/test_index_open_momentum_pg_source.py`
 
-- [ ] PG 读取器面向 `public.futures_minute`，遵守本文件「本仓已有的机器」段落转述的设计 §5.3 全部查询纪律（按月分批 / 临时表驱动 / 裸列探针 / `SET LOCAL`）
-- [ ] 主力合约按 `open_interest` / `volume` 自定，并在 2026-04-29 前的重叠区与 `continuous_contract_ohlc.contract_used` 对账，不一致须报告而非静默取一边
-- [ ] 每条新查询保存 `EXPLAIN` 产物；出现 264 chunk 无界全扫或预计扫描接近 6.6 亿行即验收失败
-- [ ] CLI 选项：起止日期、品种、时段版本、输出前缀、是否强制 paper-faithful
-- [ ] `amount` 缺失或必需的 5 分钟窗口零成交时**硬失败** —— 不降级为近似成交、不顺延窗口（原计划的 approximate-execution 旗已随数据源更正作废）
+- [x] PG 读取器面向 `public.futures_minute`，遵守本文件「本仓已有的机器」段落转述的设计 §5.3 全部查询纪律（按月分批 / 临时表驱动 / 裸列探针 / `SET LOCAL`）
+- [x] 主力合约按 `open_interest` / `volume` 自定，并在 2026-04-29 前的重叠区与 `continuous_contract_ohlc.contract_used` 对账，不一致须报告而非静默取一边
+- [x] 每条新查询保存 `EXPLAIN` 产物；出现 264 chunk 无界全扫或预计扫描接近 6.6 亿行即验收失败
+- [x] CLI 选项：起止日期、品种、时段版本、输出前缀、是否强制 paper-faithful
+- [x] `amount` 缺失或必需的 5 分钟窗口零成交时**硬失败** —— 不降级为近似成交、不顺延窗口（原计划的 approximate-execution 旗已随数据源更正作废）
+
+**2026-08-27 部分完工记录（5 步完成 4 步）**
+
+交付：`index_open_momentum/pg_source.py`（主力选取 / 对账 / candidate 构造 /
+尾部通路）+ `index_open_momentum/__main__.py`（参数面与三道当场拒绝的闸）+
+`tests/test_index_open_momentum_{pg_source,cli}.py`（30 + 18 用例）。
+共享层补一处：`_DAILY_TO_MINUTE_EXCHANGE` 原本**没有 `CFE`** ⇒ `IF1606.CFE` 会被拒，
+已补 `"CFE": "CFFEX"`。**变异验证 14/14**，证据见研究档 §九~十二。
+
+⬜ **未完成的第 5 步 = "每条新查询保存 `EXPLAIN` 产物"的落盘。**
+`PublicMinuteSource.plan_audit` 已经在内存里攒了 `MinutePlanSummary`，
+真候选也已过闸实测（2016-06 与 2012-06 各引用 **2 个 chunk**，上限 3），
+但**没有任何东西把它写到磁盘**。CLI 的 `main()` 目前校验完参数即停
+（取数编排与报告尚未接线）。
+
+📌 **一个被我读错又更正的边界**（这条比代码要紧）：先前据
+`max(trade_date)` 判断 `futures_daily` 的中金所数据"没有冻在 04-29"，**是错的**。
+逐月看，IF 在 2026-05/06/07 **一行都没有**，2026-08 只有一天 4 行。
+⇒ `max(trade_date)` 回答的是"最后一行在哪天"，不是"覆盖到哪天"。
+取数上界必须**逐月数行**。四张表的实测区间见研究档 §十。
+
+⚠️ **对账分歧全部落在换月窗口**，不是缺陷：自选用因果滞后规则，参照
+（`continuous_contract_ohlc`）用混合滚动，交割周必然错开一两天，参照那边还会出现
+`IF1606.CFE+IF1607.CFE` 这种混合值。按计划要求**只报告、不改选**。
 
 ### Task 8: Add Reporting and Runbook
 
@@ -451,11 +542,47 @@ fixture 是连续自然日，252 个观测恰好只跨 252 天，两种口径选
 - Create: `docs/operations/guosen-open-momentum-runbook.md`
 - Test: `tests/test_index_open_momentum_report.py`
 
-- [ ] Write Excel outputs for metrics, daily returns, annual returns, trades, signals, leverage, and data-quality audit.
-- [ ] Write a net-value chart.
-- [ ] Document data requirements for paper-faithful replication.
-- [ ] runbook 记录：数据源为 `public.futures_minute`（最新 bar 2026-08-11，实盘前需补尾）、时段版本 `cffex-v1`、2016 前 15:00–15:15 缺口的披露口径、以及 `EXPLAIN` 存档位置。
-- [ ] **样本外一段单独出**：研报样本 2011-06 起、研报日期 2021-05-13 ⇒ 其样本止于 2021。报告必须把 **2021-05 之后**单独成段，与复刻区间并列呈现，不允许只给全样本合并数。
+- [x] Write Excel outputs for metrics, daily returns, annual returns, trades, signals, leverage, and data-quality audit.
+- [x] Write a net-value chart.
+- [x] Document data requirements for paper-faithful replication.
+- [x] runbook 记录：数据源为 `public.futures_minute`（最新 bar 2026-08-11，实盘前需补尾）、时段版本 `cffex-v1`、2016 前 15:00–15:15 缺口的披露口径、以及 `EXPLAIN` 存档位置。
+- [x] **样本外一段单独出**：研报样本 2011-06 起、研报日期 2021-05-13 ⇒ 其样本止于 2021。报告必须把 **2021-05 之后**单独成段，与复刻区间并列呈现，不允许只给全样本合并数。
+
+**2026-08-27 完工记录（Task 7 收尾 + Task 8）**
+
+交付：`index_open_momentum/run.py`（回测编排）+ `report.py`（七张表 / 净值图 /
+审计 JSON）+ `__main__.py` 接线 + `docs/operations/guosen-open-momentum-runbook.md`
++ 三个测试文件（run 28 / report 26 / cli 18）。**变异验证 run 13/13、report 10/10。**
+
+**✅ 端到端真跑通过**（2016-01-04~2016-03-31，IF，生产库）：
+58 个 product-day / 12 天有信号 / EXPLAIN 3 条各引用 **2 个 chunk**（上限 3）、
+最大预计行数 92 万（上限 1000 万）/ 四个合约乘数全部由兜底**升级为价域校验过**
+（`pass_rate=1.0`）/ VWAP 最大相对越界 **0.0**。产出三件齐全。
+
+📌 **接线阶段炸出五个真缺陷**，每个都不是接线问题而是设计问题：
+
+1. **`atr_series` 收到 `None` 直接崩** —— no-trade bar 是真实存在的（见 4）。
+2. **`simulate_session` 没 ATR 也建仓**，然后在第一次判止损时被 `_require_atr` 炸掉。
+   闸放在 **`run.py`**（杠杆归它），不放在 `simulate_session`（那会改掉 Task 5 的契约）。
+3. **波动率反馈算在已加杠杆的收益上 ⇒ 整段回测恒为零**：第一年没历史 ⇒ 杠杆 0 ⇒
+   收益全 0 ⇒ 波动率 0 ⇒ 杠杆仍 0，**永远启动不了**，而症状是"跑完了只是都不赚钱"。
+   已改为**未缩放的影子收益**（只加 ATR 杠杆），即计划 §「本仓已有的机器」提到的
+   "正式账户与未缩放影子账户并行"。
+4. **换月后新主力头两天推不出乘数**（样本要跨 ≥3 个交易日，而新合约在我们取的
+   数据里 0 天历史）。实测 2016-03-18 的 `IF1604` 即是。已加交易所乘数兜底
+   （`source="metadata_unvalidated"`，样本一够**自动升级**为校验过）。
+   15 年 × 3 品种约 540 个交易日会因此发不出成交，不是边角情形。
+5. **止损可能落在当日最后一根**，而其后没有 5 分钟成交窗 ⇒ 无从计价。
+   **新增复刻假设⑪：当日最后一根不判减仓**（剩余仓位本来就由日末规则处理）。
+
+⚠️ **一条先前结论被真跑推翻**：「no-trade 是冷路径」作废 —— 2016 Q1 的 IF 主力
+58 个 product-day 里有 **14 根**整桶零成交（`missing_slots=0`）。先前那句依据的是
+2012/2015/2018/2024 四年抽样，2016 不在样本里。**抽样得出的"从未出现"只对抽到的
+样本成立。**
+
+⬜ **仍未接线**：尾部（2026-04-29 之后）的主力通路（名单取 `futures_contract_info`、
+量取 `futures_minute`）。CLI 走到那条会显式报"尚未接线"，不静默降级。
+⇒ 当前可跑区间 = **2010-04-16 ~ 2026-04-29**。
 
 ## Acceptance Criteria
 
