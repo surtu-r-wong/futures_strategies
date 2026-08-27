@@ -37,6 +37,7 @@ __all__ = [
     "FILL_MINUTES",
     "PANEL_COLUMNS",
     "build_session_bars",
+    "context_choices_for_month",
     "resolve_pending_fill",
     "slot_frame",
 ]
@@ -188,6 +189,36 @@ class SessionContext:
     rule: SessionRule
     slots: tuple[datetime, ...]
     buckets: tuple[tuple[datetime, ...], ...]
+
+
+def context_choices_for_month(
+    choices: Sequence[object], *, month_start: date
+) -> tuple[object, ...]:
+    """保留当月选择，并为每个品种附上紧邻当月的一个前态。
+
+    主力选择可以用更长历史预热不可逆展期链；时段上下文却只应解析目标月。
+    前态只用于给当月首个交易日提供 ``previous_trade_date``，更早选择不得进入
+    ``build_contexts``，否则会要求当前策略根本不交易的旧品种日也具备时段规则。
+    """
+    if type(month_start) is not date or month_start.day != 1:
+        raise ValueError(
+            "panel_month: month_start 必须是某个自然月的 1 号；"
+            f"got {month_start!r}"
+        )
+    month_end = date(
+        month_start.year + month_start.month // 12,
+        month_start.month % 12 + 1,
+        1,
+    )
+    predecessor_by_product: dict[str, object] = {}
+    current: list[object] = []
+    for choice in sorted(choices, key=lambda item: (item.trade_date, item.product)):
+        if choice.trade_date < month_start:
+            predecessor_by_product[choice.product] = choice
+        elif choice.trade_date < month_end:
+            current.append(choice)
+    selected = [*predecessor_by_product.values(), *current]
+    return tuple(sorted(selected, key=lambda item: (item.trade_date, item.product)))
 
 
 def build_contexts(

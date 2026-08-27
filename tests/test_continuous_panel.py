@@ -183,6 +183,7 @@ def test_resolve_pending_fill_returns_none_when_the_next_session_is_silent():
 # --- 逐月编排 ---------------------------------------------------------------
 
 from common.dominant import DominantChoice  # noqa: E402
+import cta_continuous.panel as continuous_panel  # noqa: E402
 from cta_continuous.panel import build_contexts, build_panel  # noqa: E402
 
 DAYS = [date(2024, 3, 4), date(2024, 3, 5), date(2024, 3, 6)]
@@ -272,6 +273,31 @@ def test_contexts_do_not_depend_on_the_order_choices_arrive_in():
     assert sorted(ordered) == sorted(shuffled)
     for key in ordered:
         assert ordered[key].slots == shuffled[key].slots
+
+
+def test_month_context_choices_keep_only_the_last_predecessor_per_product():
+    """预热主力链只提供前态；不得让旧月份去解析本月策略并不需要的时段规则。"""
+    old = date(2022, 1, 6)
+    predecessor = date(2022, 12, 30)
+    current = date(2023, 1, 3)
+    choices = [
+        DominantChoice(old, "LU", "LU2205.INE", 1, 1, old),
+        DominantChoice(predecessor, "LU", "LU2303.INE", 1, 1, predecessor),
+        DominantChoice(current, "LU", "LU2303.INE", 1, 1, current),
+        DominantChoice(predecessor, "RB", "RB2305.SHF", 1, 1, predecessor),
+        DominantChoice(current, "RB", "RB2305.SHF", 1, 1, current),
+    ]
+
+    selected = continuous_panel.context_choices_for_month(
+        choices, month_start=date(2023, 1, 1)
+    )
+
+    assert {(choice.trade_date, choice.product) for choice in selected} == {
+        (predecessor, "LU"),
+        (predecessor, "RB"),
+        (current, "LU"),
+        (current, "RB"),
+    }
 
 
 def test_panel_round_trips_through_parquet(tmp_path):
