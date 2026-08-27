@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import re
 import sys
 from typing import Mapping, Sequence
 
@@ -23,6 +24,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from common.commodity.bundle import (  # noqa: E402
+    BUNDLE_VERSION,
     TABLE_SCHEMAS,
     normalise_bundle_table,
     write_bundle,
@@ -91,9 +93,7 @@ class _EndDateAction(argparse.Action):
         setattr(namespace, "_legacy_end_month", len(value) == 7)
 
 
-def _resolve_end(
-    requested: date, *, reliable_end: date, legacy_month: bool
-) -> date:
+def _resolve_end(requested: date, *, reliable_end: date, legacy_month: bool) -> date:
     if requested <= reliable_end:
         return requested
     if (
@@ -163,9 +163,7 @@ def _copy_daily(cursor, *, end: date) -> pd.DataFrame:
     missing = set(_DAILY_COLUMNS) - set(frame.columns)
     if missing:
         raise ValueError(f"panel_daily_columns: missing={sorted(missing)!r}")
-    frame["trade_date"] = pd.to_datetime(
-        frame["trade_date"], errors="raise"
-    ).dt.date
+    frame["trade_date"] = pd.to_datetime(frame["trade_date"], errors="raise").dt.date
     return frame.loc[:, _DAILY_COLUMNS]
 
 
@@ -182,9 +180,9 @@ def _frame_sha256(frame: pd.DataFrame) -> str:
         ).encode("utf-8")
     )
     digest.update(
-        pd.util.hash_pandas_object(
-            ordered, index=False, categorize=False
-        ).to_numpy(dtype="uint64").tobytes()
+        pd.util.hash_pandas_object(ordered, index=False, categorize=False)
+        .to_numpy(dtype="uint64")
+        .tobytes()
     )
     return digest.hexdigest()
 
@@ -195,6 +193,222 @@ def _file_sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+_CREDENTIAL_KEY = re.compile(
+    r"(?:password|passwd|secret|token|credential|api[_-]?key|private[_-]?key|"
+    r"dsn|user(?:name)?)",
+    re.IGNORECASE,
+)
+_MINUTE_DIGEST_COLUMNS = (
+    "trade_date",
+    "product",
+    "daily_contract",
+    "bar_time",
+    "symbol",
+    "exchange",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount",
+    "open_interest",
+)
+_DIGEST_MODULUS = 1 << 256
+
+
+def _safe_config_value(value: object) -> object:
+    """Return canonical settings with credential-bearing entries removed."""
+    if isinstance(value, Mapping):
+        return {
+            str(key): _safe_config_value(child)
+            for key, child in sorted(value.items(), key=lambda item: str(item[0]))
+            if not _CREDENTIAL_KEY.search(str(key))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_safe_config_value(child) for child in value]
+    if value is None or type(value) in (str, int, bool):
+        return value
+    if type(value) is float:
+        if not pd.notna(value) or value in (float("inf"), float("-inf")):
+            raise ValueError("panel_config_digest: non-finite setting")
+        return value
+    raise ValueError(
+        f"panel_config_digest: unsupported setting type {type(value).__name__}"
+    )
+
+
+def _effective_config_sha256(
+    cfg: Mapping[str, object],
+    session_rules_path: Path,
+    pricing_bases_path: Path,
+) -> tuple[str, dict[str, object]]:
+    """Hash only non-secret effective settings and immutable build authorities."""
+    safe_settings = _safe_config_value(cfg)
+    payload = {
+        "settings": safe_settings,
+        "session_rules_sha256": _file_sha256(session_rules_path),
+        "pricing_basis_sha256": _file_sha256(pricing_bases_path),
+        "bundle_version": BUNDLE_VERSION,
+        "builder_code_sha256": _file_sha256(Path(__file__).resolve()),
+        "bundle_code_sha256": _file_sha256(
+            _REPO_ROOT / "common" / "commodity" / "bundle.py"
+        ),
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), safe_settings
+
+
+def _candidate_digest_record(candidate) -> dict[str, object]:
+    return {
+        "trade_date": candidate.trade_date.isoformat(),
+        "product": candidate.product,
+        "daily_contract": candidate.daily_contract,
+        "minute_symbol": candidate.minute_symbol,
+        "exchange": candidate.exchange,
+        "window_start": candidate.window_start.isoformat(),
+        "window_end": candidate.window_end.isoformat(),
+        "candidate_role": candidate.candidate_role,
+        "causal_in_pool_date": (
+            candidate.causal_in_pool_date.isoformat()
+            if candidate.causal_in_pool_date is not None
+            else None
+        ),
+        "selection_source": candidate.selection_source,
+    }
+
+
+def _minute_row_lines(frame: pd.DataFrame) -> list[str]:
+    missing = set(_MINUTE_DIGEST_COLUMNS) - set(frame.columns)
+    if missing:
+        raise ValueError(f"panel_minute_digest_columns: missing={sorted(missing)!r}")
+    canonical = frame.loc[:, _MINUTE_DIGEST_COLUMNS].copy()
+    canonical["trade_date"] = canonical["trade_date"].map(
+        lambda value: pd.Timestamp(value).date().isoformat()
+    )
+    canonical["bar_time"] = canonical["bar_time"].map(
+        lambda value: pd.Timestamp(value).isoformat()
+    )
+    return canonical.to_json(
+        orient="records",
+        lines=True,
+        date_format="iso",
+        double_precision=15,
+        force_ascii=False,
+    ).splitlines()
+
+
+class DigestingMinuteSource:
+    """Audit actual minute call streams with labeled, row-order-neutral digests.
+
+    Each row is hashed canonically and the row hashes are accumulated as a
+    multiset, so database row/chunk ordering does not alter a request digest.
+    Request labels preserve the meaningful roll-fill versus bar call stream.
+    """
+
+    def __init__(
+        self,
+        source,
+        *,
+        pricing_basis_by_exchange: Mapping[str, str],
+    ) -> None:
+        self._source = source
+        self._pricing_basis_by_exchange = dict(pricing_basis_by_exchange)
+        self._phase: str | None = None
+        self._requests: list[dict[str, object]] = []
+
+    def __getattr__(self, name: str):
+        return getattr(self._source, name)
+
+    def set_phase(self, phase: str) -> None:
+        if phase not in {"roll_fills", "bars"}:
+            raise ValueError(f"panel_minute_digest_phase: {phase!r}")
+        self._phase = phase
+
+    def iter_month(self, candidates, lower, upper):
+        if self._phase is None:
+            raise ValueError("panel_minute_digest_phase: phase must be set")
+        candidate_stream = tuple(candidates)
+        ordered_candidates = sorted(
+            candidate_stream,
+            key=lambda candidate: (
+                candidate.trade_date,
+                candidate.daily_contract,
+                candidate.candidate_role,
+            ),
+        )
+        header = {
+            "phase": self._phase,
+            "sequence": len(self._requests) + 1,
+            "lower": lower.isoformat(),
+            "upper": upper.isoformat(),
+            "candidates": [
+                _candidate_digest_record(candidate) for candidate in ordered_candidates
+            ],
+            "pricing_bases": {
+                exchange: self._pricing_basis_by_exchange[exchange]
+                for exchange in sorted(
+                    {candidate.exchange for candidate in ordered_candidates}
+                )
+            },
+        }
+        row_count = 0
+        row_digest_sum = 0
+        try:
+            for frame in self._source.iter_month(candidate_stream, lower, upper):
+                lines = _minute_row_lines(frame)
+                row_count += len(lines)
+                for line in lines:
+                    row_digest_sum = (
+                        row_digest_sum
+                        + int.from_bytes(
+                            hashlib.sha256(line.encode("utf-8")).digest(), "big"
+                        )
+                    ) % _DIGEST_MODULUS
+                yield frame
+        finally:
+            request_payload = {
+                **header,
+                "rows": row_count,
+                "row_digest_sum": f"{row_digest_sum:064x}",
+            }
+            encoded = json.dumps(
+                request_payload,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            self._requests.append(
+                {
+                    "phase": self._phase,
+                    "sequence": header["sequence"],
+                    "rows": row_count,
+                    "sha256": hashlib.sha256(encoded).hexdigest(),
+                }
+            )
+
+    @property
+    def minute_request_digests(self) -> list[dict[str, object]]:
+        return [dict(request) for request in self._requests]
+
+    @property
+    def minute_content_sha256(self) -> str:
+        encoded = json.dumps(
+            self._requests,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
 
 def _contract_changed(previous, current) -> bool:
@@ -212,7 +426,9 @@ def _contract_changed(previous, current) -> bool:
     return old_symbol != new_symbol
 
 
-def _roll_events(choices: Sequence[object], contexts: Mapping[tuple[date, str], object]):
+def _roll_events(
+    choices: Sequence[object], contexts: Mapping[tuple[date, str], object]
+):
     previous_by_product: dict[str, object] = {}
     events = []
     for current in sorted(choices, key=lambda item: (item.trade_date, item.product)):
@@ -221,7 +437,9 @@ def _roll_events(choices: Sequence[object], contexts: Mapping[tuple[date, str], 
         if previous is None or (current.trade_date, current.product) not in contexts:
             continue
         if _contract_changed(previous, current):
-            events.append((previous, current, contexts[(current.trade_date, current.product)]))
+            events.append(
+                (previous, current, contexts[(current.trade_date, current.product)])
+            )
     return events
 
 
@@ -268,9 +486,9 @@ def build_roll_fills(
     by_month: dict[tuple[int, int], list[tuple[object, object, object]]] = {}
     for event in events:
         current = event[1]
-        by_month.setdefault((current.trade_date.year, current.trade_date.month), []).append(
-            event
-        )
+        by_month.setdefault(
+            (current.trade_date.year, current.trade_date.month), []
+        ).append(event)
 
     records: list[dict[str, object]] = []
     for month_events in by_month.values():
@@ -278,11 +496,15 @@ def build_roll_fills(
         legs_by_event = []
         for previous, current, context in month_events:
             old_candidate = _roll_candidate(
-                replace(previous, trade_date=current.trade_date), context, role="roll_old"
+                replace(previous, trade_date=current.trade_date),
+                context,
+                role="roll_old",
             )
             new_candidate = _roll_candidate(current, context, role="roll_new")
             candidates.extend((old_candidate, new_candidate))
-            legs_by_event.append((previous, current, context, old_candidate, new_candidate))
+            legs_by_event.append(
+                (previous, current, context, old_candidate, new_candidate)
+            )
 
         lower = min(candidate.window_start for candidate in candidates)
         upper = max(candidate.window_end for candidate in candidates)
@@ -340,9 +562,7 @@ def build_roll_fills(
             )
     return normalise_bundle_table(
         "roll_fills",
-        pd.DataFrame.from_records(
-            records, columns=list(TABLE_SCHEMAS["roll_fills"])
-        ),
+        pd.DataFrame.from_records(records, columns=list(TABLE_SCHEMAS["roll_fills"])),
     )
 
 
@@ -369,9 +589,7 @@ def _universe_frame(products_by_month: Mapping[date, Sequence[str]]) -> pd.DataF
     ]
     return normalise_bundle_table(
         "universes",
-        pd.DataFrame.from_records(
-            records, columns=list(TABLE_SCHEMAS["universes"])
-        ),
+        pd.DataFrame.from_records(records, columns=list(TABLE_SCHEMAS["universes"])),
     )
 
 
@@ -399,9 +617,7 @@ def _dominant_frame(
         )
     return normalise_bundle_table(
         "dominants",
-        pd.DataFrame.from_records(
-            records, columns=list(TABLE_SCHEMAS["dominants"])
-        ),
+        pd.DataFrame.from_records(records, columns=list(TABLE_SCHEMAS["dominants"])),
     )
 
 
@@ -460,7 +676,8 @@ def main(argv: list[str] | None = None) -> int:
     reliable_end = _reliable_end(rules)
     try:
         args.end = _resolve_end(
-            args.end, reliable_end=reliable_end,
+            args.end,
+            reliable_end=reliable_end,
             legacy_month=args._legacy_end_month,
         )
     except ValueError as exc:
@@ -482,9 +699,7 @@ def main(argv: list[str] | None = None) -> int:
         month: universe_for_month(turnover, month_start=month)
         for month in _months(args.start, args.end)
     }
-    history_products = tuple(
-        sorted(set(turnover["product"]) - FINANCIAL_FUTURES)
-    )
+    history_products = tuple(sorted(set(turnover["product"]) - FINANCIAL_FUTURES))
     if not history_products:
         raise ValueError("panel_products_empty: no commodity products in daily history")
 
@@ -509,7 +724,14 @@ def main(argv: list[str] | None = None) -> int:
     if not contexts:
         raise ValueError("panel_contexts_empty: no reliable dominant sessions in range")
 
-    source = PublicMinuteSource(pg=pg)
+    basis_by_exchange = {
+        context.candidate.exchange: pricing_basis_for(bases, context.candidate.exchange)
+        for context in contexts.values()
+    }
+    source = DigestingMinuteSource(
+        PublicMinuteSource(pg=pg),
+        pricing_basis_by_exchange=basis_by_exchange,
+    )
     multiplier_cache: dict[str, int] = {}
 
     def resolve_multiplier(candidate, frame):
@@ -525,12 +747,7 @@ def main(argv: list[str] | None = None) -> int:
             multiplier_cache[key] = resolution.multiplier
         return multiplier_cache[key]
 
-    basis_by_exchange = {
-        context.candidate.exchange: pricing_basis_for(
-            bases, context.candidate.exchange
-        )
-        for context in contexts.values()
-    }
+    source.set_phase("roll_fills")
     roll_fills = build_roll_fills(
         choices=choices,
         contexts=contexts,
@@ -538,22 +755,22 @@ def main(argv: list[str] | None = None) -> int:
         pricing_basis_by_exchange=basis_by_exchange,
         multiplier_resolver=resolve_multiplier,
     )
+    source.set_phase("bars")
     raw_bars = build_panel(
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange=basis_by_exchange,
         multiplier_resolver=resolve_multiplier,
-        adjustment_factor_by_key={
-            key: factor_by_key[key] for key in contexts
-        },
+        adjustment_factor_by_key={key: factor_by_key[key] for key in contexts},
     )
     bars = adjust_signal_bars(raw_bars)
     universes = _universe_frame(products_by_month)
-    dominants = _dominant_frame(
-        choices, contexts=contexts, factor_by_key=factor_by_key
-    )
+    dominants = _dominant_frame(choices, contexts=contexts, factor_by_key=factor_by_key)
 
     audit = source.audit
+    effective_config_sha256, _ = _effective_config_sha256(
+        cfg, SESSION_RULES, PRICING_BASES
+    )
     bundle = write_bundle(
         args.output_dir,
         bars=bars,
@@ -569,6 +786,9 @@ def main(argv: list[str] | None = None) -> int:
             "daily_rows": len(daily),
             "daily_sha256": _frame_sha256(daily),
             "minute_candidates_sha256": _contexts_sha256(contexts),
+            "minute_content_sha256": source.minute_content_sha256,
+            "minute_request_digests": source.minute_request_digests,
+            "effective_config_sha256": effective_config_sha256,
         },
         provenance={
             "session_rules_file": SESSION_RULES.relative_to(_REPO_ROOT).as_posix(),

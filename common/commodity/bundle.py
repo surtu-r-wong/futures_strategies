@@ -130,6 +130,10 @@ def _normalise_date(values: pd.Series, *, table: str, column: str) -> pd.Series:
     converted = converted.astype("datetime64[ns]")
     if converted.isna().any():
         raise _schema_error(table, column, "null date")
+    if converted.ne(converted.dt.normalize()).any():
+        raise _schema_error(
+            table, column, "date value must be a naive midnight timestamp"
+        )
     return converted
 
 
@@ -153,10 +157,7 @@ def _normalise_aware_datetime(
         )
     except (TypeError, ValueError, OverflowError) as exc:
         raise _schema_error(table, column, str(exc)) from exc
-    if (
-        column not in _NULLABLE_COLUMNS.get(table, set())
-        and converted.isna().any()
-    ):
+    if column not in _NULLABLE_COLUMNS.get(table, set()) and converted.isna().any():
         raise _schema_error(table, column, "null datetime")
     return converted
 
@@ -193,7 +194,9 @@ def _normalise_int(values: pd.Series, *, table: str, column: str) -> pd.Series:
 
 def _normalise_bool(values: pd.Series, *, table: str, column: str) -> pd.Series:
     if not pd.api.types.is_bool_dtype(values.dtype):
-        raise _schema_error(table, column, f"boolean dtype required, got {values.dtype}")
+        raise _schema_error(
+            table, column, f"boolean dtype required, got {values.dtype}"
+        )
     if values.isna().any():
         raise _schema_error(table, column, "null boolean")
     return values.astype("bool")
@@ -212,18 +215,13 @@ def _value_error(table: str, detail: str) -> ValueError:
 
 def _validate_table_values(table: str, frame: pd.DataFrame) -> None:
     if table == "bars":
-        for column in (
-            "open", "high", "low", "close", "open_interest", "fill_price"
-        ):
+        for column in ("open", "high", "low", "close", "open_interest", "fill_price"):
             present = frame[column].dropna()
             if not present.map(math.isfinite).all():
                 raise _value_error(
                     table, f"column={column!r} must be finite when present"
                 )
-        if (
-            not frame["volume"].map(math.isfinite).all()
-            or (frame["volume"] < 0).any()
-        ):
+        if not frame["volume"].map(math.isfinite).all() or (frame["volume"] < 0).any():
             raise _value_error(table, "volume must be finite and nonnegative")
         if (
             not frame["adj_factor"].map(math.isfinite).all()
@@ -260,7 +258,6 @@ def normalise_bundle_table(table: str, frame: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"bundle_schema_frame: table={table!r} must be a DataFrame")
 
     schema = TABLE_SCHEMAS[table]
-    actual = list(frame.columns)
     missing = [column for column in schema if column not in frame.columns]
     extra = [column for column in frame.columns if column not in schema]
     if missing or extra:
@@ -274,9 +271,7 @@ def normalise_bundle_table(table: str, frame: pd.DataFrame) -> pd.DataFrame:
         if dtype == "date":
             out[column] = _normalise_date(values, table=table, column=column)
         elif dtype == "aware_datetime":
-            out[column] = _normalise_aware_datetime(
-                values, table=table, column=column
-            )
+            out[column] = _normalise_aware_datetime(values, table=table, column=column)
         elif dtype == "float64":
             out[column] = _normalise_float(values, table=table, column=column)
         elif dtype == "int64":
@@ -310,7 +305,9 @@ def _manifest_object(value: object, *, path: str) -> object:
             if type(key) is not str:
                 raise ValueError(f"bundle_manifest_value: non-string key at {path}")
             if _SENSITIVE_KEY.search(key):
-                raise ValueError(f"bundle_manifest_sensitive: forbidden key {path}.{key}")
+                raise ValueError(
+                    f"bundle_manifest_sensitive: forbidden key {path}.{key}"
+                )
             result[key] = _manifest_object(child, path=f"{path}.{key}")
         return result
     if isinstance(value, (list, tuple)):
@@ -339,7 +336,7 @@ def _safe_directory(directory: str | Path, *, create: bool) -> Path:
     return path
 
 
-def _write_parquet_atomic(frame: pd.DataFrame, path: Path) -> None:
+def _stage_parquet(frame: pd.DataFrame, path: Path) -> Path:
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -350,8 +347,29 @@ def _write_parquet_atomic(frame: pd.DataFrame, path: Path) -> None:
         ) as handle:
             temporary = Path(handle.name)
         frame.to_parquet(temporary, index=False)
-        temporary.replace(path)
+        result = temporary
         temporary = None
+        return result
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _stage_manifest(payload: bytes, directory: Path) -> Path:
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=directory,
+            prefix=".manifest.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(payload)
+            handle.flush()
+            temporary = Path(handle.name)
+        result = temporary
+        temporary = None
+        return result
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -367,8 +385,32 @@ def write_bundle(
     inputs: Mapping[str, object] | None = None,
     provenance: Mapping[str, object] | None = None,
 ) -> PanelBundle:
-    """Normalize and atomically publish a deterministic version-1 bundle."""
+    """Publish a deterministic bundle, or return an identical valid generation."""
     path = _safe_directory(directory, create=True)
+    clean_inputs = _manifest_object(inputs or {}, path="inputs")
+    clean_provenance = _manifest_object(provenance or {}, path="provenance")
+
+    manifest_path = path / "manifest.json"
+    if manifest_path.exists() or manifest_path.is_symlink():
+        existing = read_bundle(path)
+        if (
+            existing.manifest["inputs"] != clean_inputs
+            or existing.manifest["provenance"] != clean_provenance
+        ):
+            raise ValueError("bundle_input_mismatch: existing inputs/provenance differ")
+        return existing
+
+    existing_tables = [
+        filename
+        for filename in TABLE_FILES.values()
+        if (path / filename).exists() or (path / filename).is_symlink()
+    ]
+    if existing_tables:
+        raise ValueError(
+            "bundle_manifest_missing: refusing to replace unclaimed tables "
+            f"{existing_tables!r}"
+        )
+
     frames = {
         "bars": bars,
         "universes": universes,
@@ -376,73 +418,55 @@ def write_bundle(
         "roll_fills": roll_fills,
     }
     normalised = {
-        table: normalise_bundle_table(table, frame)
-        for table, frame in frames.items()
+        table: normalise_bundle_table(table, frame) for table, frame in frames.items()
     }
-    clean_inputs = _manifest_object(inputs or {}, path="inputs")
-    clean_provenance = _manifest_object(provenance or {}, path="provenance")
 
-    manifest_path = path / "manifest.json"
-    if manifest_path.exists() or manifest_path.is_symlink():
-        existing = _read_manifest(path)
-        if (
-            existing["inputs"] != clean_inputs
-            or existing["provenance"] != clean_provenance
-        ):
-            raise ValueError(
-                "bundle_manifest_mismatch: existing inputs/provenance differ"
-            )
-
-    table_manifest: dict[str, dict[str, str]] = {}
-    for table, filename in TABLE_FILES.items():
-        table_path = path / filename
-        if table_path.is_symlink():
-            raise ValueError(f"bundle_table_path_invalid: {table_path}")
-        _write_parquet_atomic(normalised[table], table_path)
-        table_manifest[table] = {
-            "filename": filename,
-            "sha256": _sha256(table_path),
-        }
-
-    manifest: dict[str, object] = {
-        "bundle_version": BUNDLE_VERSION,
-        "inputs": clean_inputs,
-        "provenance": clean_provenance,
-        "tables": table_manifest,
-    }
-    payload = (
-        json.dumps(
-            manifest,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        + "\n"
-    ).encode("utf-8")
-
-    temporary: Path | None = None
+    staged: dict[str, Path] = {}
+    manifest_temporary: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            dir=path,
-            prefix=".manifest.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            handle.write(payload)
-            handle.flush()
-            temporary = Path(handle.name)
-        temporary.replace(path / "manifest.json")
-        temporary = None
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+        table_manifest: dict[str, dict[str, str]] = {}
+        for table, filename in TABLE_FILES.items():
+            temporary = _stage_parquet(normalised[table], path / filename)
+            staged[table] = temporary
+            table_manifest[table] = {
+                "filename": filename,
+                "sha256": _sha256(temporary),
+            }
 
-    return PanelBundle(manifest=manifest, **normalised)
+        manifest: dict[str, object] = {
+            "bundle_version": BUNDLE_VERSION,
+            "inputs": clean_inputs,
+            "provenance": clean_provenance,
+            "tables": table_manifest,
+        }
+        payload = (
+            json.dumps(
+                manifest,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        manifest_temporary = _stage_manifest(payload, path)
+
+        for table, filename in TABLE_FILES.items():
+            staged[table].replace(path / filename)
+            del staged[table]
+        manifest_temporary.replace(manifest_path)
+        manifest_temporary = None
+        return PanelBundle(manifest=manifest, **normalised)
+    finally:
+        for temporary in staged.values():
+            temporary.unlink(missing_ok=True)
+        if manifest_temporary is not None:
+            manifest_temporary.unlink(missing_ok=True)
 
 
 def _read_manifest(path: Path) -> dict[str, object]:
     manifest_path = path / "manifest.json"
+
     if manifest_path.is_symlink() or not manifest_path.is_file():
         raise ValueError(f"bundle_manifest_missing: {manifest_path}")
     try:
