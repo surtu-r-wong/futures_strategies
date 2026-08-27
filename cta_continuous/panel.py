@@ -370,15 +370,19 @@ def build_panel(
             multiplier = multipliers[symbol]
 
             product = candidate.product
+            continuity_segment = int(continuity_segment_by_key[key])
             waiting = pending.pop(product, None)
             if waiting is not None:
-                rows[waiting]["fill_price"] = resolve_pending_fill(
-                    frame,
-                    slots=context.slots,
-                    contract=symbol,
-                    multiplier=multiplier,
-                    pricing_basis=basis,
-                )
+                if rows[waiting]["continuity_segment"] == continuity_segment:
+                    rows[waiting]["fill_price"] = resolve_pending_fill(
+                        frame,
+                        slots=context.slots,
+                        contract=symbol,
+                        multiplier=multiplier,
+                        pricing_basis=basis,
+                    )
+                else:
+                    rows[waiting]["fill_price"] = None
                 rows[waiting]["fill_pending"] = False
                 rows[waiting]["fill_unpriceable"] = rows[waiting]["fill_price"] is None
 
@@ -392,7 +396,7 @@ def build_panel(
                 product=product,
                 trade_date=candidate.trade_date,
                 adj_factor=adjustment_factor_by_key[key],
-                continuity_segment=int(continuity_segment_by_key[key]),
+                continuity_segment=continuity_segment,
             )
             rows.extend(day_rows)
             pending[product] = len(rows) - 1

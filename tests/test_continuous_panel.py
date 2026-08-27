@@ -226,12 +226,13 @@ class _FakeSource:
             yield pd.concat(frames, ignore_index=True)
 
 
-def _panel():
+def _panel(segments=None):
     rules = [_day_only_rule()]
     contexts = build_contexts(_choices(), rules=rules)
     source = _FakeSource(contexts)
     factors = {key: 1.0 + index for index, key in enumerate(sorted(contexts))}
-    segments = {key: index for index, key in enumerate(sorted(contexts))}
+    if segments is None:
+        segments = {key: 0 for key in contexts}
     return contexts, build_panel(
         contexts=contexts,
         source=source,
@@ -322,6 +323,25 @@ def test_a_pending_fill_is_resolved_from_the_products_next_session():
     assert last_of_day_two["fill_price"] == pytest.approx(expected)
 
 
+def test_a_pending_fill_stops_at_a_continuity_segment_break():
+    segments = {
+        (day, "RB"): index
+        for index, day in enumerate(DAYS[1:])
+    }
+    _, panel = _panel(segments=segments)
+
+    old_segment_last = panel.loc[
+        panel["trade_date"] == pd.Timestamp(DAYS[1])
+    ].iloc[-1]
+    assert bool(old_segment_last["fill_pending"]) is False
+    assert pd.isna(old_segment_last["fill_price"])
+    assert bool(old_segment_last["fill_unpriceable"]) is True
+
+    new_segment = panel.loc[panel["trade_date"] == pd.Timestamp(DAYS[2])]
+    assert not new_segment.empty
+    assert set(new_segment["continuity_segment"]) == {1}
+
+
 def test_the_final_bar_of_the_whole_panel_stays_pending():
     """最后一天之后没有下一时段，那一根只能挂着 —— 不许拿别的价顶上。"""
     _, panel = _panel()
@@ -351,7 +371,11 @@ def test_panel_carries_the_product_days_adjustment_factor():
 
 
 def test_panel_carries_the_product_days_continuity_segment():
-    contexts, panel = _panel()
+    segments = {
+        (day, "RB"): index
+        for index, day in enumerate(DAYS[1:])
+    }
+    contexts, panel = _panel(segments=segments)
     observed = (
         panel[["trade_date", "product", "continuity_segment"]]
         .drop_duplicates()
