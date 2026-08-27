@@ -108,12 +108,19 @@ def main(argv: list[str] | None = None) -> int:
         ].itertuples(index=False, name=None)
     }
     factor_rows = adjustment_factors(choices, closes=closes)
+    segment_by_key = {
+        (row.trade_date, row.product): int(row.continuity_segment)
+        for row in factor_rows.itertuples(index=False)
+    }
+    segment_total = factor_rows[["product", "continuity_segment"]].drop_duplicates().shape[0]
+    break_total = segment_total - factor_rows["product"].nunique()
     factor_by_key = {
         (row.trade_date, row.product): float(row.adj_factor)
         for row in factor_rows.itertuples(index=False)
     }
     print(
-        f"全历史主力 {len(choices):,} 个品种日，后复权因子 {len(factor_by_key):,} 个",
+        f"全历史主力 {len(choices):,} 个品种日，后复权因子 {len(factor_by_key):,} 个，"
+        f"连续段 {segment_total:,}，断代 {break_total:,}",
         flush=True,
     )
 
@@ -176,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
             adjustment_factor_by_key={
                 key: factor_by_key[key] for key in contexts
             },
+            continuity_segment_by_key={key: segment_by_key[key] for key in contexts},
         )
         panel.to_parquet(shard, index=False)
         print(
