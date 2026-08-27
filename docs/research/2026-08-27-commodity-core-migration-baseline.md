@@ -43,7 +43,7 @@ The reviewed behavior anchors were:
   minute fills, cross-session pending-fill resolution, pricing-basis audit,
   per-product-day adjustment factors, and normalized Parquet-safe dtypes.
 
-## Deterministic smoke artifact
+## Frozen observed smoke artifact
 
 The requested direct command was run first:
 
@@ -66,6 +66,7 @@ without copying or printing credentials and supplied an explicit factor of
 `build_session_bars` default:
 
 ```bash
+mkdir -p output/continuous
 PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -u -c '
 import importlib.util
 from pathlib import Path
@@ -106,7 +107,17 @@ PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python -c \
 git rev-parse HEAD
 ```
 
-Sorted baseline result:
+For this fixed Parquet artifact, sorting by `product` and `slot_end`, resetting
+the index, serializing with `to_csv(index=False)`, and hashing those bytes is a
+deterministic procedure. The recorded value is therefore a frozen observation
+of that artifact, not a claim that commit `97b66f8` can reproduce the upstream
+panel by itself. The smoke read through ignored, machine-specific settings from
+a mutable live PostgreSQL dataset; neither those settings nor the queried data
+snapshot is versioned or immutable here. A future digest mismatch alone cannot
+distinguish source-data drift from a behavior change introduced by the
+migration.
+
+Frozen observed baseline result:
 
 ```text
 rows:   4341
