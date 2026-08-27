@@ -200,11 +200,12 @@ class SessionContext:
 def context_choices_for_month(
     choices: Sequence[object], *, month_start: date
 ) -> tuple[object, ...]:
-    """保留当月选择，并为每个品种附上紧邻当月的一个前态。
+    """只保留目标月选择，并按交易日、品种确定性排序。
 
     主力选择可以用更长历史预热不可逆展期链；时段上下文却只应解析目标月。
-    前态只用于给当月首个交易日提供 ``previous_trade_date``，更早选择不得进入
-    ``build_contexts``，否则会要求当前策略根本不交易的旧品种日也具备时段规则。
+    生产 ``DominantChoice`` 已用 ``selected_from`` 携带每个选择的因果前态，因此无需
+    再把上月选择送进 ``build_contexts``；这样也不会要求策略不交易的旧品种日具备
+    时段规则。
     """
     if type(month_start) is not date or month_start.day != 1:
         raise ValueError(
@@ -216,15 +217,13 @@ def context_choices_for_month(
         month_start.month % 12 + 1,
         1,
     )
-    predecessor_by_product: dict[str, object] = {}
-    current: list[object] = []
-    for choice in sorted(choices, key=lambda item: (item.trade_date, item.product)):
-        if choice.trade_date < month_start:
-            predecessor_by_product[choice.product] = choice
-        elif choice.trade_date < month_end:
-            current.append(choice)
-    selected = [*predecessor_by_product.values(), *current]
-    return tuple(sorted(selected, key=lambda item: (item.trade_date, item.product)))
+    return tuple(
+        choice
+        for choice in sorted(
+            choices, key=lambda item: (item.trade_date, item.product)
+        )
+        if month_start <= choice.trade_date < month_end
+    )
 
 
 def build_contexts(

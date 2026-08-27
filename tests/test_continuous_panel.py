@@ -464,29 +464,50 @@ def test_context_after_a_dominant_gap_uses_its_causal_source_session():
     assert contexts[(resumed.trade_date, "RB")].slots[0].date() == date(2024, 3, 8)
 
 
-def test_month_context_choices_keep_only_the_last_predecessor_per_product():
-    """预热主力链只提供前态；不得让旧月份去解析本月策略并不需要的时段规则。"""
+def test_a_single_target_month_choice_uses_selected_from_without_a_predecessor():
+    selected_from = date(2022, 12, 30)
+    current = DominantChoice(
+        date(2023, 1, 3), "RB", "RB2305.SHF", 1, 1, selected_from
+    )
+    night_rule = SessionRule(
+        exchange="SHFE",
+        product="RB",
+        effective_start=date(2020, 1, 1),
+        effective_end=None,
+        segments=(
+            SessionSegment(-180, -120),
+            *_day_only_rule().segments,
+        ),
+        version="commodity-v1",
+    )
+
+    contexts = build_contexts((current,), rules=[night_rule])
+
+    context = contexts[(current.trade_date, "RB")]
+    assert context.slots[0].date() == selected_from
+
+
+def test_month_context_choices_keep_only_sorted_target_month_choices():
+    """预热主力链不得让旧月份去解析目标月不需要的时段规则。"""
     old = date(2022, 1, 6)
     predecessor = date(2022, 12, 30)
     current = date(2023, 1, 3)
     choices = [
         DominantChoice(old, "LU", "LU2205.INE", 1, 1, old),
         DominantChoice(predecessor, "LU", "LU2303.INE", 1, 1, predecessor),
-        DominantChoice(current, "LU", "LU2303.INE", 1, 1, current),
+        DominantChoice(current, "LU", "LU2303.INE", 1, 1, predecessor),
         DominantChoice(predecessor, "RB", "RB2305.SHF", 1, 1, predecessor),
-        DominantChoice(current, "RB", "RB2305.SHF", 1, 1, current),
+        DominantChoice(current, "RB", "RB2305.SHF", 1, 1, predecessor),
     ]
 
     selected = continuous_panel.context_choices_for_month(
         choices, month_start=date(2023, 1, 1)
     )
 
-    assert {(choice.trade_date, choice.product) for choice in selected} == {
-        (predecessor, "LU"),
-        (predecessor, "RB"),
+    assert [(choice.trade_date, choice.product) for choice in selected] == [
         (current, "LU"),
         (current, "RB"),
-    }
+    ]
 
 
 def test_panel_round_trips_through_parquet(tmp_path):
