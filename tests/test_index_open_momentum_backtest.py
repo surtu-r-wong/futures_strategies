@@ -86,15 +86,18 @@ _LONG_THEN_BREAK = [
     Bar(open=4030.0, high=4032.0, low=3960.0, close=3970.0),  # 收盘 3970 < 4040-2.5*20=3990
     Bar(open=3970.0, high=3975.0, low=3950.0, close=3955.0),
     Bar(open=3955.0, high=3960.0, low=3940.0, close=3945.0),
+    # ⚠️ 收尾 bar：复刻假设⑪规定**当日最后一根不判减仓**（其后没有 5 分钟成交窗）。
+    # 补这一根，是为了让上面几根仍然是"中途"的 bar，被测的减仓机制不受影响。
+    Bar(open=3945.0, high=3948.0, low=3942.0, close=3946.0),
 ]
-_ATR_7 = [None, None, None, 20.0, 20.0, 20.0, 20.0]
+_ATR_7 = [None, None, None, 20.0, 20.0, 20.0, 20.0, 20.0]
 
 
 def test_one_stop_takes_out_a_third_and_the_rest_still_goes_overnight():
     prices = {2: 4000.0, 4: 3965.0}
     result = simulate_session(
-        bars=_LONG_THEN_BREAK[:5],
-        atr_at=_ATR_7[:5],
+        bars=_LONG_THEN_BREAK[:6],
+        atr_at=_ATR_7[:6],
         fill_price=lambda i: prices[i],
         next_session_open=3980.0,
     )
@@ -131,6 +134,8 @@ _BOTH_FAMILIES = [
     Bar(open=4016.0, high=4080.0, low=4011.0, close=4025.0),
     Bar(open=4026.0, high=4070.0, low=4021.0, close=4035.0),
     Bar(open=4036.0, high=4060.0, low=4031.0, close=3900.0),
+    # 收尾 bar，同上：让第 4 根仍是"中途"的（复刻假设⑪）。
+    Bar(open=3900.0, high=3905.0, low=3898.0, close=3902.0),
 ]
 # open/low/close 前三根严格递增 → 多头；同时 high 4100>4090>4080>4070>4060 五根严格递减
 # 第 4 根（index 4）：反向止损成立，且收盘 3900 < 入场后最高 4070 - 2.5*20 = 4020 → 吊灯也成立
@@ -198,3 +203,43 @@ def test_the_opening_bars_own_extremes_do_not_belong_to_the_position():
     )
     assert [f.kind for f in result.fills] == [FillKind.ENTRY, FillKind.OVERNIGHT_EXIT]
     assert result.carried_overnight == pytest.approx(1.0)
+
+
+# --------------------------------------------------------------------------
+# 当日最后一根不判减仓
+# --------------------------------------------------------------------------
+
+
+def test_no_scale_down_is_taken_on_the_final_bar_of_the_session():
+    """⚠️ 复刻假设⑪：最后一根之后**没有**5 分钟成交窗，减仓无从计价。
+
+    研报的减仓一律按"信号后 5 分钟 VWAP"成交；当日最后一根没有那个窗口。
+    而剩余仓位本来就会被日末规则（空头收盘平 / 多头留隔夜）处理掉，所以在
+    最后一根上再减一档是多余的，且只能拿一个**不存在**的价去成交。
+
+    这条是端到端真跑炸出来的：2016-01-11 的 IF 主力在第 15 根（当日最后一根）
+    触发了吊灯止损。
+    """
+    from index_open_momentum.backtest import FillKind, simulate_session
+    from index_open_momentum.types import Bar
+
+    bars = [
+        Bar(open=4000.0 + i, high=4005.0 + i, low=3999.0 + i, close=4002.0 + i)
+        for i in range(3)
+    ]
+    # 最后一根暴跌，足以击穿吊灯
+    bars.append(Bar(open=4003.0, high=4004.0, low=3000.0, close=3000.0))
+    atr = [None, None, 10.0, 10.0]
+
+    asked: list[int] = []
+
+    def fill_price(index):
+        asked.append(index)
+        return bars[index].close
+
+    result = simulate_session(
+        bars=bars, atr_at=atr, fill_price=fill_price, next_session_open=4100.0
+    )
+
+    assert [f.kind for f in result.fills if f.kind is FillKind.SCALE_DOWN] == []
+    assert 3 not in asked  # 从没向最后一根要过成交价
