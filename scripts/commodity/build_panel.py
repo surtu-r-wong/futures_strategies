@@ -524,6 +524,152 @@ class DigestingMinuteSource:
         return hashlib.sha256(encoded).hexdigest()
 
 
+class DigestingMultiplierResolver:
+    """Fingerprint effective multipliers by contract and consuming purpose."""
+
+    def __init__(
+        self,
+        resolver,
+        *,
+        pricing_basis_by_exchange: Mapping[str, str],
+    ) -> None:
+        self._resolver = resolver
+        self._pricing_basis_by_exchange = dict(pricing_basis_by_exchange)
+        self._phase: str | None = None
+        self._entries: dict[str, dict[str, object]] = {}
+
+    def set_phase(self, phase: str) -> None:
+        if phase not in {"roll_fills", "bars"}:
+            raise ValueError(f"panel_multiplier_provenance_phase: {phase!r}")
+        self._phase = phase
+
+    def __call__(self, candidate, frame) -> int:
+        if self._phase is None:
+            raise ValueError("panel_multiplier_provenance_phase: phase must be set")
+        resolved = self._resolver(candidate, frame)
+        if isinstance(resolved, bool) or not isinstance(resolved, Integral):
+            raise ValueError(
+                "panel_multiplier_provenance_value: multiplier must be an integer"
+            )
+        multiplier = int(resolved)
+        if multiplier <= 0:
+            raise ValueError(
+                "panel_multiplier_provenance_value: multiplier must be positive"
+            )
+        purpose = "bar" if self._phase == "bars" else candidate.candidate_role
+        entry: dict[str, object] = {
+            "purpose": purpose,
+            "product": candidate.product,
+            "daily_contract": candidate.daily_contract,
+            "minute_symbol": candidate.minute_symbol,
+            "exchange": candidate.exchange,
+            "trade_date": candidate.trade_date.isoformat(),
+            "window_start": candidate.window_start.isoformat(),
+            "window_end": candidate.window_end.isoformat(),
+            "pricing_basis": self._pricing_basis_by_exchange.get(
+                candidate.exchange, "amount_vwap"
+            ),
+            "resolved_multiplier": multiplier,
+        }
+        identity = json.dumps(
+            {
+                key: value
+                for key, value in entry.items()
+                if key != "resolved_multiplier"
+            },
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        previous = self._entries.get(identity)
+        if previous is not None and previous != entry:
+            raise ValueError(
+                "panel_multiplier_provenance_conflict: "
+                f"purpose={purpose!r} contract={candidate.daily_contract!r}"
+            )
+        self._entries[identity] = entry
+        return multiplier
+
+    @property
+    def multiplier_resolutions_sha256(self) -> str:
+        resolutions = sorted(
+            self._entries.values(),
+            key=lambda entry: json.dumps(
+                entry,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
+        payload = json.dumps(
+            {
+                "version": 1,
+                "resolutions": resolutions,
+            },
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    def assert_complete(self, *, bars: pd.DataFrame, roll_fills: pd.DataFrame) -> None:
+        recorded_bars = {
+            (str(entry["minute_symbol"]), int(entry["resolved_multiplier"]))
+            for entry in self._entries.values()
+            if entry["purpose"] == "bar"
+        }
+        missing: list[str] = []
+        if not bars.empty:
+            required = {"contract", "multiplier"}
+            if not required.issubset(bars.columns):
+                missing.append("bars_schema")
+            else:
+                used_bars = {
+                    (str(contract), int(multiplier))
+                    for contract, multiplier in bars.loc[
+                        :, ["contract", "multiplier"]
+                    ].itertuples(index=False, name=None)
+                }
+                missing.extend(
+                    f"bar:{contract}:{multiplier}"
+                    for contract, multiplier in sorted(used_bars - recorded_bars)
+                )
+
+        recorded_rolls = {
+            (
+                str(entry["trade_date"]),
+                str(entry["daily_contract"]),
+                str(entry["purpose"]),
+            )
+            for entry in self._entries.values()
+            if entry["purpose"] in {"roll_old", "roll_new"}
+        }
+        if not roll_fills.empty:
+            required = {"trade_date", "old_contract", "new_contract"}
+            if not required.issubset(roll_fills.columns):
+                missing.append("roll_fills_schema")
+            else:
+                for trade_date, old_contract, new_contract in roll_fills.loc[
+                    :, ["trade_date", "old_contract", "new_contract"]
+                ].itertuples(index=False, name=None):
+                    date_key = pd.Timestamp(trade_date).date().isoformat()
+                    for contract, purpose in (
+                        (old_contract, "roll_old"),
+                        (new_contract, "roll_new"),
+                    ):
+                        key = (date_key, str(contract), purpose)
+                        if key not in recorded_rolls:
+                            missing.append(":".join(key))
+        if missing:
+            raise ValueError(
+                "panel_multiplier_provenance_missing: "
+                f"used_without_resolution={sorted(missing)!r}"
+            )
+
+
 def _contract_changed(previous, current) -> bool:
     old_product, old_symbol, old_exchange = minute_contract_identity(
         previous.contract, current.trade_date
@@ -860,25 +1006,33 @@ def main(argv: list[str] | None = None) -> int:
             multiplier_cache[key] = resolution.multiplier
         return multiplier_cache[key]
 
+    multiplier_resolver = DigestingMultiplierResolver(
+        resolve_multiplier,
+        pricing_basis_by_exchange=basis_by_exchange,
+    )
+
     source.set_phase("roll_fills")
+    multiplier_resolver.set_phase("roll_fills")
     roll_fills = build_roll_fills(
         choices=choices,
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange=basis_by_exchange,
-        multiplier_resolver=resolve_multiplier,
+        multiplier_resolver=multiplier_resolver,
     )
     source.set_phase("bars")
+    multiplier_resolver.set_phase("bars")
     raw_bars = build_panel(
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange=basis_by_exchange,
-        multiplier_resolver=resolve_multiplier,
+        multiplier_resolver=multiplier_resolver,
         adjustment_factor_by_key={key: factor_by_key[key] for key in contexts},
     )
     bars = adjust_signal_bars(raw_bars)
     universes = _universe_frame(products_by_month)
     dominants = _dominant_frame(choices, contexts=contexts, factor_by_key=factor_by_key)
+    multiplier_resolver.assert_complete(bars=bars, roll_fills=roll_fills)
 
     audit = source.audit
     source_revision = _source_revision()
@@ -905,6 +1059,9 @@ def main(argv: list[str] | None = None) -> int:
             "minute_candidates_sha256": _contexts_sha256(contexts),
             "minute_content_sha256": source.minute_content_sha256,
             "minute_request_digests": source.minute_request_digests,
+            "multiplier_resolutions_sha256": (
+                multiplier_resolver.multiplier_resolutions_sha256
+            ),
             "effective_config_sha256": effective_config_sha256,
         },
         provenance={

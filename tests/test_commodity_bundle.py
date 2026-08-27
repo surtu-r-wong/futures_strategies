@@ -21,11 +21,15 @@ from common.commodity.bundle import (  # noqa: E402
     read_bundle,
     write_bundle,
 )
-from common.commodity.panel import build_contexts  # noqa: E402
+from common.commodity.panel import (  # noqa: E402
+    build_contexts,
+    build_panel as build_commodity_panel,
+)
 from common.dominant import DominantChoice  # noqa: E402
 from common.minute.sessions import SessionRule  # noqa: E402
 from scripts.commodity.build_panel import (  # noqa: E402
     DigestingMinuteSource,
+    DigestingMultiplierResolver,
     _effective_config_sha256,
     _roll_candidate,
     _source_revision,
@@ -898,3 +902,86 @@ def test_source_revision_hashes_all_production_python_without_emitting_contents(
     emitted = json.dumps(first, sort_keys=True)
     assert "SENTINEL" not in emitted
     assert str(dependency) not in emitted
+
+
+def _bar_multiplier_digest(multiplier):
+    choice = _roll_choices()[1]
+    contexts = build_contexts(
+        [choice],
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(choice.trade_date, choice.product)]
+    source = _RollSource(context.slots, {choice.contract: 200.0})
+    resolver = DigestingMultiplierResolver(
+        lambda candidate, frame: multiplier,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+    )
+    resolver.set_phase("bars")
+    bars = build_commodity_panel(
+        contexts=contexts,
+        source=source,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+        multiplier_resolver=resolver,
+        adjustment_factor_by_key={(choice.trade_date, choice.product): 1.0},
+    )
+    resolver.assert_complete(bars=bars, roll_fills=pd.DataFrame())
+    assert not bars.empty
+    return resolver.multiplier_resolutions_sha256
+
+
+def test_bar_multiplier_resolution_changes_provenance_with_same_minutes():
+    assert _bar_multiplier_digest(10) != _bar_multiplier_digest(11)
+
+
+def _roll_multiplier_digest(old_multiplier, new_multiplier):
+    choices = _roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(ROLL_DATES[1], "RB")]
+    source = _RollSource(
+        context.slots,
+        {"RB2405.SHF": 100.0, "RB2410.SHF": 200.0},
+    )
+    multipliers = {
+        "RB2405.SHF": old_multiplier,
+        "RB2410.SHF": new_multiplier,
+    }
+    resolver = DigestingMultiplierResolver(
+        lambda candidate, frame: multipliers[candidate.daily_contract],
+        pricing_basis_by_exchange={"SHFE": "ohlc_typical"},
+    )
+    resolver.set_phase("roll_fills")
+    fills = build_roll_fills(
+        choices=choices,
+        contexts=contexts,
+        source=source,
+        pricing_basis_by_exchange={"SHFE": "ohlc_typical"},
+        multiplier_resolver=resolver,
+    )
+    resolver.assert_complete(bars=pd.DataFrame(), roll_fills=fills)
+    return resolver.multiplier_resolutions_sha256
+
+
+def test_each_roll_leg_multiplier_changes_provenance_with_same_minutes():
+    original = _roll_multiplier_digest(10, 10)
+
+    assert original != _roll_multiplier_digest(11, 10)
+    assert original != _roll_multiplier_digest(10, 11)
+
+
+def test_multiplier_provenance_fails_when_a_used_contract_was_not_recorded(
+    bundle_frames,
+):
+    resolver = DigestingMultiplierResolver(
+        lambda candidate, frame: 10,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+    )
+    resolver.set_phase("bars")
+
+    with pytest.raises(ValueError, match="panel_multiplier_provenance_missing"):
+        resolver.assert_complete(
+            bars=bundle_frames["bars"],
+            roll_fills=bundle_frames["roll_fills"],
+        )
