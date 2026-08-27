@@ -1,13 +1,13 @@
 """Build the shared, versioned commodity panel bundle.
 
-The signal bars are back-adjusted. Every cached execution price, including the
-two legs of a dominant roll, remains a raw concrete-contract price.
+Cached OHLC and every execution price are raw concrete-contract values.
+Signal consumers apply the cached adjustment factor exactly once.
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
 from datetime import date, datetime, timedelta
 import hashlib
 import io
@@ -276,6 +276,18 @@ _CREDENTIAL_KEY = re.compile(
     r"dsn|user(?:name)?)",
     re.IGNORECASE,
 )
+_CREDENTIAL_VALUE = (
+    re.compile(r"[a-z][a-z0-9+.-]*://[^/@:\s]+:[^/@\s]+@", re.IGNORECASE),
+    re.compile(
+        r"(?:password|passwd|secret|token|api[_-]?key|private[_-]?key)"
+        r"\s*[:=]\s*\S+",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:\bBearer\s+\S{12,}|\bsk-[A-Za-z0-9_-]{16,})",
+        re.IGNORECASE,
+    ),
+)
 _MINUTE_DIGEST_COLUMNS = (
     "trade_date",
     "product",
@@ -304,7 +316,11 @@ def _safe_config_value(value: object) -> object:
         }
     if isinstance(value, (list, tuple)):
         return [_safe_config_value(child) for child in value]
-    if value is None or type(value) in (str, int, bool):
+    if type(value) is str:
+        if any(pattern.search(value) for pattern in _CREDENTIAL_VALUE):
+            return None
+        return value
+    if value is None or type(value) in (int, bool):
         return value
     if type(value) is float:
         if not pd.notna(value) or value in (float("inf"), float("-inf")):
@@ -400,7 +416,8 @@ def _minute_scalar_bytes(column: str, value: object) -> bytes:
     )
 
 
-def _minute_row_payloads(frame: pd.DataFrame) -> list[bytes]:
+def _minute_row_payloads(frame: pd.DataFrame):
+    """Yield exact row encodings without retaining bytes proportional to rows."""
     missing = set(_MINUTE_DIGEST_COLUMNS) - set(frame.columns)
     if missing:
         raise ValueError(f"panel_minute_digest_columns: missing={sorted(missing)!r}")
@@ -409,15 +426,30 @@ def _minute_row_payloads(frame: pd.DataFrame) -> list[bytes]:
         for column in _MINUTE_DIGEST_COLUMNS
     )
     rows = frame.loc[:, _MINUTE_DIGEST_COLUMNS].itertuples(index=False, name=None)
-    return [
-        schema
-        + b"R"
-        + b"".join(
-            _minute_scalar_bytes(column, value)
-            for column, value in zip(_MINUTE_DIGEST_COLUMNS, row, strict=True)
+    for row in rows:
+        yield (
+            schema
+            + b"R"
+            + b"".join(
+                _minute_scalar_bytes(column, value)
+                for column, value in zip(_MINUTE_DIGEST_COLUMNS, row, strict=True)
+            )
         )
-        for row in rows
-    ]
+
+
+def _minute_frame_evidence(frame: pd.DataFrame) -> dict[str, object]:
+    """Return a bounded-memory, row-order-neutral exact typed frame digest."""
+    row_count = 0
+    row_digest_sum = 0
+    for payload in _minute_row_payloads(frame):
+        row_count += 1
+        row_digest_sum = (
+            row_digest_sum + int.from_bytes(hashlib.sha256(payload).digest(), "big")
+        ) % _DIGEST_MODULUS
+    return {
+        "rows": row_count,
+        "row_digest_sum": f"{row_digest_sum:064x}",
+    }
 
 
 class DigestingMinuteSource:
@@ -478,9 +510,8 @@ class DigestingMinuteSource:
         row_digest_sum = 0
         try:
             for frame in self._source.iter_month(candidate_stream, lower, upper):
-                lines = _minute_row_payloads(frame)
-                row_count += len(lines)
-                for line in lines:
+                for line in _minute_row_payloads(frame):
+                    row_count += 1
                     row_digest_sum = (
                         row_digest_sum
                         + int.from_bytes(hashlib.sha256(line).digest(), "big")
@@ -525,7 +556,7 @@ class DigestingMinuteSource:
 
 
 class DigestingMultiplierResolver:
-    """Fingerprint effective multipliers by contract and consuming purpose."""
+    """Fingerprint complete multiplier resolutions and their exact evidence."""
 
     def __init__(
         self,
@@ -547,11 +578,31 @@ class DigestingMultiplierResolver:
         if self._phase is None:
             raise ValueError("panel_multiplier_provenance_phase: phase must be set")
         resolved = self._resolver(candidate, frame)
-        if isinstance(resolved, bool) or not isinstance(resolved, Integral):
+        if isinstance(resolved, bool):
             raise ValueError(
                 "panel_multiplier_provenance_value: multiplier must be an integer"
             )
-        multiplier = int(resolved)
+        if isinstance(resolved, Integral):
+            multiplier = int(resolved)
+            resolution_evidence: object = {
+                "kind": "direct_integer",
+                "multiplier": {"integer": str(multiplier)},
+            }
+        else:
+            try:
+                multiplier = int(resolved.multiplier)
+            except (AttributeError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    "panel_multiplier_provenance_value: resolver must return an "
+                    "integer or an audited resolution"
+                ) from exc
+            if isinstance(resolved.multiplier, bool) or (
+                not isinstance(resolved.multiplier, Integral)
+            ):
+                raise ValueError(
+                    "panel_multiplier_provenance_value: multiplier must be an integer"
+                )
+            resolution_evidence = _canonical_resolution_evidence(resolved)
         if multiplier <= 0:
             raise ValueError(
                 "panel_multiplier_provenance_value: multiplier must be positive"
@@ -570,6 +621,10 @@ class DigestingMultiplierResolver:
                 candidate.exchange, "amount_vwap"
             ),
             "resolved_multiplier": multiplier,
+            "resolution_evidence": resolution_evidence,
+            # The production metadata resolver receives this same exact frame
+            # for both validation and inference; record it once explicitly.
+            "validation_and_inference_frame": _minute_frame_evidence(frame),
         }
         identity = json.dumps(
             {
@@ -617,25 +672,35 @@ class DigestingMultiplierResolver:
 
     def assert_complete(self, *, bars: pd.DataFrame, roll_fills: pd.DataFrame) -> None:
         recorded_bars = {
-            (str(entry["minute_symbol"]), int(entry["resolved_multiplier"]))
+            (
+                str(entry["trade_date"]),
+                str(entry["daily_contract"]),
+                int(entry["resolved_multiplier"]),
+            )
             for entry in self._entries.values()
             if entry["purpose"] == "bar"
         }
         missing: list[str] = []
         if not bars.empty:
-            required = {"contract", "multiplier"}
+            required = {"trade_date", "contract", "multiplier"}
             if not required.issubset(bars.columns):
                 missing.append("bars_schema")
             else:
                 used_bars = {
-                    (str(contract), int(multiplier))
-                    for contract, multiplier in bars.loc[
-                        :, ["contract", "multiplier"]
+                    (
+                        pd.Timestamp(trade_date).date().isoformat(),
+                        str(contract),
+                        int(multiplier),
+                    )
+                    for trade_date, contract, multiplier in bars.loc[
+                        :, ["trade_date", "contract", "multiplier"]
                     ].itertuples(index=False, name=None)
                 }
                 missing.extend(
-                    f"bar:{contract}:{multiplier}"
-                    for contract, multiplier in sorted(used_bars - recorded_bars)
+                    f"bar:{trade_date}:{contract}:{multiplier}"
+                    for trade_date, contract, multiplier in sorted(
+                        used_bars - recorded_bars
+                    )
                 )
 
         recorded_rolls = {
@@ -668,6 +733,79 @@ class DigestingMultiplierResolver:
                 "panel_multiplier_provenance_missing: "
                 f"used_without_resolution={sorted(missing)!r}"
             )
+
+
+def _canonical_evidence_value(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return {"boolean": value}
+    if isinstance(value, Integral):
+        return {"integer": str(int(value))}
+    if isinstance(value, Real):
+        return {"float64": struct.pack(">d", float(value)).hex()}
+    if isinstance(value, datetime):
+        return {
+            "datetime": value.isoformat(),
+            "timezone_aware": value.tzinfo is not None,
+        }
+    if isinstance(value, date):
+        return {"date": value.isoformat()}
+    if isinstance(value, str):
+        return {"string": value}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_evidence_value(item) for item in value]
+    raise ValueError(
+        "panel_multiplier_provenance_evidence: unsupported returned field type "
+        f"{type(value).__name__!r}"
+    )
+
+
+def _canonical_resolution_evidence(resolution: object) -> dict[str, object]:
+    if is_dataclass(resolution) and not isinstance(resolution, type):
+        names = [field.name for field in fields(resolution)]
+    else:
+        names = [
+            "multiplier",
+            "source",
+            "sample_rows",
+            "pass_rate",
+            "sample_dates",
+            "sample_start",
+            "sample_end",
+            "max_range_error",
+        ]
+        names = [name for name in names if hasattr(resolution, name)]
+    if "multiplier" not in names:
+        raise ValueError(
+            "panel_multiplier_provenance_evidence: multiplier field is required"
+        )
+    return {
+        "type": type(resolution).__name__,
+        "fields": {
+            name: _canonical_evidence_value(getattr(resolution, name)) for name in names
+        },
+    }
+
+
+def _metadata_multiplier_resolution(
+    source,
+    pricing_basis_by_exchange: Mapping[str, str],
+    candidate,
+    frame: pd.DataFrame,
+):
+    """Resolve against this consuming call's exact validation/inference frame."""
+    if candidate.exchange not in pricing_basis_by_exchange:
+        raise ValueError(
+            f"panel_multiplier_pricing_basis_missing: exchange={candidate.exchange!r}"
+        )
+    return source.resolve_metadata_multiplier(
+        daily_contract=candidate.daily_contract,
+        trade_date=candidate.trade_date,
+        frame=frame,
+        inference_frame=frame,
+        pricing_basis=pricing_basis_by_exchange[candidate.exchange],
+    )
 
 
 def _contract_changed(previous, current) -> bool:
@@ -823,6 +961,11 @@ def build_roll_fills(
         "roll_fills",
         pd.DataFrame.from_records(records, columns=list(TABLE_SCHEMAS["roll_fills"])),
     )
+
+
+def _bundle_bars(frame: pd.DataFrame) -> pd.DataFrame:
+    """Cache raw panel OHLC; consumers apply ``adj_factor`` exactly once."""
+    return normalise_bundle_table("bars", frame)
 
 
 def adjust_signal_bars(frame: pd.DataFrame) -> pd.DataFrame:
@@ -991,20 +1134,14 @@ def main(argv: list[str] | None = None) -> int:
         PublicMinuteSource(pg=pg),
         pricing_basis_by_exchange=basis_by_exchange,
     )
-    multiplier_cache: dict[str, int] = {}
 
     def resolve_multiplier(candidate, frame):
-        key = candidate.minute_symbol
-        if key not in multiplier_cache:
-            resolution = source.resolve_metadata_multiplier(
-                daily_contract=candidate.daily_contract,
-                trade_date=candidate.trade_date,
-                frame=frame,
-                inference_frame=frame,
-                pricing_basis=pricing_basis_for(bases, candidate.exchange),
-            )
-            multiplier_cache[key] = resolution.multiplier
-        return multiplier_cache[key]
+        return _metadata_multiplier_resolution(
+            source,
+            basis_by_exchange,
+            candidate,
+            frame,
+        )
 
     multiplier_resolver = DigestingMultiplierResolver(
         resolve_multiplier,
@@ -1029,7 +1166,7 @@ def main(argv: list[str] | None = None) -> int:
         multiplier_resolver=multiplier_resolver,
         adjustment_factor_by_key={key: factor_by_key[key] for key in contexts},
     )
-    bars = adjust_signal_bars(raw_bars)
+    bars = _bundle_bars(raw_bars)
     universes = _universe_frame(products_by_month)
     dominants = _dominant_frame(choices, contexts=contexts, factor_by_key=factor_by_key)
     multiplier_resolver.assert_complete(bars=bars, roll_fills=roll_fills)

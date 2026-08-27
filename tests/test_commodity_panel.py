@@ -40,8 +40,13 @@ def _day_only_rule(exchange="SHFE", product="RB"):
 
 
 def _frame(
-    slots, *, silent=(), price=100.0, symbol=CONTRACT,
-    trade_date=None, daily_contract=None,
+    slots,
+    *,
+    silent=(),
+    price=100.0,
+    symbol=CONTRACT,
+    trade_date=None,
+    daily_contract=None,
 ):
     """替身分钟帧。
 
@@ -84,8 +89,7 @@ def test_panel_carries_oi_and_actual_fill_time(session, minute_frame):
     assert "open_interest" in PANEL_COLUMNS
     assert "fill_time" in PANEL_COLUMNS
     traded = minute_frame.loc[
-        minute_frame["bar_time"].isin(session.buckets[0])
-        & (minute_frame["volume"] > 0)
+        minute_frame["bar_time"].isin(session.buckets[0]) & (minute_frame["volume"] > 0)
     ]
     assert rows[0]["open_interest"] == traded["open_interest"].iloc[-1]
     assert pd.Timestamp(rows[0]["fill_time"]) > pd.Timestamp(rows[0]["slot_end"])
@@ -207,7 +211,11 @@ def test_czce_uses_ohlc_typical_pricing_basis(session):
     # 把 amount 做成与 OHLC 无关的假值：amount_vwap 会被它带走，ohlc_typical 不会。
     frame["amount"] = 1.0
     typical = build_session_bars(
-        frame, slots=slots, buckets=buckets, contract=CONTRACT, multiplier=10,
+        frame,
+        slots=slots,
+        buckets=buckets,
+        contract=CONTRACT,
+        multiplier=10,
         pricing_basis="ohlc_typical",
     )
     assert typical[0]["fill_price"] == pytest.approx(
@@ -232,14 +240,14 @@ def test_an_unpriceable_fill_window_yields_no_price_at_all(session):
     研报没写这种情形；面板只负责把它标出来，裁定交给回测层。
     """
     rule, slots, buckets = session.rule, session.slots, session.buckets
-    frame = _frame(slots, silent=range(15, 20))     # 第 0 根桶的成交窗整段无成交
+    frame = _frame(slots, silent=range(15, 20))  # 第 0 根桶的成交窗整段无成交
     bars = build_session_bars(
         frame, slots=slots, buckets=buckets, contract=CONTRACT, multiplier=10
     )
     assert bars[0]["fill_price"] is None
     assert bars[0]["fill_time"] == slots[19]
     assert bars[0]["fill_unpriceable"] is True
-    assert bars[0]["close"] is not None          # 这根 bar 自己是有成交的
+    assert bars[0]["close"] is not None  # 这根 bar 自己是有成交的
     assert bars[1]["fill_unpriceable"] is False  # 只影响那一根
 
 
@@ -263,8 +271,12 @@ DAYS = [date(2024, 3, 4), date(2024, 3, 5), date(2024, 3, 6)]
 def _choices(contract="RB2405.SHF"):
     return [
         DominantChoice(
-            trade_date=day, product="RB", contract=contract,
-            oi=1, volume=1, selected_from=day,
+            trade_date=day,
+            product="RB",
+            contract=contract,
+            oi=1,
+            volume=1,
+            selected_from=day,
         )
         for day in DAYS
     ]
@@ -287,7 +299,11 @@ class _FakeSource:
             frames.append(
                 _frame(
                     context.slots,
-                    silent=(range(5) if candidate.trade_date in self.silent_opening_dates else ()),
+                    silent=(
+                        range(5)
+                        if candidate.trade_date in self.silent_opening_dates
+                        else ()
+                    ),
                     price=base,
                     symbol=candidate.minute_symbol,
                     trade_date=candidate.trade_date,
@@ -348,6 +364,92 @@ def test_panel_covers_every_bucket_of_every_context():
     contexts, panel = _panel()
     expected = sum(len(context.buckets) for context in contexts.values())
     assert len(panel) == expected
+
+
+def test_panel_uses_daily_concrete_contract_ids_with_exchange_suffix():
+    _, panel = _panel()
+
+    assert set(panel["contract"]) == {"RB2405.SHF"}
+
+
+def test_panel_resolves_date_effective_multiplier_for_every_product_day():
+    contexts = build_contexts(_choices(), rules=[_day_only_rule()])
+    calls = []
+
+    def resolve(candidate, frame):
+        calls.append((candidate.trade_date, candidate.daily_contract, len(frame)))
+        return 10
+
+    build_panel(
+        contexts=contexts,
+        source=_FakeSource(contexts),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=resolve,
+        adjustment_factor_by_key={key: 1.0 for key in contexts},
+    )
+
+    assert [call[:2] for call in calls] == [
+        (day, "RB2405.SHF") for day in sorted(key[0] for key in contexts)
+    ]
+    assert all(call[2] > 0 for call in calls)
+
+
+class _OmittingSource:
+    def __init__(self, contexts, missing_dates):
+        self.contexts = contexts
+        self.missing_dates = set(missing_dates)
+
+    def iter_month(self, candidates, lower, upper):
+        frames = []
+        for candidate in candidates:
+            if candidate.trade_date in self.missing_dates:
+                continue
+            context = self.contexts[(candidate.trade_date, candidate.product)]
+            frames.append(
+                _frame(
+                    context.slots,
+                    price=100.0,
+                    symbol=candidate.minute_symbol,
+                    trade_date=candidate.trade_date,
+                    daily_contract=candidate.daily_contract,
+                )
+            )
+        if frames:
+            yield pd.concat(frames, ignore_index=True)
+
+
+def _panel_with_missing_context(days, missing_date):
+    choices = [
+        DominantChoice(
+            trade_date=day,
+            product="RB",
+            contract="RB2405.SHF",
+            oi=1,
+            volume=1,
+            selected_from=day,
+        )
+        for day in days
+    ]
+    contexts = build_contexts(choices, rules=[_day_only_rule()])
+    return build_panel(
+        contexts=contexts,
+        source=_OmittingSource(contexts, [missing_date]),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key={key: 1.0 for key in contexts},
+    )
+
+
+def test_panel_refuses_a_missing_middle_product_day_context():
+    days = [date(2024, 3, day) for day in (4, 5, 6, 7)]
+
+    with pytest.raises(ValueError, match="panel_context_missing.*2024-03-06"):
+        _panel_with_missing_context(days, date(2024, 3, 6))
+
+
+def test_panel_refuses_a_missing_final_product_day_context():
+    with pytest.raises(ValueError, match="panel_context_missing.*2024-03-06"):
+        _panel_with_missing_context(DAYS, DAYS[-1])
 
 
 def test_panel_carries_the_product_days_adjustment_factor():

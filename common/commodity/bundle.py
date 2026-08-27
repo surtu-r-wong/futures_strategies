@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
+import fcntl
 import hashlib
 import json
 import math
 from pathlib import Path
 import re
 import tempfile
+import threading
 from typing import Mapping
 
 import pandas as pd
 
 from common.commodity.panel import PANEL_COLUMNS
+from common.minute.pg_source import minute_contract_identity
 
 __all__ = [
     "BUNDLE_VERSION",
@@ -87,6 +91,12 @@ _SORT_COLUMNS = {
     "dominants": ("trade_date", "product", "contract"),
     "roll_fills": ("trade_date", "product", "old_contract", "new_contract"),
 }
+_PRIMARY_KEYS = {
+    "bars": ("trade_date", "product", "slot_end"),
+    "universes": ("month_start", "product"),
+    "dominants": ("trade_date", "product"),
+    "roll_fills": ("trade_date", "product"),
+}
 _NULLABLE_COLUMNS = {
     "bars": {
         "open",
@@ -102,7 +112,17 @@ _SENSITIVE_KEY = re.compile(
     r"(?:password|passwd|secret|token|credential|api[_-]?key|private[_-]?key|dsn)",
     re.IGNORECASE,
 )
+_CREDENTIAL_URL = re.compile(r"[a-z][a-z0-9+.-]*://[^/@:\s]+:[^/@\s]+@", re.IGNORECASE)
+_DSN_SECRET = re.compile(
+    r"(?:password|passwd|secret|token|api[_-]?key|private[_-]?key)\s*[:=]\s*\S+",
+    re.IGNORECASE,
+)
+_TOKEN_VALUE = re.compile(
+    r"(?:\bBearer\s+\S{12,}|\bsk-[A-Za-z0-9_-]{16,})", re.IGNORECASE
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+_LOCKS_GUARD = threading.Lock()
+_PROCESS_LOCKS: dict[str, threading.Lock] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,10 +304,125 @@ def normalise_bundle_table(table: str, frame: pd.DataFrame) -> pd.DataFrame:
             raise RuntimeError(f"unsupported bundle dtype declaration: {dtype!r}")
 
     _validate_table_values(table, out)
+    primary_key = list(_PRIMARY_KEYS[table])
+    if out.duplicated(primary_key, keep=False).any():
+        raise ValueError(
+            "bundle_primary_key: "
+            f"table={table!r} columns={primary_key!r} values must be unique"
+        )
     if table == "bars" and tuple(out.columns) != PANEL_COLUMNS:
         raise RuntimeError("bundle bars schema drifted from PANEL_COLUMNS")
     out = out.sort_values(list(_SORT_COLUMNS[table]), kind="mergesort")
     return out.reset_index(drop=True)
+
+
+def _validate_bundle_relationships(frames: Mapping[str, pd.DataFrame]) -> None:
+    bars = frames["bars"]
+    dominants = frames["dominants"]
+    roll_fills = frames["roll_fills"]
+
+    for table, contract_columns in (
+        ("bars", ("contract",)),
+        ("dominants", ("contract",)),
+        ("roll_fills", ("old_contract", "new_contract")),
+    ):
+        frame = frames[table]
+        for row in frame.itertuples(index=False):
+            trade_date = pd.Timestamp(row.trade_date).date()
+            expected_product = str(row.product)
+            for column in contract_columns:
+                try:
+                    product, _, _ = minute_contract_identity(
+                        str(getattr(row, column)), trade_date
+                    )
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValueError(
+                        "bundle_relationship: canonical_contract required; "
+                        f"table={table!r} column={column!r}"
+                    ) from exc
+                if product != expected_product:
+                    raise ValueError(
+                        "bundle_relationship: canonical_contract product mismatch; "
+                        f"table={table!r} column={column!r}"
+                    )
+
+    if roll_fills["old_contract"].eq(roll_fills["new_contract"]).any():
+        raise ValueError(
+            "bundle_relationship: roll_dominants require distinct old/new contracts"
+        )
+
+    bar_contracts = bars.loc[
+        :, ["trade_date", "product", "contract", "adj_factor"]
+    ].drop_duplicates()
+    dominant_contracts = dominants.loc[
+        :, ["trade_date", "product", "contract", "adj_factor"]
+    ]
+    joined = bar_contracts.merge(
+        dominant_contracts,
+        on=["trade_date", "product"],
+        how="outer",
+        suffixes=("_bar", "_dominant"),
+        indicator=True,
+    )
+    disagreement = joined["_merge"].ne("both")
+    disagreement |= joined["contract_bar"].ne(joined["contract_dominant"])
+    disagreement |= joined["adj_factor_bar"].ne(joined["adj_factor_dominant"])
+    if disagreement.any():
+        raise ValueError(
+            "bundle_relationship: bars_dominants require exactly one matching "
+            "contract and adjustment factor for every product-date"
+        )
+
+    dominant_rows = dominants.sort_values(
+        ["product", "trade_date"], kind="mergesort"
+    ).reset_index(drop=True)
+    expected_transitions: dict[tuple[pd.Timestamp, str], tuple[str, str]] = {}
+    for _, group in dominant_rows.groupby("product", sort=False):
+        previous_contract: str | None = None
+        for row in group.itertuples(index=False):
+            contract = str(row.contract)
+            if previous_contract is not None and contract != previous_contract:
+                expected_transitions[(row.trade_date, str(row.product))] = (
+                    previous_contract,
+                    contract,
+                )
+            previous_contract = contract
+
+    actual_transitions = {
+        (row.trade_date, str(row.product)): (
+            str(row.old_contract),
+            str(row.new_contract),
+        )
+        for row in roll_fills.itertuples(index=False)
+    }
+    dominant_by_key = {
+        (row.trade_date, str(row.product)): str(row.contract)
+        for row in dominant_rows.itertuples(index=False)
+    }
+    invalid_roll = any(
+        dominant_by_key.get(key) != transition[1]
+        for key, transition in actual_transitions.items()
+    )
+    invalid_roll |= any(
+        actual_transitions.get(key) != transition
+        for key, transition in expected_transitions.items()
+    )
+    # A fill on the first retained date can refer to a dominant just outside the
+    # bundle's date window, so only its new leg can be checked locally.
+    first_keys = {
+        (group.iloc[0]["trade_date"], str(product))
+        for product, group in dominant_rows.groupby("product", sort=False)
+        if not group.empty
+    }
+    invalid_roll |= any(
+        key not in expected_transitions and key not in first_keys
+        for key in actual_transitions
+    )
+    if invalid_roll:
+        raise ValueError(
+            "bundle_relationship: roll_dominants require every in-range dominant "
+            "transition to have the matching old/new raw roll fill"
+        )
 
 
 def _sha256(path: Path) -> str:
@@ -315,7 +450,14 @@ def _manifest_object(value: object, *, path: str) -> object:
             _manifest_object(child, path=f"{path}[{index}]")
             for index, child in enumerate(value)
         ]
-    if value is None or type(value) in (str, int, bool):
+    if type(value) is str:
+        if any(
+            pattern.search(value)
+            for pattern in (_CREDENTIAL_URL, _DSN_SECRET, _TOKEN_VALUE)
+        ):
+            raise ValueError(f"bundle_manifest_sensitive: forbidden value at {path}")
+        return value
+    if value is None or type(value) in (int, bool):
         return value
     if type(value) is float and math.isfinite(value):
         return value
@@ -326,14 +468,36 @@ def _manifest_object(value: object, *, path: str) -> object:
 
 def _safe_directory(directory: str | Path, *, create: bool) -> Path:
     path = Path(directory)
-    if path.exists():
-        if path.is_symlink() or not path.is_dir():
-            raise ValueError(f"bundle_directory_invalid: {path}")
-    elif create:
-        path.mkdir(parents=True, exist_ok=False)
-    else:
+    if create and not path.exists():
+        try:
+            path.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            # A cooperating writer can win this race before either process has
+            # acquired the lock inside the newly created directory.
+            pass
+    if not path.exists():
         raise ValueError(f"bundle_directory_missing: {path}")
+    if path.is_symlink() or not path.is_dir():
+        raise ValueError(f"bundle_directory_invalid: {path}")
     return path
+
+
+@contextmanager
+def _bundle_lock(directory: Path):
+    """Serialize publication in this process and across cooperating processes."""
+    key = str(directory.resolve())
+    with _LOCKS_GUARD:
+        process_lock = _PROCESS_LOCKS.setdefault(key, threading.Lock())
+    with process_lock:
+        lock_path = directory / ".bundle.lock"
+        if lock_path.is_symlink() or (lock_path.exists() and not lock_path.is_file()):
+            raise ValueError(f"bundle_lock_invalid: {lock_path}")
+        with lock_path.open("a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _stage_parquet(frame: pd.DataFrame, path: Path) -> Path:
@@ -389,6 +553,28 @@ def write_bundle(
     path = _safe_directory(directory, create=True)
     clean_inputs = _manifest_object(inputs or {}, path="inputs")
     clean_provenance = _manifest_object(provenance or {}, path="provenance")
+    with _bundle_lock(path):
+        return _write_bundle_locked(
+            path,
+            bars=bars,
+            universes=universes,
+            dominants=dominants,
+            roll_fills=roll_fills,
+            clean_inputs=clean_inputs,
+            clean_provenance=clean_provenance,
+        )
+
+
+def _write_bundle_locked(
+    path: Path,
+    *,
+    bars: pd.DataFrame,
+    universes: pd.DataFrame,
+    dominants: pd.DataFrame,
+    roll_fills: pd.DataFrame,
+    clean_inputs: object,
+    clean_provenance: object,
+) -> PanelBundle:
 
     manifest_path = path / "manifest.json"
     if manifest_path.exists() or manifest_path.is_symlink():
@@ -420,8 +606,10 @@ def write_bundle(
     normalised = {
         table: normalise_bundle_table(table, frame) for table, frame in frames.items()
     }
+    _validate_bundle_relationships(normalised)
 
     staged: dict[str, Path] = {}
+    published: list[Path] = []
     manifest_temporary: Path | None = None
     try:
         table_manifest: dict[str, dict[str, str]] = {}
@@ -452,16 +640,26 @@ def write_bundle(
         manifest_temporary = _stage_manifest(payload, path)
 
         for table, filename in TABLE_FILES.items():
-            staged[table].replace(path / filename)
+            live_path = path / filename
+            published.append(live_path)
+            staged[table].replace(live_path)
             del staged[table]
         manifest_temporary.replace(manifest_path)
         manifest_temporary = None
+        published.clear()
         return PanelBundle(manifest=manifest, **normalised)
     finally:
         for temporary in staged.values():
             temporary.unlink(missing_ok=True)
         if manifest_temporary is not None:
             manifest_temporary.unlink(missing_ok=True)
+        if manifest_path.is_file() and not manifest_path.is_symlink():
+            # The manifest is the commit marker. A filesystem wrapper can raise
+            # after the atomic rename has already succeeded; never then delete
+            # the tables that the live marker names.
+            published.clear()
+        for live_path in published:
+            live_path.unlink(missing_ok=True)
 
 
 def _read_manifest(path: Path) -> dict[str, object]:
@@ -537,4 +735,5 @@ def read_bundle(directory: str | Path) -> PanelBundle:
         table: normalise_bundle_table(table, pd.read_parquet(table_path))
         for table, table_path in table_paths.items()
     }
+    _validate_bundle_relationships(frames)
     return PanelBundle(manifest=manifest, **frames)

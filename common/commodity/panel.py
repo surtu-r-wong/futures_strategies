@@ -229,8 +229,7 @@ def context_choices_for_month(
     """
     if type(month_start) is not date or month_start.day != 1:
         raise ValueError(
-            "panel_month: month_start 必须是某个自然月的 1 号；"
-            f"got {month_start!r}"
+            f"panel_month: month_start 必须是某个自然月的 1 号；got {month_start!r}"
         )
     month_end = date(
         month_start.year + month_start.month // 12,
@@ -348,7 +347,6 @@ def build_panel(
 
     rows: list[dict[str, object]] = []
     pending: dict[str, int] = {}
-    multipliers: dict[str, int] = {}
 
     for month_lower, _month_upper in _months(keys[0][0], keys[-1][0]):
         month_keys = by_month.get((month_lower.year, month_lower.month))
@@ -361,27 +359,34 @@ def build_panel(
         batch_lower = min(candidate.window_start for candidate in candidates)
         batch_upper = max(candidate.window_end for candidate in candidates)
         frames = list(source.iter_month(candidates, batch_lower, batch_upper))
-        if not frames:
-            continue
-        month = pd.concat(frames, ignore_index=True)
+        month = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        context_frames: dict[tuple[date, str], pd.DataFrame] = {}
+        required_identity = {"trade_date", "daily_contract"}
+        for key in month_keys:
+            candidate = contexts[key].candidate
+            if not required_identity.issubset(month.columns):
+                frame = pd.DataFrame()
+            else:
+                frame = month.loc[
+                    (month["trade_date"] == candidate.trade_date)
+                    & (month["daily_contract"] == candidate.daily_contract)
+                ]
+            if frame.empty:
+                raise ValueError(
+                    "panel_context_missing: expected product-day minute frame; "
+                    f"trade_date={candidate.trade_date.isoformat()} "
+                    f"product={candidate.product!r} "
+                    f"contract={candidate.daily_contract!r}"
+                )
+            context_frames[key] = frame
 
         for key in month_keys:
             context = contexts[key]
             candidate = context.candidate
             symbol = candidate.minute_symbol
-            # ⚠️ 只按 symbol 过滤是不够的：同一张合约连着几天当主力时，某一天的夜盘
-            # 与前一天的日盘落在同一个自然日上。分钟层随行返回 `trade_date`（由候选
-            # 表 join 出来的**归属交易日**），必须拿它来切。
-            frame = month.loc[
-                (month["trade_date"] == candidate.trade_date)
-                & (month["daily_contract"] == candidate.daily_contract)
-            ]
-            if frame.empty:
-                continue
+            frame = context_frames[key]
             basis = pricing_basis_by_exchange.get(candidate.exchange, "amount_vwap")
-            if symbol not in multipliers:
-                multipliers[symbol] = multiplier_resolver(candidate, frame)
-            multiplier = multipliers[symbol]
+            multiplier = multiplier_resolver(candidate, frame)
 
             product = candidate.product
             waiting = pending.pop(product, None)
@@ -395,9 +400,7 @@ def build_panel(
                     pricing_basis=basis,
                 )
                 rows[waiting]["fill_time"] = (
-                    opening_window[-1]
-                    if len(opening_window) == FILL_MINUTES
-                    else None
+                    opening_window[-1] if len(opening_window) == FILL_MINUTES else None
                 )
                 rows[waiting]["fill_pending"] = False
                 rows[waiting]["fill_unpriceable"] = rows[waiting]["fill_price"] is None
@@ -413,6 +416,8 @@ def build_panel(
                 trade_date=candidate.trade_date,
                 adj_factor=adjustment_factor_by_key[key],
             )
+            for row in day_rows:
+                row["contract"] = candidate.daily_contract
             rows.extend(day_rows)
             pending[product] = len(rows) - 1
 
@@ -436,9 +441,7 @@ _BOOL_COLUMNS = ("no_trade", "fill_pending", "fill_unpriceable")
 _TEXT_COLUMNS = ("product", "contract", "pricing_basis")
 
 
-def _normalise_aware_time_column(
-    values: pd.Series, *, column: str
-) -> pd.Series:
+def _normalise_aware_time_column(values: pd.Series, *, column: str) -> pd.Series:
     for value in values:
         if pd.isna(value):
             continue

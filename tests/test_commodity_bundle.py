@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import threading
 
 import pandas as pd
 import pytest
@@ -27,9 +28,11 @@ from common.commodity.panel import (  # noqa: E402
 )
 from common.dominant import DominantChoice  # noqa: E402
 from common.minute.sessions import SessionRule  # noqa: E402
+from common.minute.bars import MultiplierResolution  # noqa: E402
 from scripts.commodity.build_panel import (  # noqa: E402
     DigestingMinuteSource,
     DigestingMultiplierResolver,
+    _bundle_bars,
     _effective_config_sha256,
     _roll_candidate,
     _source_revision,
@@ -387,6 +390,28 @@ def test_roll_fill_hard_fails_when_either_raw_leg_is_unavailable():
             pricing_basis_by_exchange={"SHFE": "amount_vwap"},
             multiplier_resolver=lambda candidate, frame: 10,
         )
+
+
+def test_builder_caches_raw_ohlc_and_only_carries_the_adjustment_factor(
+    bundle_frames, monkeypatch
+):
+    raw = bundle_frames["bars"].iloc[[2]].copy()
+    raw.loc[:, ["open", "high", "low", "close"]] = [100.0, 110.0, 90.0, 105.0]
+    raw.loc[:, "adj_factor"] = 0.5
+    monkeypatch.setattr(
+        "scripts.commodity.build_panel.adjust_signal_bars",
+        lambda frame: pytest.fail("builder applied signal adjustment before caching"),
+    )
+
+    cached = _bundle_bars(raw)
+
+    assert cached.loc[0, ["open", "high", "low", "close"]].tolist() == [
+        100.0,
+        110.0,
+        90.0,
+        105.0,
+    ]
+    assert cached.loc[0, "adj_factor"] == 0.5
 
 
 def test_signal_bars_are_adjusted_without_adjusting_actual_fills(bundle_frames):
@@ -783,6 +808,29 @@ def test_minute_digest_records_labeled_roll_and_bar_requests():
     ]
 
 
+def test_minute_row_encoding_is_streamed_instead_of_materialized():
+    import scripts.commodity.build_panel as builder_module
+
+    choices = _roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(ROLL_DATES[1], "RB")]
+    candidate = _roll_candidate(choices[1], context, role="panel")
+    frame = next(
+        _RollSource(context.slots, {"RB2410.SHF": 200.0}).iter_month(
+            [candidate], candidate.window_start, candidate.window_end
+        )
+    )
+
+    payloads = builder_module._minute_row_payloads(frame)
+
+    assert not isinstance(payloads, list)
+    assert iter(payloads) is payloads
+    assert sum(1 for _ in payloads) == len(frame)
+
+
 def test_effective_config_digest_redacts_credentials_and_tracks_safe_settings(tmp_path):
     sessions = tmp_path / "sessions.csv"
     pricing = tmp_path / "pricing.csv"
@@ -839,6 +887,42 @@ def test_effective_config_digest_redacts_credentials_and_tracks_safe_settings(tm
     assert "user" not in encoded and "password" not in encoded
 
 
+def test_effective_config_digest_ignores_secret_bearing_values_under_safe_keys(
+    tmp_path,
+):
+    sessions = tmp_path / "sessions.csv"
+    pricing = tmp_path / "pricing.csv"
+    sessions.write_text("safe session rules\n", encoding="utf-8")
+    pricing.write_text("safe pricing rules\n", encoding="utf-8")
+    revision = {
+        "git_head": "a" * 40,
+        "production_python_sha256": "b" * 64,
+    }
+    first = {
+        "database": {"endpoint": "postgresql://alice:secret-one@db.internal/market"},
+        "headers": ["Bearer abcdefghijklmnopqrstuvwxyz"],
+        "research": {"window": 20},
+    }
+    changed = {
+        "database": {"endpoint": "postgresql://bob:secret-two@db.internal/market"},
+        "headers": ["Bearer zyxwvutsrqponmlkjihgfedcba"],
+        "research": {"window": 20},
+    }
+
+    digest, safe = _effective_config_sha256(
+        first, sessions, pricing, source_revision=revision
+    )
+    changed_digest, changed_safe = _effective_config_sha256(
+        changed, sessions, pricing, source_revision=revision
+    )
+
+    assert digest == changed_digest
+    assert safe == changed_safe
+    emitted = json.dumps(safe, sort_keys=True)
+    assert "alice" not in emitted and "secret-one" not in emitted
+    assert "Bearer" not in emitted
+
+
 def test_publish_failure_never_leaves_a_manifest_for_partial_tables(
     tmp_path, bundle_frames, monkeypatch
 ):
@@ -854,9 +938,104 @@ def test_publish_failure_never_leaves_a_manifest_for_partial_tables(
         write_bundle(tmp_path, **bundle_frames)
 
     assert not (tmp_path / "manifest.json").exists()
+    assert not any((tmp_path / filename).exists() for filename in TABLE_FILES.values())
     assert not list(tmp_path.glob(".*.tmp"))
     with pytest.raises(ValueError, match="bundle_manifest_missing"):
         read_bundle(tmp_path)
+
+    monkeypatch.setattr(Path, "replace", original)
+    write_bundle(tmp_path, **bundle_frames)
+    assert read_bundle(tmp_path).bars.equals(bundle_frames["bars"])
+
+
+def test_exception_reported_after_manifest_rename_keeps_committed_bundle(
+    tmp_path, bundle_frames, monkeypatch
+):
+    original = Path.replace
+
+    def raise_after_manifest_rename(source, target):
+        result = original(source, target)
+        if Path(target).name == "manifest.json":
+            raise RuntimeError("injected post-commit exception")
+        return result
+
+    monkeypatch.setattr(Path, "replace", raise_after_manifest_rename)
+    with pytest.raises(RuntimeError, match="injected post-commit exception"):
+        write_bundle(tmp_path, **bundle_frames)
+
+    assert read_bundle(tmp_path).bars.equals(bundle_frames["bars"])
+    monkeypatch.setattr(Path, "replace", original)
+    assert write_bundle(tmp_path, **bundle_frames).bars.equals(bundle_frames["bars"])
+
+
+def test_exception_reported_after_table_rename_cleans_for_retry(
+    tmp_path, bundle_frames, monkeypatch
+):
+    original = Path.replace
+
+    def raise_after_bars_rename(source, target):
+        result = original(source, target)
+        if Path(target).name == TABLE_FILES["bars"]:
+            raise RuntimeError("injected post-table-rename exception")
+        return result
+
+    monkeypatch.setattr(Path, "replace", raise_after_bars_rename)
+    with pytest.raises(RuntimeError, match="injected post-table-rename exception"):
+        write_bundle(tmp_path, **bundle_frames)
+
+    assert not (tmp_path / "manifest.json").exists()
+    assert not any((tmp_path / filename).exists() for filename in TABLE_FILES.values())
+    monkeypatch.setattr(Path, "replace", original)
+    assert write_bundle(tmp_path, **bundle_frames).bars.equals(bundle_frames["bars"])
+
+
+def test_same_process_writers_are_serialized_to_one_publication(
+    tmp_path, bundle_frames, monkeypatch
+):
+    import common.commodity.bundle as bundle_module
+
+    output = tmp_path / "new-bundle"
+    original = bundle_module._stage_parquet
+    entered = threading.Event()
+    release = threading.Event()
+    staged = []
+    errors = []
+    results = []
+
+    def slow_first_stage(frame, path):
+        staged.append(Path(path).name)
+        if not entered.is_set():
+            entered.set()
+            assert release.wait(timeout=5)
+        return original(frame, path)
+
+    def publish():
+        try:
+            results.append(
+                write_bundle(
+                    output,
+                    **bundle_frames,
+                    inputs={"generation": "same"},
+                )
+            )
+        except Exception as exc:  # pragma: no cover - assertion reports details
+            errors.append(exc)
+
+    monkeypatch.setattr(bundle_module, "_stage_parquet", slow_first_stage)
+    first = threading.Thread(target=publish)
+    second = threading.Thread(target=publish)
+    first.start()
+    assert entered.wait(timeout=5)
+    second.start()
+    release.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert errors == []
+    assert len(results) == 2
+    assert staged == list(TABLE_FILES.values())
+    assert read_bundle(output).bars.equals(bundle_frames["bars"])
 
 
 def test_source_revision_hashes_all_production_python_without_emitting_contents(
@@ -971,6 +1150,108 @@ def test_each_roll_leg_multiplier_changes_provenance_with_same_minutes():
     assert original != _roll_multiplier_digest(10, 11)
 
 
+def _audited_multiplier_digest(*, source_name, price):
+    choice = _roll_choices()[1]
+    contexts = build_contexts(
+        [choice],
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(choice.trade_date, choice.product)]
+    candidate = _roll_candidate(choice, context, role="panel")
+    frame = next(
+        _RollSource(context.slots, {choice.contract: price}).iter_month(
+            [candidate], candidate.window_start, candidate.window_end
+        )
+    )
+    resolution = MultiplierResolution(
+        multiplier=10,
+        source=source_name,
+        sample_rows=5,
+        pass_rate=1.0,
+        sample_dates=1,
+        sample_start=context.slots[0],
+        sample_end=context.slots[4],
+        max_range_error=0.0,
+    )
+    resolver = DigestingMultiplierResolver(
+        lambda candidate, frame: resolution,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+    )
+    resolver.set_phase("bars")
+    assert resolver(candidate, frame) == 10
+    return resolver.multiplier_resolutions_sha256
+
+
+def test_multiplier_provenance_hashes_full_resolution_and_frame_evidence():
+    original = _audited_multiplier_digest(source_name="metadata", price=200.0)
+
+    assert original != _audited_multiplier_digest(
+        source_name="daily_inference", price=200.0
+    )
+    assert original != _audited_multiplier_digest(source_name="metadata", price=201.0)
+
+
+def test_metadata_multiplier_resolution_runs_for_each_consuming_frame():
+    import scripts.commodity.build_panel as builder_module
+
+    choice = _roll_choices()[1]
+    contexts = build_contexts(
+        [choice],
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(choice.trade_date, choice.product)]
+    candidate = _roll_candidate(choice, context, role="panel")
+    short = (
+        next(
+            _RollSource(context.slots, {choice.contract: 200.0}).iter_month(
+                [candidate], candidate.window_start, context.slots[4]
+            )
+        )
+        .iloc[:3]
+        .copy()
+    )
+    full = next(
+        _RollSource(context.slots, {choice.contract: 200.0}).iter_month(
+            [candidate], candidate.window_start, candidate.window_end
+        )
+    )
+
+    class Source:
+        def __init__(self):
+            self.calls = []
+
+        def resolve_metadata_multiplier(self, **kwargs):
+            self.calls.append(kwargs)
+            return MultiplierResolution(
+                multiplier=10,
+                source="metadata",
+                sample_rows=len(kwargs["frame"]),
+                pass_rate=1.0,
+                sample_dates=1,
+            )
+
+    source = Source()
+    first = builder_module._metadata_multiplier_resolution(
+        source,
+        {"SHFE": "amount_vwap"},
+        candidate,
+        short,
+    )
+    second = builder_module._metadata_multiplier_resolution(
+        source,
+        {"SHFE": "amount_vwap"},
+        candidate,
+        full,
+    )
+
+    assert len(source.calls) == 2
+    assert source.calls[0]["frame"] is short
+    assert source.calls[0]["inference_frame"] is short
+    assert source.calls[1]["frame"] is full
+    assert source.calls[1]["inference_frame"] is full
+    assert first.sample_rows != second.sample_rows
+
+
 def test_multiplier_provenance_fails_when_a_used_contract_was_not_recorded(
     bundle_frames,
 ):
@@ -985,3 +1266,144 @@ def test_multiplier_provenance_fails_when_a_used_contract_was_not_recorded(
             bars=bundle_frames["bars"],
             roll_fills=bundle_frames["roll_fills"],
         )
+
+
+def test_multiplier_completeness_requires_each_used_contract_date():
+    choice = _roll_choices()[1]
+    contexts = build_contexts(
+        [choice],
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(choice.trade_date, choice.product)]
+    candidate = _roll_candidate(choice, context, role="panel")
+    frame = next(
+        _RollSource(context.slots, {choice.contract: 200.0}).iter_month(
+            [candidate], candidate.window_start, candidate.window_end
+        )
+    )
+    resolver = DigestingMultiplierResolver(
+        lambda candidate, frame: 10,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+    )
+    resolver.set_phase("bars")
+    resolver(candidate, frame)
+    bars = pd.DataFrame(
+        {
+            "trade_date": [choice.trade_date + pd.Timedelta(days=1)],
+            "contract": [choice.contract],
+            "multiplier": [10],
+        }
+    )
+
+    with pytest.raises(ValueError, match="panel_multiplier_provenance_missing"):
+        resolver.assert_complete(bars=bars, roll_fills=pd.DataFrame())
+
+
+@pytest.mark.parametrize("table", list(TABLE_FILES))
+def test_bundle_rejects_duplicate_primary_keys(tmp_path, bundle_frames, table):
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    frames[table] = pd.concat(
+        [frames[table], frames[table].iloc[[0]]], ignore_index=True
+    )
+
+    with pytest.raises(ValueError, match="bundle_primary_key"):
+        write_bundle(tmp_path, **frames)
+
+
+def test_bar_primary_key_does_not_depend_on_contract_payload(tmp_path, bundle_frames):
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    duplicate = frames["bars"].iloc[[0]].copy()
+    duplicate["contract"] = "RB9999.SHF"
+    frames["bars"] = pd.concat([frames["bars"], duplicate], ignore_index=True)
+
+    with pytest.raises(ValueError, match="bundle_primary_key.*bars"):
+        write_bundle(tmp_path, **frames)
+
+
+def test_bundle_rejects_bar_contract_that_disagrees_with_dominant(
+    tmp_path, bundle_frames
+):
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    frames["bars"].loc[0, "contract"] = "RB2410.SHF"
+
+    with pytest.raises(ValueError, match="bundle_relationship.*bars_dominants"):
+        write_bundle(tmp_path, **frames)
+
+
+def test_bundle_rejects_roll_chain_that_disagrees_with_dominants(
+    tmp_path, bundle_frames
+):
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    frames["roll_fills"].loc[0, "old_contract"] = "RB2409.SHF"
+
+    with pytest.raises(ValueError, match="bundle_relationship.*roll_dominants"):
+        write_bundle(tmp_path, **frames)
+
+
+def test_bundle_rejects_same_contract_roll_on_first_retained_date(
+    tmp_path, bundle_frames
+):
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    frames["dominants"].loc[frames["dominants"]["product"].eq("RB"), "contract"] = (
+        "RB2405.SHF"
+    )
+    frames["bars"].loc[frames["bars"]["product"].eq("RB"), "contract"] = "RB2405.SHF"
+    frames["roll_fills"].loc[0, "trade_date"] = pd.Timestamp("2024-03-05")
+    frames["roll_fills"].loc[0, "old_contract"] = "RB2405.SHF"
+    frames["roll_fills"].loc[0, "new_contract"] = "RB2405.SHF"
+
+    with pytest.raises(ValueError, match="bundle_relationship.*distinct"):
+        write_bundle(tmp_path, **frames)
+
+
+def test_bundle_rejects_noncanonical_contracts_even_when_tables_agree(
+    tmp_path, bundle_frames
+):
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    frames["bars"].loc[0, "contract"] = "garbage"
+    frames["dominants"].loc[0, "contract"] = "garbage"
+
+    with pytest.raises(ValueError, match="bundle_relationship.*canonical_contract"):
+        write_bundle(tmp_path, **frames)
+
+
+def test_read_revalidates_cross_table_relationships(tmp_path, bundle_frames):
+    write_bundle(tmp_path, **bundle_frames)
+    bars_path = tmp_path / TABLE_FILES["bars"]
+    bars = pd.read_parquet(bars_path)
+    bars.loc[0, "contract"] = "RB2410.SHF"
+    bars.to_parquet(bars_path, index=False)
+    manifest = _manifest(tmp_path)
+    manifest["tables"]["bars"]["sha256"] = hashlib.sha256(
+        bars_path.read_bytes()
+    ).hexdigest()
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="bundle_relationship.*bars_dominants"):
+        read_bundle(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "secret_value",
+    [
+        "postgresql://alice:hunter2@db.internal/market",
+        "host=db.internal password=hunter2",
+        "Bearer abcdefghijklmnopqrstuvwxyz",
+        "sk-abcdefghijklmnopqrstuvwxyz123456",
+    ],
+)
+def test_manifest_rejects_nested_secret_bearing_values_without_echoing_them(
+    tmp_path, bundle_frames, secret_value
+):
+    with pytest.raises(ValueError, match="bundle_manifest_sensitive") as captured:
+        write_bundle(
+            tmp_path,
+            **bundle_frames,
+            inputs={"nested": [{"reference": secret_value}]},
+        )
+
+    assert secret_value not in str(captured.value)
+    assert not (tmp_path / "manifest.json").exists()
