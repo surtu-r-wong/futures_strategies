@@ -17,6 +17,7 @@ from common.commodity.panel import (  # noqa: E402
     PANEL_COLUMNS,
     build_contexts,
     build_panel,
+    iter_panel_months,
     build_session_bars,
     normalise_panel,
     resolve_pending_fill,
@@ -450,6 +451,121 @@ def test_panel_refuses_a_missing_middle_product_day_context():
 def test_panel_refuses_a_missing_final_product_day_context():
     with pytest.raises(ValueError, match="panel_context_missing.*2024-03-06"):
         _panel_with_missing_context(DAYS, DAYS[-1])
+
+
+class _MonthTrackingSource:
+    def __init__(self, contexts, *, fail_month=None):
+        self.contexts = contexts
+        self.fail_month = fail_month
+        self.months = []
+
+    def iter_month(self, candidates, lower, upper):
+        month = min(candidate.trade_date for candidate in candidates).replace(day=1)
+        self.months.append(month)
+        if month == self.fail_month:
+            raise RuntimeError("injected later-month failure")
+        yield pd.concat(
+            [
+                _frame(
+                    self.contexts[
+                        (candidate.trade_date, candidate.product)
+                    ].slots,
+                    price=float(candidate.trade_date.toordinal()),
+                    symbol=candidate.minute_symbol,
+                    trade_date=candidate.trade_date,
+                    daily_contract=candidate.daily_contract,
+                )
+                for candidate in candidates
+            ],
+            ignore_index=True,
+        )
+
+
+def _cross_month_contexts():
+    days = [
+        date(2024, 1, 30),
+        date(2024, 1, 31),
+        date(2024, 2, 1),
+        date(2024, 2, 2),
+    ]
+    choices = [
+        DominantChoice(
+            trade_date=day,
+            product="RB",
+            contract="RB2405.SHF",
+            oi=1,
+            volume=1,
+            selected_from=day,
+        )
+        for day in days
+    ]
+    return build_contexts(choices, rules=[_day_only_rule()])
+
+
+def test_month_iterator_retains_only_pending_rows_across_boundaries():
+    contexts = _cross_month_contexts()
+    chunks = list(
+        iter_panel_months(
+            contexts=contexts,
+            source=_MonthTrackingSource(contexts),
+            pricing_basis_by_exchange={},
+            multiplier_resolver=lambda candidate, frame: 10,
+            adjustment_factor_by_key={key: 1.0 for key in contexts},
+        )
+    )
+
+    assert [chunk.month_start for chunk in chunks] == [
+        date(2024, 1, 1),
+        date(2024, 2, 1),
+    ]
+    assert all(len(chunk.pending) <= 1 for chunk in chunks)
+    frames = [chunk.bars for chunk in chunks]
+    frames.append(chunks[-1].pending)
+    streamed = pd.concat(frames, ignore_index=True)
+    assert len(streamed) == sum(len(context.buckets) for context in contexts.values())
+
+
+def test_month_iterator_resumes_without_refetching_completed_month():
+    contexts = _cross_month_contexts()
+    failing_source = _MonthTrackingSource(
+        contexts, fail_month=date(2024, 2, 1)
+    )
+    iterator = iter_panel_months(
+        contexts=contexts,
+        source=failing_source,
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key={key: 1.0 for key in contexts},
+    )
+    january = next(iterator)
+    with pytest.raises(RuntimeError, match="later-month failure"):
+        next(iterator)
+
+    resumed_source = _MonthTrackingSource(contexts)
+    resumed = list(
+        iter_panel_months(
+            contexts=contexts,
+            source=resumed_source,
+            pricing_basis_by_exchange={},
+            multiplier_resolver=lambda candidate, frame: 10,
+            adjustment_factor_by_key={key: 1.0 for key in contexts},
+            resume_after=january.month_start,
+            initial_pending=january.pending,
+        )
+    )
+
+    assert failing_source.months == [date(2024, 1, 1), date(2024, 2, 1)]
+    assert resumed_source.months == [date(2024, 2, 1)]
+    frames = [january.bars, *(chunk.bars for chunk in resumed), resumed[-1].pending]
+    restarted = normalise_panel(pd.concat(frames, ignore_index=True))
+    clean = build_panel(
+        contexts=contexts,
+        source=_MonthTrackingSource(contexts),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key={key: 1.0 for key in contexts},
+    )
+    assert restarted.equals(clean)
 
 
 def test_panel_carries_the_product_days_adjustment_factor():

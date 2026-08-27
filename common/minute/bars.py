@@ -87,6 +87,9 @@ class MultiplierResolution:
     sample_start: datetime | None = None
     sample_end: datetime | None = None
     max_range_error: float = 0.0
+    evidence_sha256: str = ""
+    evidence_counts: tuple[tuple[str, int], ...] = ()
+    resolution_path: str = ""
 
 
 def _stable_value(value: Any) -> str:

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+import hashlib
 import json
 import math
 from numbers import Integral
 import re
+import struct
 import sys
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -157,6 +159,89 @@ SELECT min(bar_time), max(bar_time) FROM public.futures_minute
 """
 
 
+def _lineage_field(tag: bytes, payload: bytes = b"") -> bytes:
+    return tag + len(payload).to_bytes(8, "big") + payload
+
+
+def _lineage_scalar(value: Any) -> bytes:
+    if value is None:
+        return _lineage_field(b"N")
+    if isinstance(value, bool):
+        return _lineage_field(b"B", b"1" if value else b"0")
+    if isinstance(value, Integral):
+        return _lineage_field(b"I", str(int(value)).encode("ascii"))
+    if isinstance(value, float):
+        return _lineage_field(b"F", struct.pack(">d", value))
+    if isinstance(value, Decimal):
+        decimal = value.as_tuple()
+        payload = json.dumps(
+            [decimal.sign, list(decimal.digits), decimal.exponent],
+            separators=(",", ":"),
+        ).encode("ascii")
+        return _lineage_field(b"E", payload)
+    if isinstance(value, datetime):
+        return _lineage_field(b"T", value.isoformat().encode("ascii"))
+    if isinstance(value, date):
+        return _lineage_field(b"D", value.isoformat().encode("ascii"))
+    if isinstance(value, str):
+        return _lineage_field(b"S", value.encode("utf-8"))
+    raise ValueError(
+        "multiplier_lineage_type: unsupported raw value "
+        f"{type(value).__name__!r}"
+    )
+
+
+class _MultiplierLineage:
+    def __init__(self) -> None:
+        self._entries: list[tuple[str, int, str]] = []
+
+    def record(self, label: str, rows: Sequence[Any] | None) -> None:
+        materialized = tuple(rows or ())
+        digest = hashlib.sha256()
+        digest.update(b"multiplier-raw-row-set-v1\0")
+        digest.update(_lineage_field(b"L", label.encode("ascii")))
+        encoded_rows = []
+        for row in materialized:
+            values = row if isinstance(row, Sequence) else (row,)
+            encoded_rows.append(
+                b"R" + b"".join(_lineage_scalar(value) for value in values)
+            )
+        for encoded in sorted(encoded_rows):
+            digest.update(encoded)
+        self._entries.append((label, len(materialized), digest.hexdigest()))
+
+    def finish(
+        self, resolution: MultiplierResolution | int, *, path: str
+    ) -> MultiplierResolution | int:
+        if isinstance(resolution, Integral):
+            return int(resolution)
+        # Preserve compatibility with validation doubles and older callers
+        # that return an opaque sentinel. Production paths return the audited
+        # dataclass and receive the complete query lineage below.
+        if not isinstance(resolution, MultiplierResolution):
+            return resolution
+        payload = json.dumps(
+            {
+                "version": 1,
+                "path": path,
+                "sets": [
+                    {"label": label, "rows": rows, "sha256": digest}
+                    for label, rows, digest in self._entries
+                ],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return replace(
+            resolution,
+            evidence_sha256=hashlib.sha256(payload).hexdigest(),
+            evidence_counts=tuple(
+                (label, rows) for label, rows, _digest in self._entries
+            ),
+            resolution_path=path,
+        )
+
+
 def _resolution_without_sample(multiplier: int, *, source: str):
     """Report a multiplier settled without a bar sample to check it against.
 
@@ -191,6 +276,7 @@ def _wider_contract_sample(
     *,
     minute_symbol: str,
     trade_date: date,
+    lineage: _MultiplierLineage | None = None,
 ) -> pd.DataFrame | None:
     """Fetch enough bars of one contract to judge a multiplier by.
 
@@ -207,6 +293,8 @@ def _wider_contract_sample(
     lower = upper - timedelta(days=_CONTRACT_SAMPLE_DAYS)
     cursor.execute(_CONTRACT_SAMPLE_QUERY, (minute_symbol, lower, upper))
     rows = cursor.fetchall()
+    if lineage is not None:
+        lineage.record("wider_minute_rows", rows)
     if not rows:
         return None
     frame = pd.DataFrame(
@@ -277,6 +365,7 @@ def _daily_multiplier_candidates(
     *,
     daily_contract: str,
     trade_date: date,
+    lineage: _MultiplierLineage | None = None,
 ) -> tuple[int, ...]:
     """Integers the daily record leaves open for the contract multiplier.
 
@@ -298,6 +387,8 @@ def _daily_multiplier_candidates(
     """
     cursor.execute(_DAILY_MULTIPLIER_QUERY, (daily_contract, trade_date))
     rows = cursor.fetchall()
+    if lineage is not None:
+        lineage.record("daily_turnover_rows", rows)
     lows: list[float] = []
     highs: list[float] = []
     for row in rows or ():
@@ -1647,6 +1738,66 @@ class PublicMinuteSource:
         """Return stable snapshots of successfully validated query plans."""
         return tuple(self._plan_summaries)
 
+    def checkpoint_audit_state(self) -> dict[str, object]:
+        """Return only nonsecret counters/identities needed for exact resume."""
+        return {
+            "minute_table_min": (
+                self._minute_table_min.isoformat()
+                if self._minute_table_min is not None
+                else None
+            ),
+            "minute_table_max": (
+                self._minute_table_max.isoformat()
+                if self._minute_table_max is not None
+                else None
+            ),
+            "minute_query_months": self._minute_query_months,
+            "minute_rows": self._minute_rows,
+            "candidate_contract_days": [
+                [trade_date.isoformat(), contract]
+                for trade_date, contract in sorted(self._candidate_contract_days)
+            ],
+        }
+
+    def restore_checkpoint_audit_state(self, state: object) -> None:
+        expected = {
+            "minute_table_min",
+            "minute_table_max",
+            "minute_query_months",
+            "minute_rows",
+            "candidate_contract_days",
+        }
+        if type(state) is not dict or set(state) != expected:
+            raise ValueError("minute_checkpoint_audit: invalid state")
+        restored_days = {
+            (date.fromisoformat(item[0]), str(item[1]))
+            for item in state["candidate_contract_days"]
+            if type(item) is list and len(item) == 2
+        }
+        if len(restored_days) != len(state["candidate_contract_days"]):
+            raise ValueError("minute_checkpoint_audit: invalid contract-day set")
+        months = state["minute_query_months"]
+        rows = state["minute_rows"]
+        if type(months) is not int or months < self._minute_query_months:
+            raise ValueError("minute_checkpoint_audit: query count regressed")
+        if type(rows) is not int or rows < self._minute_rows:
+            raise ValueError("minute_checkpoint_audit: row count regressed")
+        if not self._candidate_contract_days.issubset(restored_days):
+            raise ValueError("minute_checkpoint_audit: contract-day prefix mismatch")
+        self._minute_table_min = (
+            datetime.fromisoformat(state["minute_table_min"])
+            if state["minute_table_min"] is not None
+            else None
+        )
+        self._minute_table_max = (
+            datetime.fromisoformat(state["minute_table_max"])
+            if state["minute_table_max"] is not None
+            else None
+        )
+        self._minute_query_months = months
+        self._minute_rows = rows
+        self._candidate_contract_days = restored_days
+
     def load_table_bounds(self) -> tuple[datetime, datetime]:
         """Load and cache the exact first and last physical minute timestamps."""
         if self._minute_table_min is not None and self._minute_table_max is not None:
@@ -1865,6 +2016,7 @@ class PublicMinuteSource:
         """
         trade_date = _require_trade_date(trade_date, contract=daily_contract)
         _, minute_symbol, _ = _minute_contract(daily_contract, trade_date)
+        lineage = _MultiplierLineage()
         with _managed_connection(
             self._connection_factory,
             self._pg.copy(),
@@ -1873,6 +2025,7 @@ class PublicMinuteSource:
             try:
                 cursor.execute(_METADATA_QUERY, (minute_symbol, trade_date))
                 rows = cursor.fetchall()
+                lineage.record("metadata_rows", rows)
                 dated_values: list[tuple[date, Any]] = []
                 for row_number, row in enumerate(rows):
                     if not isinstance(row, Sequence) or len(row) < 2:
@@ -1906,6 +2059,7 @@ class PublicMinuteSource:
                         cursor,
                         daily_contract=daily_contract,
                         trade_date=trade_date,
+                        lineage=lineage,
                     )
                     if candidates:
                         # Checking a multiplier against turnover only means
@@ -1925,36 +2079,47 @@ class PublicMinuteSource:
                                 cursor,
                                 minute_symbol=minute_symbol,
                                 trade_date=trade_date,
+                                lineage=lineage,
                             )
                             if wider is not None and _samplable(wider, minute_symbol):
                                 check_frame = wider
                         if len(candidates) == 1:
                             if not adjudicable:
-                                return _resolution_without_sample(
-                                    candidates[0], source="daily_turnover"
+                                return lineage.finish(
+                                    _resolution_without_sample(
+                                        candidates[0], source="daily_turnover"
+                                    ),
+                                    path="daily_turnover_unchecked",
                                 )
                             try:
-                                return _corroborate(
-                                    check_frame,
-                                    contract=minute_symbol,
-                                    multiplier=candidates[0],
-                                    source="daily_turnover",
-                                    origin=(daily_contract, trade_date),
+                                return lineage.finish(
+                                    _corroborate(
+                                        check_frame,
+                                        contract=minute_symbol,
+                                        multiplier=candidates[0],
+                                        source="daily_turnover",
+                                        origin=(daily_contract, trade_date),
+                                    ),
+                                    path="daily_turnover_checked",
                                 )
                             except MinuteDataError:
                                 wider = _wider_contract_sample(
                                     cursor,
                                     minute_symbol=minute_symbol,
                                     trade_date=trade_date,
+                                    lineage=lineage,
                                 )
                                 if wider is None or len(wider) <= len(check_frame):
                                     raise
-                                return _corroborate(
-                                    wider,
-                                    contract=minute_symbol,
-                                    multiplier=candidates[0],
-                                    source="daily_turnover",
-                                    origin=(daily_contract, trade_date),
+                                return lineage.finish(
+                                    _corroborate(
+                                        wider,
+                                        contract=minute_symbol,
+                                        multiplier=candidates[0],
+                                        source="daily_turnover",
+                                        origin=(daily_contract, trade_date),
+                                    ),
+                                    path="daily_turnover_wider",
                                 )
                         if not adjudicable:
                             raise MinuteDataError(
@@ -1991,7 +2156,10 @@ class PublicMinuteSource:
                                     uncheckable += 1
                                 continue
                         if len(passing) == 1:
-                            return passing[0]
+                            return lineage.finish(
+                                passing[0],
+                                path="daily_turnover_candidates",
+                            )
                         if uncheckable == len(candidates):
                             raise MinuteDataError(
                                 trade_date=trade_date,
@@ -2028,9 +2196,12 @@ class PublicMinuteSource:
                             ),
                         )
                     try:
-                        return infer_contract_multiplier(
-                            source_frame,
-                            contract=minute_symbol,
+                        return lineage.finish(
+                            infer_contract_multiplier(
+                                source_frame,
+                                contract=minute_symbol,
+                            ),
+                            path="minute_inference",
                         )
                     except MinuteDataError as exc:
                         # Inference runs only because the daily record settled
@@ -2076,12 +2247,15 @@ class PublicMinuteSource:
                 multiplier = distinct.pop()
                 if frame is None:
                     return multiplier
-                return _corroborate(
-                    frame,
-                    contract=minute_symbol,
-                    multiplier=multiplier,
-                    source="metadata",
-                    origin=(daily_contract, trade_date),
+                return lineage.finish(
+                    _corroborate(
+                        frame,
+                        contract=minute_symbol,
+                        multiplier=multiplier,
+                        source="metadata",
+                        origin=(daily_contract, trade_date),
+                    ),
+                    path="metadata",
                 )
             finally:
                 _close_cursor_preserving(cursor)

@@ -8,11 +8,13 @@ import fcntl
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import tempfile
 import threading
 from typing import Mapping
+import uuid
 
 import pandas as pd
 
@@ -123,6 +125,8 @@ _TOKEN_VALUE = re.compile(
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _LOCKS_GUARD = threading.Lock()
 _PROCESS_LOCKS: dict[str, threading.Lock] = {}
+_INCOMPLETE_FILE = ".incomplete-generation.json"
+_INCOMPLETE_VERSION = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -501,22 +505,11 @@ def _bundle_lock(directory: Path):
 
 
 def _stage_parquet(frame: pd.DataFrame, path: Path) -> Path:
-    temporary: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temporary = Path(handle.name)
-        frame.to_parquet(temporary, index=False)
-        result = temporary
-        temporary = None
-        return result
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    if path.exists() or path.is_symlink():
+        raise ValueError(f"bundle_stage_exists: {path.name}")
+    frame.to_parquet(path, index=False)
+    _fsync_file(path)
+    return path
 
 
 def _stage_manifest(payload: bytes, directory: Path) -> Path:
@@ -530,6 +523,7 @@ def _stage_manifest(payload: bytes, directory: Path) -> Path:
         ) as handle:
             handle.write(payload)
             handle.flush()
+            os.fsync(handle.fileno())
             temporary = Path(handle.name)
         result = temporary
         temporary = None
@@ -537,6 +531,240 @@ def _stage_manifest(payload: bytes, directory: Path) -> Path:
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def _fsync_file(path: Path) -> None:
+    with path.open("rb") as handle:
+        os.fsync(handle.fileno())
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _incomplete_payload(
+    *,
+    generation_id: str,
+    table_manifest: Mapping[str, Mapping[str, str]],
+    staged: Mapping[str, Path],
+    manifest_temporary: Path,
+    manifest_sha256: str | None,
+    phase: str,
+) -> dict[str, object]:
+    return {
+        "incomplete_version": _INCOMPLETE_VERSION,
+        "generation_id": generation_id,
+        "phase": phase,
+        "tables": {
+            table: {
+                "filename": table_manifest[table]["filename"],
+                "sha256": table_manifest[table]["sha256"],
+                "staged_filename": staged[table].name,
+            }
+            for table in TABLE_FILES
+        },
+        "manifest": {
+            "staged_filename": manifest_temporary.name,
+            "sha256": manifest_sha256,
+        },
+    }
+
+
+def _publish_incomplete(payload: Mapping[str, object], directory: Path) -> Path:
+    encoded = (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+    generation_id = str(payload["generation_id"])
+    temporary = directory / f".incomplete-generation.{generation_id}.tmp"
+    if temporary.exists() or temporary.is_symlink():
+        temporary.unlink()
+    marker = directory / _INCOMPLETE_FILE
+    renamed = False
+    try:
+        with temporary.open("xb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(marker)
+        renamed = True
+        _fsync_directory(directory)
+        return marker
+    finally:
+        if not renamed:
+            temporary.unlink(missing_ok=True)
+
+
+def _owned_recovery_path(directory: Path, name: object, *, label: str) -> Path:
+    if type(name) is not str or not name or Path(name).name != name:
+        raise ValueError(f"bundle_recovery_invalid: invalid {label} filename")
+    path = directory / name
+    if path.is_symlink():
+        raise ValueError(f"bundle_recovery_invalid: symlinked {label}")
+    return path
+
+
+def _read_incomplete_path(marker: Path, directory: Path) -> dict[str, object]:
+    if marker.is_symlink() or not marker.is_file():
+        raise ValueError("bundle_recovery_invalid: incomplete marker is not a file")
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("bundle_recovery_invalid: unreadable incomplete marker") from exc
+    if type(payload) is not dict or set(payload) != {
+        "incomplete_version",
+        "generation_id",
+        "phase",
+        "tables",
+        "manifest",
+    }:
+        raise ValueError("bundle_recovery_invalid: invalid marker shape")
+    if payload["incomplete_version"] != _INCOMPLETE_VERSION or not re.fullmatch(
+        r"[0-9a-f]{32}", str(payload["generation_id"])
+    ):
+        raise ValueError("bundle_recovery_invalid: invalid generation identity")
+    if payload["phase"] not in {"staging", "publishing", "recovering"}:
+        raise ValueError("bundle_recovery_invalid: invalid generation phase")
+    tables = payload["tables"]
+    if type(tables) is not dict or set(tables) != set(TABLE_FILES):
+        raise ValueError("bundle_recovery_invalid: invalid table inventory")
+    for table, filename in TABLE_FILES.items():
+        entry = tables[table]
+        if type(entry) is not dict or set(entry) != {
+            "filename",
+            "sha256",
+            "staged_filename",
+        }:
+            raise ValueError("bundle_recovery_invalid: invalid table entry")
+        digest = entry["sha256"]
+        if entry["filename"] != filename or not (
+            digest is None and payload["phase"] in {"staging", "recovering"}
+        ) and not _SHA256.fullmatch(str(digest)):
+            raise ValueError("bundle_recovery_invalid: invalid table declaration")
+        staged_path = _owned_recovery_path(
+            directory, entry["staged_filename"], label=f"{table} staged"
+        )
+        if not staged_path.name.startswith(f".{filename}.") or not staged_path.name.endswith(
+            ".tmp"
+        ):
+            raise ValueError("bundle_recovery_invalid: invalid staged table name")
+    manifest = payload["manifest"]
+    if type(manifest) is not dict or set(manifest) != {
+        "staged_filename",
+        "sha256",
+    }:
+        raise ValueError("bundle_recovery_invalid: invalid manifest declaration")
+    manifest_stage = _owned_recovery_path(
+        directory, manifest["staged_filename"], label="staged manifest"
+    )
+    if not manifest_stage.name.startswith(".manifest.") or not manifest_stage.name.endswith(
+        ".tmp"
+    ):
+        raise ValueError("bundle_recovery_invalid: invalid staged manifest name")
+    if not (
+        manifest["sha256"] is None
+        and payload["phase"] in {"staging", "recovering"}
+    ) and not _SHA256.fullmatch(str(manifest["sha256"])):
+        raise ValueError("bundle_recovery_invalid: invalid manifest digest")
+    return payload
+
+
+def _read_incomplete(directory: Path) -> dict[str, object]:
+    return _read_incomplete_path(directory / _INCOMPLETE_FILE, directory)
+
+
+def _adopt_incomplete_bootstrap(directory: Path) -> None:
+    bootstraps = list(directory.glob(".incomplete-generation.*.tmp"))
+    if len(bootstraps) > 1:
+        raise ValueError("bundle_recovery_invalid: multiple bootstrap journals")
+    if not bootstraps:
+        return
+    bootstrap = bootstraps[0]
+    payload = _read_incomplete_path(bootstrap, directory)
+    marker = directory / _INCOMPLETE_FILE
+    if marker.exists() or marker.is_symlink():
+        current = _read_incomplete(directory)
+        if current["generation_id"] != payload["generation_id"]:
+            raise ValueError("bundle_recovery_invalid: bootstrap generation mismatch")
+        bootstrap.unlink()
+    else:
+        bootstrap.replace(marker)
+    _fsync_directory(directory)
+
+
+def _recover_incomplete(directory: Path) -> None:
+    payload = _read_incomplete(directory)
+    declared: set[Path] = set()
+    strict = payload["phase"] == "publishing"
+    for table, filename in TABLE_FILES.items():
+        entry = payload["tables"][table]
+        live = directory / filename
+        staged = _owned_recovery_path(
+            directory, entry["staged_filename"], label=f"{table} staged"
+        )
+        declared.add(staged)
+        existing = [path for path in (live, staged) if path.is_file()]
+        if (strict and len(existing) != 1) or len(existing) > 1:
+            raise ValueError(
+                f"bundle_recovery_invalid: incomplete table mismatch {table!r}"
+            )
+        if existing and entry["sha256"] is not None and (
+            _sha256(existing[0]) != entry["sha256"]
+        ):
+            raise ValueError(
+                f"bundle_recovery_invalid: incomplete table mismatch {table!r}"
+            )
+        declared.add(live)
+
+    manifest = payload["manifest"]
+    manifest_stage = _owned_recovery_path(
+        directory, manifest["staged_filename"], label="staged manifest"
+    )
+    if strict and not manifest_stage.is_file():
+        raise ValueError("bundle_recovery_invalid: staged manifest mismatch")
+    if manifest_stage.is_file() and manifest["sha256"] is not None and (
+        _sha256(manifest_stage) != manifest["sha256"]
+    ):
+        raise ValueError("bundle_recovery_invalid: staged manifest mismatch")
+    declared.add(manifest_stage)
+
+    relevant = {
+        path
+        for path in directory.iterdir()
+        if path.name in TABLE_FILES.values()
+        or (
+            path.name.startswith(".")
+            and path.name.endswith(".tmp")
+            and (
+                any(
+                    path.name.startswith(f".{filename}.")
+                    for filename in TABLE_FILES.values()
+                )
+                or path.name.startswith(".manifest.")
+            )
+        )
+    }
+    if not relevant.issubset(declared):
+        raise ValueError("bundle_recovery_invalid: undeclared generation files")
+
+    if payload["phase"] != "recovering":
+        _publish_incomplete({**payload, "phase": "recovering"}, directory)
+
+    for path in declared:
+        path.unlink(missing_ok=True)
+    (directory / _INCOMPLETE_FILE).unlink(missing_ok=True)
+    _fsync_directory(directory)
 
 
 def write_bundle(
@@ -576,7 +804,41 @@ def _write_bundle_locked(
     clean_provenance: object,
 ) -> PanelBundle:
 
+    _adopt_incomplete_bootstrap(path)
     manifest_path = path / "manifest.json"
+    incomplete_marker = path / _INCOMPLETE_FILE
+    if incomplete_marker.exists() or incomplete_marker.is_symlink():
+        if manifest_path.exists() or manifest_path.is_symlink():
+            # A crash can happen after the manifest commit but before journal
+            # removal. The committed bundle remains authoritative.
+            existing = read_bundle(path)
+            marker = _read_incomplete(path)
+            for table in TABLE_FILES:
+                if (
+                    marker["tables"][table]["sha256"]
+                    != existing.manifest["tables"][table]["sha256"]
+                ):
+                    raise ValueError(
+                        "bundle_recovery_invalid: committed marker digest mismatch"
+                    )
+            for table in TABLE_FILES:
+                staged_path = _owned_recovery_path(
+                    path,
+                    marker["tables"][table]["staged_filename"],
+                    label=f"{table} staged",
+                )
+                staged_path.unlink(missing_ok=True)
+            staged_manifest = _owned_recovery_path(
+                path,
+                marker["manifest"]["staged_filename"],
+                label="staged manifest",
+            )
+            staged_manifest.unlink(missing_ok=True)
+            incomplete_marker.unlink()
+            _fsync_directory(path)
+        else:
+            _recover_incomplete(path)
+
     if manifest_path.exists() or manifest_path.is_symlink():
         existing = read_bundle(path)
         if (
@@ -596,6 +858,23 @@ def _write_bundle_locked(
             "bundle_manifest_missing: refusing to replace unclaimed tables "
             f"{existing_tables!r}"
         )
+    orphan_stages = [
+        item.name
+        for item in path.iterdir()
+        if item.name.endswith(".tmp")
+        and (
+            any(
+                item.name.startswith(f".{filename}.")
+                for filename in TABLE_FILES.values()
+            )
+            or item.name.startswith(".manifest.")
+        )
+    ]
+    if orphan_stages:
+        raise ValueError(
+            "bundle_manifest_missing: refusing unclaimed staged files "
+            f"{sorted(orphan_stages)!r}"
+        )
 
     frames = {
         "bars": bars,
@@ -608,14 +887,33 @@ def _write_bundle_locked(
     }
     _validate_bundle_relationships(normalised)
 
-    staged: dict[str, Path] = {}
+    generation_id = uuid.uuid4().hex
+    staged = {
+        table: path / f".{filename}.{generation_id}.tmp"
+        for table, filename in TABLE_FILES.items()
+    }
+    manifest_temporary = path / f".manifest.{generation_id}.tmp"
     published: list[Path] = []
-    manifest_temporary: Path | None = None
+    marker_published = True
     try:
+        _publish_incomplete(
+            _incomplete_payload(
+                generation_id=generation_id,
+                table_manifest={
+                    table: {"filename": filename, "sha256": None}
+                    for table, filename in TABLE_FILES.items()
+                },
+                staged=staged,
+                manifest_temporary=manifest_temporary,
+                manifest_sha256=None,
+                phase="staging",
+            ),
+            path,
+        )
+
         table_manifest: dict[str, dict[str, str]] = {}
         for table, filename in TABLE_FILES.items():
-            temporary = _stage_parquet(normalised[table], path / filename)
-            staged[table] = temporary
+            temporary = _stage_parquet(normalised[table], staged[table])
             table_manifest[table] = {
                 "filename": filename,
                 "sha256": _sha256(temporary),
@@ -637,29 +935,45 @@ def _write_bundle_locked(
             )
             + "\n"
         ).encode("utf-8")
-        manifest_temporary = _stage_manifest(payload, path)
+        with manifest_temporary.open("xb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _publish_incomplete(
+            _incomplete_payload(
+                generation_id=generation_id,
+                table_manifest=table_manifest,
+                staged=staged,
+                manifest_temporary=manifest_temporary,
+                manifest_sha256=_sha256(manifest_temporary),
+                phase="publishing",
+            ),
+            path,
+        )
 
         for table, filename in TABLE_FILES.items():
             live_path = path / filename
             published.append(live_path)
             staged[table].replace(live_path)
-            del staged[table]
         manifest_temporary.replace(manifest_path)
-        manifest_temporary = None
+        _fsync_directory(path)
+        incomplete_marker.unlink()
+        marker_published = False
+        _fsync_directory(path)
         published.clear()
         return PanelBundle(manifest=manifest, **normalised)
     finally:
-        for temporary in staged.values():
-            temporary.unlink(missing_ok=True)
-        if manifest_temporary is not None:
-            manifest_temporary.unlink(missing_ok=True)
         if manifest_path.is_file() and not manifest_path.is_symlink():
-            # The manifest is the commit marker. A filesystem wrapper can raise
-            # after the atomic rename has already succeeded; never then delete
-            # the tables that the live marker names.
             published.clear()
-        for live_path in published:
-            live_path.unlink(missing_ok=True)
+        elif marker_published and incomplete_marker.exists():
+            _recover_incomplete(path)
+            published.clear()
+        else:
+            for temporary in staged.values():
+                temporary.unlink(missing_ok=True)
+            manifest_temporary.unlink(missing_ok=True)
+            for live_path in published:
+                live_path.unlink(missing_ok=True)
 
 
 def _read_manifest(path: Path) -> dict[str, object]:

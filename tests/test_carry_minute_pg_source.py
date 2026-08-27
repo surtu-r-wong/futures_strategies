@@ -1601,6 +1601,71 @@ def test_metadata_multiplier_uses_latest_record_on_or_before_trade_date():
     assert metadata_event[2] == ("RB2405", date(2024, 1, 8))
 
 
+def test_multiplier_lineage_changes_with_private_metadata_rows_same_result():
+    frame = _inferable_frame()
+    first = _source(
+        FakeConnection(
+            metadata_rows=[
+                (date(2024, 1, 5), 10),
+                (date(2024, 1, 4), 20),
+            ]
+        )
+    ).resolve_metadata_multiplier(
+        daily_contract="RB2405.SHF",
+        trade_date=date(2024, 1, 8),
+        frame=frame,
+    )
+    changed = _source(
+        FakeConnection(
+            metadata_rows=[
+                (date(2024, 1, 5), 10),
+                (date(2024, 1, 4), 25),
+            ]
+        )
+    ).resolve_metadata_multiplier(
+        daily_contract="RB2405.SHF",
+        trade_date=date(2024, 1, 8),
+        frame=frame,
+    )
+
+    assert first.multiplier == changed.multiplier == 10
+    assert first.evidence_sha256 != changed.evidence_sha256
+    assert first.evidence_counts == (("metadata_rows", 2),)
+    assert first.resolution_path == "metadata"
+    emitted = json.dumps(
+        {
+            "evidence_sha256": first.evidence_sha256,
+            "evidence_counts": first.evidence_counts,
+            "resolution_path": first.resolution_path,
+        },
+        sort_keys=True,
+    )
+    assert "RB2405" not in emitted
+
+
+def test_multiplier_lineage_is_stable_under_database_tie_order():
+    rows = [
+        (date(2024, 1, 5), 10),
+        (date(2024, 1, 5), 10),
+        (date(2024, 1, 4), 20),
+    ]
+    frame = _inferable_frame()
+    first = _source(FakeConnection(metadata_rows=rows)).resolve_metadata_multiplier(
+        daily_contract="RB2405.SHF",
+        trade_date=date(2024, 1, 8),
+        frame=frame,
+    )
+    shuffled = _source(
+        FakeConnection(metadata_rows=[rows[1], rows[2], rows[0]])
+    ).resolve_metadata_multiplier(
+        daily_contract="RB2405.SHF",
+        trade_date=date(2024, 1, 8),
+        frame=frame,
+    )
+
+    assert first.evidence_sha256 == shuffled.evidence_sha256
+
+
 def _inferable_frame(contract="RB2405", multiplier=10):
     start = datetime(2024, 1, 8, 9, 0, tzinfo=SHANGHAI)
     records = []
@@ -1671,6 +1736,37 @@ def test_multiplier_comes_from_the_daily_turnover_before_any_minute_inference():
 
     assert resolution.multiplier == 10
     assert resolution.source == "daily_turnover"
+
+
+def test_multiplier_lineage_changes_with_private_daily_rows_same_result():
+    first_rows = _daily_rows(10)
+    changed_rows = list(first_rows)
+    changed_rows[0] = (*changed_rows[0][:-1], changed_rows[0][-1] + 0.125)
+    frame = _inferable_frame(contract="RM1909")
+    first = _source(
+        FakeConnection(metadata_rows=[], daily_rows=first_rows)
+    ).resolve_metadata_multiplier(
+        daily_contract="RM909.CZC",
+        trade_date=date(2019, 6, 3),
+        frame=frame,
+        pricing_basis="ohlc_typical",
+    )
+    changed = _source(
+        FakeConnection(metadata_rows=[], daily_rows=changed_rows)
+    ).resolve_metadata_multiplier(
+        daily_contract="RM909.CZC",
+        trade_date=date(2019, 6, 3),
+        frame=frame,
+        pricing_basis="ohlc_typical",
+    )
+
+    assert first.multiplier == changed.multiplier == 10
+    assert first.evidence_sha256 != changed.evidence_sha256
+    assert first.evidence_counts == (
+        ("metadata_rows", 0),
+        ("daily_turnover_rows", 40),
+    )
+    assert first.resolution_path == "daily_turnover_unchecked"
 
 
 def test_daily_multiplier_is_checked_against_the_wider_sample_not_the_day():

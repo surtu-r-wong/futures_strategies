@@ -6,6 +6,8 @@ import dataclasses
 import hashlib
 import json
 import math
+import multiprocessing
+import os
 from pathlib import Path
 import threading
 
@@ -23,8 +25,10 @@ from common.commodity.bundle import (  # noqa: E402
     write_bundle,
 )
 from common.commodity.panel import (  # noqa: E402
+    PanelMonthChunk,
     build_contexts,
     build_panel as build_commodity_panel,
+    normalise_panel,
 )
 from common.dominant import DominantChoice  # noqa: E402
 from common.minute.sessions import SessionRule  # noqa: E402
@@ -32,6 +36,7 @@ from common.minute.bars import MultiplierResolution  # noqa: E402
 from scripts.commodity.build_panel import (  # noqa: E402
     DigestingMinuteSource,
     DigestingMultiplierResolver,
+    _build_panel_checkpointed,
     _bundle_bars,
     _effective_config_sha256,
     _roll_candidate,
@@ -609,6 +614,172 @@ def _bundle_bytes(directory):
     }
 
 
+def _crash_after_first_bundle_table(directory, frames):
+    original = Path.replace
+
+    def replace_then_exit(source, target):
+        result = original(source, target)
+        if Path(target).name == TABLE_FILES["bars"]:
+            os._exit(73)
+        return result
+
+    Path.replace = replace_then_exit
+    write_bundle(directory, **frames)
+
+
+def test_child_crash_after_first_table_rename_recovers_on_retry(
+    tmp_path, bundle_frames
+):
+    output = tmp_path / "crashed-generation"
+    process = multiprocessing.get_context("fork").Process(
+        target=_crash_after_first_bundle_table,
+        args=(output, bundle_frames),
+    )
+    process.start()
+    process.join(timeout=15)
+
+    assert not process.is_alive()
+    assert process.exitcode == 73
+    assert (output / ".incomplete-generation.json").is_file()
+    assert (output / TABLE_FILES["bars"]).is_file()
+    assert not (output / "manifest.json").exists()
+
+    loaded = write_bundle(output, **bundle_frames)
+
+    assert loaded.bars.equals(bundle_frames["bars"])
+    assert read_bundle(output).bars.equals(bundle_frames["bars"])
+    assert not (output / ".incomplete-generation.json").exists()
+
+
+def test_month_checkpoint_resumes_after_later_failure_without_rebuilding_completed(
+    tmp_path, bundle_frames, monkeypatch
+):
+    import scripts.commodity.build_panel as builder_module
+
+    template = normalise_panel(bundle_frames["bars"])
+    january = PanelMonthChunk(
+        month_start=pd.Timestamp("2024-01-01").date(),
+        bars=template.iloc[:1].copy(),
+        pending=template.iloc[1:2].reset_index(drop=True),
+    )
+    february = PanelMonthChunk(
+        month_start=pd.Timestamp("2024-02-01").date(),
+        bars=template.iloc[1:2].reset_index(drop=True),
+        pending=template.iloc[:1].reset_index(drop=True),
+    )
+    calls = []
+
+    def fail_later(**kwargs):
+        calls.append((kwargs["resume_after"], kwargs["initial_pending"]))
+        yield january
+        raise RuntimeError("later-month failure")
+
+    monkeypatch.setattr(builder_module, "iter_panel_months", fail_later)
+    checkpoint = tmp_path / "checkpoint"
+    with pytest.raises(RuntimeError, match="later-month failure"):
+        _build_panel_checkpointed(
+            contexts={},
+            source=object(),
+            pricing_basis_by_exchange={},
+            multiplier_resolver=lambda candidate, frame: 10,
+            adjustment_factor_by_key={},
+            checkpoint_directory=checkpoint,
+            checkpoint_key="a" * 64,
+        )
+
+    def resume(**kwargs):
+        calls.append((kwargs["resume_after"], kwargs["initial_pending"]))
+        yield february
+
+    monkeypatch.setattr(builder_module, "iter_panel_months", resume)
+    rebuilt = _build_panel_checkpointed(
+        contexts={},
+        source=object(),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key={},
+        checkpoint_directory=checkpoint,
+        checkpoint_key="a" * 64,
+    )
+
+    assert calls[0] == (None, None)
+    assert calls[1][0] == january.month_start
+    assert calls[1][1].equals(january.pending)
+    assert len(rebuilt) == len(january.bars) + len(february.bars) + len(february.pending)
+    with pytest.raises(ValueError, match="panel_checkpoint_mismatch"):
+        _build_panel_checkpointed(
+            contexts={},
+            source=object(),
+            pricing_basis_by_exchange={},
+            multiplier_resolver=lambda candidate, frame: 10,
+            adjustment_factor_by_key={},
+            checkpoint_directory=checkpoint,
+            checkpoint_key="b" * 64,
+        )
+
+
+def _crash_checkpoint_after_first_month_file(directory, chunk):
+    import scripts.commodity.build_panel as builder_module
+
+    builder_module.iter_panel_months = lambda **kwargs: iter((chunk,))
+    original = builder_module._checkpoint_frame
+    calls = 0
+
+    def crash(frame, path):
+        nonlocal calls
+        result = original(frame, path)
+        calls += 1
+        if calls == 1:
+            os._exit(74)
+        return result
+
+    builder_module._checkpoint_frame = crash
+    builder_module._build_panel_checkpointed(
+        contexts={},
+        source=object(),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key={},
+        checkpoint_directory=directory,
+        checkpoint_key="c" * 64,
+    )
+
+
+def test_checkpoint_recovers_after_child_exit_during_first_month_file(
+    tmp_path, bundle_frames, monkeypatch
+):
+    import scripts.commodity.build_panel as builder_module
+
+    template = normalise_panel(bundle_frames["bars"])
+    chunk = PanelMonthChunk(
+        month_start=pd.Timestamp("2024-01-01").date(),
+        bars=template.iloc[:1].reset_index(drop=True),
+        pending=template.iloc[1:2].reset_index(drop=True),
+    )
+    checkpoint = tmp_path / "hard-crash-checkpoint"
+    process = multiprocessing.get_context("fork").Process(
+        target=_crash_checkpoint_after_first_month_file,
+        args=(checkpoint, chunk),
+    )
+    process.start()
+    process.join(timeout=15)
+    assert process.exitcode == 74
+
+    monkeypatch.setattr(
+        builder_module, "iter_panel_months", lambda **kwargs: iter((chunk,))
+    )
+    recovered = builder_module._build_panel_checkpointed(
+        contexts={},
+        source=object(),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key={},
+        checkpoint_directory=checkpoint,
+        checkpoint_key="c" * 64,
+    )
+
+    assert len(recovered) == len(chunk.bars) + len(chunk.pending)
+
 def test_compatible_republish_is_a_byte_identical_no_op(
     tmp_path, bundle_frames, monkeypatch
 ):
@@ -1034,7 +1205,12 @@ def test_same_process_writers_are_serialized_to_one_publication(
     assert not first.is_alive() and not second.is_alive()
     assert errors == []
     assert len(results) == 2
-    assert staged == list(TABLE_FILES.values())
+    assert len(staged) == len(TABLE_FILES)
+    assert all(
+        any(name.startswith(f".{filename}.") for filename in TABLE_FILES.values())
+        and name.endswith(".tmp")
+        for name in staged
+    )
     assert read_bundle(output).bars.equals(bundle_frames["bars"])
 
 
@@ -1250,6 +1426,197 @@ def test_metadata_multiplier_resolution_runs_for_each_consuming_frame():
     assert source.calls[1]["frame"] is full
     assert source.calls[1]["inference_frame"] is full
     assert first.sample_rows != second.sample_rows
+
+
+def test_metadata_multiplier_remote_resolution_is_bounded_by_concrete_contract():
+    import scripts.commodity.build_panel as builder_module
+
+    roll_choices = _roll_choices()
+    choices = (
+        roll_choices[0],
+        dataclasses.replace(
+            roll_choices[1],
+            contract=roll_choices[0].contract,
+        ),
+    )
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    calls = []
+
+    class Source:
+        def resolve_metadata_multiplier(self, **kwargs):
+            calls.append(kwargs)
+            return MultiplierResolution(
+                multiplier=10,
+                source="metadata",
+                sample_rows=0,
+                pass_rate=float("nan"),
+                sample_dates=0,
+            )
+
+    resolver = builder_module.CachingMetadataMultiplierResolver(
+        Source(),
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+    )
+    for choice in choices:
+        context = contexts[(choice.trade_date, choice.product)]
+        candidate = _roll_candidate(choice, context, role="panel")
+        frame = next(
+            _RollSource(context.slots, {choice.contract: 200.0}).iter_month(
+                [candidate], candidate.window_start, candidate.window_end
+            )
+        )
+        assert resolver(candidate, frame).multiplier == 10
+
+    assert len(calls) == 1
+
+
+def test_metadata_multiplier_cache_separates_contracts_and_pricing_basis():
+    import scripts.commodity.build_panel as builder_module
+
+    choice = _roll_choices()[1]
+    context = build_contexts(
+        [choice],
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )[(choice.trade_date, choice.product)]
+    base = _roll_candidate(choice, context, role="roll_new")
+    old = dataclasses.replace(
+        base,
+        daily_contract="RB2405.SHF",
+        minute_symbol="RB2405",
+        candidate_role="roll_old",
+    )
+    calls = []
+
+    class Source:
+        def resolve_metadata_multiplier(self, **kwargs):
+            calls.append(kwargs)
+            return MultiplierResolution(
+                multiplier=10,
+                source="metadata",
+                sample_rows=0,
+                pass_rate=float("nan"),
+                sample_dates=0,
+            )
+
+    source = Source()
+    amount = builder_module.CachingMetadataMultiplierResolver(
+        source,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+    )
+    typical = builder_module.CachingMetadataMultiplierResolver(
+        source,
+        pricing_basis_by_exchange={"SHFE": "ohlc_typical"},
+    )
+    frames = {
+        candidate.daily_contract: next(
+            _RollSource(
+                context.slots, {candidate.daily_contract: 200.0}
+            ).iter_month([candidate], candidate.window_start, candidate.window_end)
+        )
+        for candidate in (old, base)
+    }
+    for candidate in (old, base, old, base):
+        amount(candidate, frames[candidate.daily_contract])
+    typical(base, frames[base.daily_contract])
+
+    assert len(calls) == 3
+    assert [call["daily_contract"] for call in calls[:2]] == [
+        "RB2405.SHF",
+        "RB2410.SHF",
+    ]
+    assert calls[2]["pricing_basis"] == "ohlc_typical"
+
+
+def test_multiplier_cache_separates_roll_from_earlier_bars_and_concrete_czce():
+    import scripts.commodity.build_panel as builder_module
+
+    calls = []
+
+    class Source:
+        def resolve_metadata_multiplier(self, **kwargs):
+            calls.append((kwargs["daily_contract"], kwargs["trade_date"]))
+            return MultiplierResolution(
+                multiplier=10,
+                source="metadata",
+                sample_rows=0,
+                pass_rate=float("nan"),
+                sample_dates=0,
+            )
+
+    resolver = builder_module.CachingMetadataMultiplierResolver(
+        Source(), pricing_basis_by_exchange={"SHFE": "amount_vwap", "CZCE": "ohlc_typical"}
+    )
+    choice = _roll_choices()[0]
+    context = build_contexts(
+        [choice], rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")]
+    )[(choice.trade_date, choice.product)]
+    candidate = _roll_candidate(choice, context, role="roll_old")
+    resolver.set_phase("roll_fills")
+    resolver(candidate, pd.DataFrame())
+    resolver.set_phase("bars")
+    resolver(dataclasses.replace(candidate, candidate_role="dominant"), pd.DataFrame())
+
+    czc_base = dataclasses.replace(
+        candidate,
+        product="TA",
+        daily_contract="TA405.CZC",
+        exchange="CZCE",
+        minute_symbol="TA1405",
+        trade_date=pd.Timestamp("2014-03-05").date(),
+    )
+    resolver(czc_base, pd.DataFrame())
+    resolver(
+        dataclasses.replace(
+            czc_base,
+            minute_symbol="TA2405",
+            trade_date=pd.Timestamp("2024-03-05").date(),
+        ),
+        pd.DataFrame(),
+    )
+
+    assert len(calls) == 4
+
+
+def test_cached_multiplier_rejects_single_day_range_contradiction():
+    import scripts.commodity.build_panel as builder_module
+
+    choice = _roll_choices()[0]
+    context = build_contexts(
+        [choice], rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")]
+    )[(choice.trade_date, choice.product)]
+    candidate = _roll_candidate(choice, context, role="dominant")
+    frame = next(
+        _RollSource(context.slots, {choice.contract: 200.0}).iter_month(
+            [candidate], candidate.window_start, candidate.window_end
+        )
+    )
+
+    class Source:
+        def resolve_metadata_multiplier(self, **kwargs):
+            return MultiplierResolution(
+                multiplier=10,
+                source="metadata",
+                sample_rows=0,
+                pass_rate=float("nan"),
+                sample_dates=0,
+            )
+
+    resolver = builder_module.CachingMetadataMultiplierResolver(
+        Source(), pricing_basis_by_exchange={"SHFE": "amount_vwap"}
+    )
+    resolver(candidate, frame)
+    boundary = frame.copy()
+    boundary["amount"] = (
+        boundary["high"] + boundary["high"].abs() * 5e-7
+    ) * boundary["volume"] * 10
+    assert resolver(candidate, boundary).multiplier == 10
+    contradicted = frame.copy()
+    contradicted["amount"] *= 2
+    with pytest.raises(ValueError, match="panel_multiplier_cached_conflict"):
+        resolver(candidate, contradicted)
 
 
 def test_multiplier_provenance_fails_when_a_used_contract_was_not_recorded(

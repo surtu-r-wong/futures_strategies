@@ -7,17 +7,21 @@ Signal consumers apply the cached adjustment factor exactly once.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import fields, is_dataclass, replace
 from datetime import date, datetime, timedelta
 import hashlib
 import io
 import json
+import fcntl
 from numbers import Integral, Real
+import os
 from pathlib import Path
 import re
 import struct
 import subprocess
 import sys
+import threading
 from typing import Mapping, Sequence
 
 import pandas as pd
@@ -37,8 +41,9 @@ from common.commodity.dominant import choose_dominant_commodity  # noqa: E402
 from common.commodity.panel import (  # noqa: E402
     FILL_MINUTES,
     build_contexts,
-    build_panel,
     context_choices_for_month,
+    iter_panel_months,
+    normalise_panel,
 )
 from common.commodity.universe import (  # noqa: E402
     FINANCIAL_FUTURES,
@@ -47,7 +52,12 @@ from common.commodity.universe import (  # noqa: E402
 )
 from common.config import load_config, resolve_settings_path  # noqa: E402
 from common.db import get_connection, pg_config_from  # noqa: E402
-from common.minute.bars import MinuteDataError, five_minute_vwap  # noqa: E402
+from common.minute.bars import (  # noqa: E402
+    MinuteDataError,
+    _range_diagnostics,
+    five_minute_vwap,
+    validate_metadata_multiplier,
+)
 from common.minute.pg_source import (  # noqa: E402
     MinuteCandidate,
     PublicMinuteSource,
@@ -124,7 +134,10 @@ def build_parser() -> argparse.ArgumentParser:
         dest="output_dir",
         required=True,
         type=Path,
-        help="bundle directory (legacy alias: --out)",
+        help=(
+            "bundle directory (legacy alias: --out); incomplete monthly source "
+            "work resumes from a digest-bound .panel-checkpoint"
+        ),
     )
     parser.add_argument(
         "--settings",
@@ -543,6 +556,31 @@ class DigestingMinuteSource:
     def minute_request_digests(self) -> list[dict[str, object]]:
         return [dict(request) for request in self._requests]
 
+    def checkpoint_state(self) -> object:
+        underlying = (
+            self._source.checkpoint_audit_state()
+            if hasattr(self._source, "checkpoint_audit_state")
+            else None
+        )
+        return {"requests": self.minute_request_digests, "underlying_audit": underlying}
+
+    def restore_checkpoint_state(self, state: object) -> None:
+        if type(state) is not dict or set(state) != {
+            "requests",
+            "underlying_audit",
+        } or type(
+            state["requests"]
+        ) is not list:
+            raise ValueError("panel_checkpoint_state: invalid minute state")
+        restored = [dict(item) for item in state["requests"]]
+        if self._requests and restored[: len(self._requests)] != self._requests:
+            raise ValueError("panel_checkpoint_state: minute prefix mismatch")
+        if state["underlying_audit"] is not None:
+            if not hasattr(self._source, "restore_checkpoint_audit_state"):
+                raise ValueError("panel_checkpoint_state: minute audit unavailable")
+            self._source.restore_checkpoint_audit_state(state["underlying_audit"])
+        self._requests = restored
+
     @property
     def minute_content_sha256(self) -> str:
         encoded = json.dumps(
@@ -573,6 +611,8 @@ class DigestingMultiplierResolver:
         if phase not in {"roll_fills", "bars"}:
             raise ValueError(f"panel_multiplier_provenance_phase: {phase!r}")
         self._phase = phase
+        if hasattr(self._resolver, "set_phase"):
+            self._resolver.set_phase(phase)
 
     def __call__(self, candidate, frame) -> int:
         if self._phase is None:
@@ -669,6 +709,38 @@ class DigestingMultiplierResolver:
             separators=(",", ":"),
         ).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
+
+    def checkpoint_state(self) -> object:
+        return {"entries": list(self._entries.values())}
+
+    def restore_checkpoint_state(self, state: object) -> None:
+        if type(state) is not dict or set(state) != {"entries"} or type(
+            state["entries"]
+        ) is not list:
+            raise ValueError("panel_checkpoint_state: invalid multiplier state")
+        restored: dict[str, dict[str, object]] = {}
+        for raw in state["entries"]:
+            if type(raw) is not dict:
+                raise ValueError("panel_checkpoint_state: invalid multiplier entry")
+            entry = dict(raw)
+            identity = json.dumps(
+                {
+                    key: value
+                    for key, value in entry.items()
+                    if key != "resolved_multiplier"
+                },
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if identity in restored and restored[identity] != entry:
+                raise ValueError("panel_checkpoint_state: multiplier conflict")
+            restored[identity] = entry
+        for identity, entry in self._entries.items():
+            if restored.get(identity) != entry:
+                raise ValueError("panel_checkpoint_state: multiplier prefix mismatch")
+        self._entries = restored
 
     def assert_complete(self, *, bars: pd.DataFrame, roll_fills: pd.DataFrame) -> None:
         recorded_bars = {
@@ -806,6 +878,230 @@ def _metadata_multiplier_resolution(
         inference_frame=frame,
         pricing_basis=pricing_basis_by_exchange[candidate.exchange],
     )
+
+
+def _checkpoint_scalar(value: object) -> object:
+    if value is None:
+        return {"type": "null"}
+    if isinstance(value, bool):
+        return {"type": "bool", "value": value}
+    if isinstance(value, Integral):
+        return {"type": "int", "value": str(int(value))}
+    if isinstance(value, Real):
+        return {"type": "float64", "value": struct.pack(">d", float(value)).hex()}
+    if isinstance(value, datetime):
+        return {"type": "datetime", "value": value.isoformat()}
+    if isinstance(value, date):
+        return {"type": "date", "value": value.isoformat()}
+    if isinstance(value, str):
+        return {"type": "string", "value": value}
+    if isinstance(value, (list, tuple)):
+        return {"type": "tuple", "value": [_checkpoint_scalar(item) for item in value]}
+    raise ValueError(
+        f"panel_checkpoint_state: unsupported value {type(value).__name__!r}"
+    )
+
+
+def _restore_checkpoint_scalar(payload: object) -> object:
+    if type(payload) is not dict or "type" not in payload:
+        raise ValueError("panel_checkpoint_state: invalid encoded value")
+    kind = payload["type"]
+    if kind == "null" and set(payload) == {"type"}:
+        return None
+    if set(payload) != {"type", "value"}:
+        raise ValueError("panel_checkpoint_state: invalid encoded value shape")
+    value = payload["value"]
+    if kind == "bool" and type(value) is bool:
+        return value
+    if kind == "int" and type(value) is str:
+        return int(value)
+    if kind == "float64" and type(value) is str:
+        return struct.unpack(">d", bytes.fromhex(value))[0]
+    if kind == "datetime" and type(value) is str:
+        return datetime.fromisoformat(value)
+    if kind == "date" and type(value) is str:
+        return date.fromisoformat(value)
+    if kind == "string" and type(value) is str:
+        return value
+    if kind == "tuple" and type(value) is list:
+        return tuple(_restore_checkpoint_scalar(item) for item in value)
+    raise ValueError("panel_checkpoint_state: invalid encoded value type")
+
+
+class CachingMetadataMultiplierResolver:
+    """Resolve remotely once per concrete contract/basis and audit every use."""
+
+    def __init__(
+        self,
+        source,
+        *,
+        pricing_basis_by_exchange: Mapping[str, str],
+    ) -> None:
+        self._source = source
+        self._pricing_basis_by_exchange = dict(pricing_basis_by_exchange)
+        self._phase = "default"
+        self._cache: dict[tuple[str, str, str], tuple[date, object]] = {}
+
+    def set_phase(self, phase: str) -> None:
+        if phase not in {"roll_fills", "bars"}:
+            raise ValueError(f"panel_multiplier_cache_phase: {phase!r}")
+        self._phase = phase
+
+    def __call__(self, candidate, frame: pd.DataFrame):
+        if candidate.exchange not in self._pricing_basis_by_exchange:
+            raise ValueError(
+                "panel_multiplier_pricing_basis_missing: "
+                f"exchange={candidate.exchange!r}"
+            )
+        pricing_basis = self._pricing_basis_by_exchange[candidate.exchange]
+        # CZCE's three-digit daily identifiers recur by decade. The resolved
+        # minute symbol is the concrete identity; phase separation prevents a
+        # later roll-exit lookup from leaking into earlier historical bars.
+        key = (self._phase, candidate.minute_symbol, pricing_basis)
+        if key not in self._cache:
+            self._cache[key] = (
+                candidate.trade_date,
+                _metadata_multiplier_resolution(
+                    self._source,
+                    self._pricing_basis_by_exchange,
+                    candidate,
+                    frame,
+                ),
+            )
+            return self._cache[key][1]
+
+        resolved_as_of, resolution = self._cache[key]
+        if candidate.trade_date < resolved_as_of:
+            raise ValueError(
+                "panel_multiplier_cache_causality: cached resolution is from a "
+                f"later date; minute_symbol={candidate.minute_symbol!r}"
+            )
+        multiplier = (
+            int(resolution)
+            if isinstance(resolution, Integral)
+            else int(resolution.multiplier)
+        )
+        if not frame.empty and pricing_basis == "amount_vwap":
+            try:
+                validate_metadata_multiplier(
+                    frame,
+                    contract=candidate.minute_symbol,
+                    multiplier=multiplier,
+                    source="cached_contract_resolution",
+                )
+            except MinuteDataError as exc:
+                if exc.check != "contract_multiplier_sample":
+                    raise ValueError(
+                        "panel_multiplier_cached_conflict: "
+                        f"contract={candidate.daily_contract!r} "
+                        f"trade_date={candidate.trade_date.isoformat()}"
+                    ) from exc
+                # The production panel passes one day at a time, while the
+                # shared validator intentionally requires multiple dates.
+                # Apply its same price-range diagnostic locally so cached
+                # values are still checked on every amount-based caller day.
+                traded = frame.loc[
+                    (frame["symbol"] == candidate.minute_symbol)
+                    & (pd.to_numeric(frame["volume"], errors="coerce") > 0)
+                ].copy()
+                if not traded.empty:
+                    for column in ("amount", "volume", "low", "high"):
+                        traded[column] = pd.to_numeric(
+                            traded[column], errors="coerce"
+                        )
+                    valid = traded[["amount", "volume", "low", "high"]].notna().all(
+                        axis=1
+                    )
+                    pass_rate = (
+                        _range_diagnostics(traded.loc[valid], multiplier)[0]
+                        if valid.any()
+                        else 1.0
+                    )
+                    if pass_rate < 0.60:
+                        raise ValueError(
+                            "panel_multiplier_cached_conflict: local day evidence "
+                            f"contradicts contract={candidate.daily_contract!r} "
+                            f"trade_date={candidate.trade_date.isoformat()}"
+                        ) from exc
+        return resolution
+
+    def checkpoint_state(self) -> object:
+        entries = []
+        for (phase, minute_symbol, basis), (resolved_as_of, resolution) in sorted(
+            self._cache.items()
+        ):
+            if isinstance(resolution, Integral):
+                payload = {"kind": "integer", "value": str(int(resolution))}
+            elif is_dataclass(resolution) and not isinstance(resolution, type):
+                payload = {
+                    "kind": "MultiplierResolution",
+                    "fields": {
+                        field.name: _checkpoint_scalar(getattr(resolution, field.name))
+                        for field in fields(resolution)
+                    },
+                }
+            else:
+                raise ValueError("panel_checkpoint_state: unaudited cached multiplier")
+            entries.append(
+                {
+                    "phase": phase,
+                    "minute_symbol": minute_symbol,
+                    "pricing_basis": basis,
+                    "resolved_as_of": resolved_as_of.isoformat(),
+                    "resolution": payload,
+                }
+            )
+        return {"entries": entries}
+
+    def restore_checkpoint_state(self, state: object) -> None:
+        from common.minute.bars import MultiplierResolution
+
+        if type(state) is not dict or set(state) != {"entries"} or type(
+            state["entries"]
+        ) is not list:
+            raise ValueError("panel_checkpoint_state: invalid cached multiplier state")
+        restored: dict[tuple[str, str, str], tuple[date, object]] = {}
+        for entry in state["entries"]:
+            if type(entry) is not dict or set(entry) != {
+                "phase",
+                "minute_symbol",
+                "pricing_basis",
+                "resolved_as_of",
+                "resolution",
+            }:
+                raise ValueError("panel_checkpoint_state: invalid cached multiplier entry")
+            payload = entry["resolution"]
+            if type(payload) is not dict:
+                raise ValueError("panel_checkpoint_state: invalid cached resolution")
+            if payload.get("kind") == "integer" and set(payload) == {"kind", "value"}:
+                resolution: object = int(payload["value"])
+            elif payload.get("kind") == "MultiplierResolution" and set(payload) == {
+                "kind",
+                "fields",
+            } and type(payload["fields"]) is dict:
+                resolution = MultiplierResolution(
+                    **{
+                        name: _restore_checkpoint_scalar(value)
+                        for name, value in payload["fields"].items()
+                    }
+                )
+            else:
+                raise ValueError("panel_checkpoint_state: invalid cached resolution")
+            key = (
+                str(entry["phase"]),
+                str(entry["minute_symbol"]),
+                str(entry["pricing_basis"]),
+            )
+            if key in restored:
+                raise ValueError("panel_checkpoint_state: duplicate cached multiplier")
+            restored[key] = (date.fromisoformat(entry["resolved_as_of"]), resolution)
+        for key, (resolved_as_of, resolution) in self._cache.items():
+            if key not in restored or restored[key][0] != resolved_as_of or (
+                _canonical_resolution_evidence(restored[key][1])
+                != _canonical_resolution_evidence(resolution)
+            ):
+                raise ValueError("panel_checkpoint_state: cached multiplier prefix mismatch")
+        self._cache = restored
 
 
 def _contract_changed(previous, current) -> bool:
@@ -1068,6 +1364,432 @@ def _reliable_end(rules) -> date:
     return max(ends)
 
 
+_CHECKPOINT_VERSION = 1
+_CHECKPOINT_MANIFEST = "checkpoint.json"
+_CHECKPOINT_SHA256 = re.compile(r"[0-9a-f]{64}")
+_CHECKPOINT_LOCKS_GUARD = threading.Lock()
+_CHECKPOINT_LOCKS: dict[str, threading.Lock] = {}
+
+
+@contextmanager
+def _panel_checkpoint_lock(directory: Path):
+    lock_path = directory.with_name(directory.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    key = str(lock_path.resolve())
+    with _CHECKPOINT_LOCKS_GUARD:
+        process_lock = _CHECKPOINT_LOCKS.setdefault(key, threading.Lock())
+    with process_lock, lock_path.open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _checkpoint_frame(frame: pd.DataFrame, path: Path) -> dict[str, str]:
+    if path.exists() or path.is_symlink():
+        raise ValueError(f"panel_checkpoint_invalid: stage exists {path.name!r}")
+    normalise_panel(frame).to_parquet(path, index=False)
+    with path.open("rb") as handle:
+        os.fsync(handle.fileno())
+    return {"filename": path.name, "sha256": _file_sha256(path)}
+
+
+def _checkpoint_manifest_write(directory: Path, payload: Mapping[str, object]) -> None:
+    encoded = (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+    temporary = directory / ".checkpoint.next.tmp"
+    renamed = False
+    try:
+        if temporary.exists() or temporary.is_symlink():
+            raise ValueError("panel_checkpoint_invalid: pending marker already exists")
+        with temporary.open("xb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(directory / _CHECKPOINT_MANIFEST)
+        renamed = True
+        descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    finally:
+        if not renamed:
+            temporary.unlink(missing_ok=True)
+
+
+def _checkpoint_file(
+    directory: Path,
+    declaration: object,
+    *,
+    label: str,
+    required: bool = True,
+) -> Path:
+    if type(declaration) is not dict or set(declaration) != {"filename", "sha256"}:
+        raise ValueError(f"panel_checkpoint_invalid: invalid {label} declaration")
+    filename = declaration["filename"]
+    digest = declaration["sha256"]
+    if (
+        type(filename) is not str
+        or Path(filename).name != filename
+        or type(digest) is not str
+        or not _CHECKPOINT_SHA256.fullmatch(digest)
+    ):
+        raise ValueError(f"panel_checkpoint_invalid: invalid {label} identity")
+    path = directory / filename
+    if path.is_symlink() or (required and not path.is_file()):
+        raise ValueError(f"panel_checkpoint_invalid: {label} digest mismatch")
+    if path.is_file() and _file_sha256(path) != digest:
+        raise ValueError(f"panel_checkpoint_invalid: {label} digest mismatch")
+    return path
+
+
+def _checkpoint_open(
+    directory: Path,
+    *,
+    key: str,
+    state_objects: Mapping[str, object],
+) -> dict[str, object]:
+    if not _CHECKPOINT_SHA256.fullmatch(key):
+        raise ValueError("panel_checkpoint_key: expected a sha256 digest")
+    directory.mkdir(parents=True, exist_ok=True)
+    marker = directory / _CHECKPOINT_MANIFEST
+    marker_stage = directory / ".checkpoint.next.tmp"
+    if marker_stage.exists() or marker_stage.is_symlink():
+        try:
+            staged_payload = json.loads(marker_stage.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("panel_checkpoint_invalid: unreadable staged marker") from exc
+        if type(staged_payload) is not dict:
+            raise ValueError("panel_checkpoint_invalid: staged marker shape")
+        if marker.exists() or marker.is_symlink():
+            marker_stage.unlink()
+        else:
+            marker_stage.replace(marker)
+    if not marker.exists():
+        if any(directory.iterdir()):
+            raise ValueError("panel_checkpoint_invalid: unclaimed checkpoint files")
+        payload: dict[str, object] = {
+            "checkpoint_version": _CHECKPOINT_VERSION,
+            "key_sha256": key,
+            "completed": [],
+            "pending": None,
+            "incomplete": None,
+            "cleanup_started": False,
+            "states": {
+                name: state.checkpoint_state()
+                for name, state in sorted(state_objects.items())
+            },
+        }
+        _checkpoint_manifest_write(directory, payload)
+        return payload
+    if marker.is_symlink() or not marker.is_file():
+        raise ValueError("panel_checkpoint_invalid: marker must be a regular file")
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("panel_checkpoint_invalid: unreadable marker") from exc
+    if type(payload) is not dict or set(payload) != {
+        "checkpoint_version",
+        "key_sha256",
+        "completed",
+        "pending",
+        "incomplete",
+        "cleanup_started",
+        "states",
+    }:
+        raise ValueError("panel_checkpoint_invalid: marker shape")
+    if payload["checkpoint_version"] != _CHECKPOINT_VERSION:
+        raise ValueError("panel_checkpoint_invalid: unsupported version")
+    if type(payload["completed"]) is not list or type(payload["states"]) is not dict:
+        raise ValueError("panel_checkpoint_invalid: inventory shape")
+    if type(payload["cleanup_started"]) is not bool:
+        raise ValueError("panel_checkpoint_invalid: cleanup flag")
+    if payload["cleanup_started"]:
+        owned: list[Path] = []
+        for entry in payload["completed"]:
+            if type(entry) is not dict or not {"bars", "pending"}.issubset(entry):
+                raise ValueError("panel_checkpoint_invalid: cleanup inventory")
+            owned.extend(
+                (
+                    _checkpoint_file(
+                        directory, entry["bars"], label="bars", required=False
+                    ),
+                    _checkpoint_file(
+                        directory, entry["pending"], label="pending", required=False
+                    ),
+                )
+            )
+        for item in owned:
+            item.unlink(missing_ok=True)
+        marker.unlink(missing_ok=True)
+        return _checkpoint_open(directory, key=key, state_objects=state_objects)
+
+    incomplete = payload["incomplete"]
+    if incomplete is not None:
+        if type(incomplete) is not dict or set(incomplete) != {
+            "phase",
+            "month_start",
+            "bars_filename",
+            "pending_filename",
+            "bars_sha256",
+            "pending_sha256",
+            "commit",
+        }:
+            raise ValueError("panel_checkpoint_invalid: incomplete shape")
+        if incomplete["phase"] not in {"staging", "publishing"}:
+            raise ValueError("panel_checkpoint_invalid: incomplete phase")
+        try:
+            month_start = date.fromisoformat(incomplete["month_start"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("panel_checkpoint_invalid: incomplete month") from exc
+        if month_start.day != 1:
+            raise ValueError("panel_checkpoint_invalid: incomplete month")
+        owned = []
+        for label in ("bars", "pending"):
+            filename = incomplete[f"{label}_filename"]
+            if type(filename) is not str or Path(filename).name != filename:
+                raise ValueError("panel_checkpoint_invalid: incomplete filename")
+            item = directory / filename
+            if item.is_symlink():
+                raise ValueError("panel_checkpoint_invalid: incomplete symlink")
+            digest = incomplete[f"{label}_sha256"]
+            if incomplete["phase"] == "publishing":
+                if not isinstance(digest, str) or not _CHECKPOINT_SHA256.fullmatch(
+                    digest
+                ):
+                    raise ValueError("panel_checkpoint_invalid: incomplete digest")
+                if not item.is_file() or _file_sha256(item) != digest:
+                    raise ValueError("panel_checkpoint_invalid: incomplete file")
+            elif digest is not None:
+                raise ValueError("panel_checkpoint_invalid: staging digest")
+            owned.append(item)
+        if incomplete["phase"] == "staging":
+            for item in owned:
+                item.unlink(missing_ok=True)
+            payload["incomplete"] = None
+        else:
+            commit = incomplete["commit"]
+            if type(commit) is not dict or set(commit) != {"entry", "states"}:
+                raise ValueError("panel_checkpoint_invalid: incomplete commit")
+            payload["completed"].append(commit["entry"])
+            payload["pending"] = commit["entry"]["pending"]
+            payload["states"] = commit["states"]
+            payload["incomplete"] = None
+        _checkpoint_manifest_write(directory, payload)
+
+    if payload["key_sha256"] != key:
+        raise ValueError("panel_checkpoint_mismatch: inputs/config/source changed")
+    if set(payload["states"]) != set(state_objects):
+        raise ValueError("panel_checkpoint_mismatch: checkpoint state set changed")
+    declared = {marker.name}
+    previous_month: date | None = None
+    for entry in payload["completed"]:
+        if type(entry) is not dict or set(entry) != {
+            "month_start",
+            "bars",
+            "pending",
+        }:
+            raise ValueError("panel_checkpoint_invalid: completed entry shape")
+        try:
+            month_start = date.fromisoformat(entry["month_start"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("panel_checkpoint_invalid: completed month") from exc
+        if month_start.day != 1 or (previous_month and month_start <= previous_month):
+            raise ValueError("panel_checkpoint_invalid: completed month order")
+        previous_month = month_start
+        declared.add(_checkpoint_file(directory, entry["bars"], label="bars").name)
+        declared.add(
+            _checkpoint_file(directory, entry["pending"], label="pending").name
+        )
+    if payload["pending"] is not None:
+        declared.add(
+            _checkpoint_file(directory, payload["pending"], label="pending").name
+        )
+    actual = {path.name for path in directory.iterdir() if path.is_file()}
+    if actual != declared:
+        raise ValueError("panel_checkpoint_invalid: unclaimed checkpoint files")
+    for name, state in state_objects.items():
+        state.restore_checkpoint_state(payload["states"][name])
+    return payload
+
+
+def _build_panel_checkpointed_locked(
+    *,
+    contexts,
+    source,
+    pricing_basis_by_exchange,
+    multiplier_resolver,
+    adjustment_factor_by_key,
+    checkpoint_directory: str | Path,
+    checkpoint_key: str,
+    checkpoint_state_objects: Mapping[str, object] | None = None,
+) -> pd.DataFrame:
+    """Stage finalized months and resume after the last atomic checkpoint.
+
+    Only the current month's rows and one pending row per product live in the
+    panel iterator. Final concatenation reads staged Parquet after all source
+    work succeeds, preserving the legacy DataFrame result for bundle validation.
+    """
+    directory = Path(checkpoint_directory)
+    states = dict(checkpoint_state_objects or {})
+    payload = _checkpoint_open(directory, key=checkpoint_key, state_objects=states)
+    completed = payload["completed"]
+    resume_after = (
+        date.fromisoformat(completed[-1]["month_start"]) if completed else None
+    )
+    initial_pending = None
+    if payload["pending"] is not None:
+        initial_pending = normalise_panel(
+            pd.read_parquet(_checkpoint_file(directory, payload["pending"], label="pending"))
+        )
+
+    for chunk in iter_panel_months(
+        contexts=contexts,
+        source=source,
+        pricing_basis_by_exchange=pricing_basis_by_exchange,
+        multiplier_resolver=multiplier_resolver,
+        adjustment_factor_by_key=adjustment_factor_by_key,
+        resume_after=resume_after,
+        initial_pending=initial_pending,
+    ):
+        month_label = chunk.month_start.strftime("%Y-%m")
+        generation = hashlib.sha256(
+            f"{checkpoint_key}:{month_label}".encode("ascii")
+        ).hexdigest()[:16]
+        bars_path = directory / f"bars-{month_label}-{generation}.parquet"
+        pending_path = directory / f"pending-{month_label}-{generation}.parquet"
+        payload["incomplete"] = {
+            "phase": "staging",
+            "month_start": chunk.month_start.isoformat(),
+            "bars_filename": bars_path.name,
+            "pending_filename": pending_path.name,
+            "bars_sha256": None,
+            "pending_sha256": None,
+            "commit": None,
+        }
+        _checkpoint_manifest_write(directory, payload)
+        bars_declaration = _checkpoint_frame(chunk.bars, bars_path)
+        pending_declaration = _checkpoint_frame(chunk.pending, pending_path)
+        entry = {
+            "month_start": chunk.month_start.isoformat(),
+            "bars": bars_declaration,
+            "pending": pending_declaration,
+        }
+        next_states = {
+            name: state.checkpoint_state() for name, state in sorted(states.items())
+        }
+        payload["incomplete"] = {
+            "phase": "publishing",
+            "month_start": chunk.month_start.isoformat(),
+            "bars_filename": bars_path.name,
+            "pending_filename": pending_path.name,
+            "bars_sha256": bars_declaration["sha256"],
+            "pending_sha256": pending_declaration["sha256"],
+            "commit": {"entry": entry, "states": next_states},
+        }
+        _checkpoint_manifest_write(directory, payload)
+        payload["completed"].append(entry)
+        payload["pending"] = pending_declaration
+        payload["states"] = next_states
+        payload["incomplete"] = None
+        _checkpoint_manifest_write(directory, payload)
+
+    frames = [
+        normalise_panel(
+            pd.read_parquet(_checkpoint_file(directory, entry["bars"], label="bars"))
+        )
+        for entry in payload["completed"]
+    ]
+    if payload["pending"] is not None:
+        frames.append(
+            normalise_panel(
+                pd.read_parquet(
+                    _checkpoint_file(directory, payload["pending"], label="pending")
+                )
+            )
+        )
+    if not frames:
+        return normalise_panel(pd.DataFrame(columns=list(TABLE_SCHEMAS["bars"])))
+    return normalise_panel(pd.concat(frames, ignore_index=True))
+
+
+def _build_panel_checkpointed(**kwargs) -> pd.DataFrame:
+    directory = Path(kwargs["checkpoint_directory"])
+    with _panel_checkpoint_lock(directory):
+        return _build_panel_checkpointed_locked(**kwargs)
+
+
+def _clear_panel_checkpoint_locked(directory: str | Path) -> None:
+    path = Path(directory)
+    if not path.exists():
+        return
+    marker = path / _CHECKPOINT_MANIFEST
+    marker_stage = path / ".checkpoint.next.tmp"
+    if marker_stage.exists() or marker_stage.is_symlink():
+        try:
+            staged = json.loads(marker_stage.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("panel_checkpoint_invalid: staged cleanup marker") from exc
+        if type(staged) is not dict:
+            raise ValueError("panel_checkpoint_invalid: staged cleanup marker")
+        if marker.exists():
+            marker_stage.unlink()
+        else:
+            marker_stage.replace(marker)
+    if not marker.is_file() or marker.is_symlink():
+        raise ValueError("panel_checkpoint_invalid: cannot clear unclaimed directory")
+    payload = json.loads(marker.read_text(encoding="utf-8"))
+    if type(payload) is not dict or "cleanup_started" not in payload:
+        raise ValueError("panel_checkpoint_invalid: cleanup marker shape")
+    declared = []
+    for entry in payload.get("completed", []):
+        declared.append(
+            _checkpoint_file(
+                path,
+                entry["bars"],
+                label="bars",
+                required=not payload["cleanup_started"],
+            )
+        )
+        declared.append(
+            _checkpoint_file(
+                path,
+                entry["pending"],
+                label="pending",
+                required=not payload["cleanup_started"],
+            )
+        )
+    expected = {marker.name, *(item.name for item in declared)}
+    actual = {item.name for item in path.iterdir()}
+    if not payload["cleanup_started"] and actual != expected:
+        raise ValueError("panel_checkpoint_invalid: refusing unsafe cleanup")
+    if payload["cleanup_started"] and not actual.issubset(expected):
+        raise ValueError("panel_checkpoint_invalid: refusing unsafe cleanup")
+    if not payload["cleanup_started"]:
+        payload["cleanup_started"] = True
+        _checkpoint_manifest_write(path, payload)
+    for item in declared:
+        item.unlink(missing_ok=True)
+    marker.unlink(missing_ok=True)
+    path.rmdir()
+
+
+def _clear_panel_checkpoint(directory: str | Path) -> None:
+    path = Path(directory)
+    with _panel_checkpoint_lock(path):
+        _clear_panel_checkpoint_locked(path)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1135,18 +1857,45 @@ def main(argv: list[str] | None = None) -> int:
         pricing_basis_by_exchange=basis_by_exchange,
     )
 
-    def resolve_multiplier(candidate, frame):
-        return _metadata_multiplier_resolution(
-            source,
-            basis_by_exchange,
-            candidate,
-            frame,
-        )
-
-    multiplier_resolver = DigestingMultiplierResolver(
-        resolve_multiplier,
+    metadata_multiplier_resolver = CachingMetadataMultiplierResolver(
+        source,
         pricing_basis_by_exchange=basis_by_exchange,
     )
+    multiplier_resolver = DigestingMultiplierResolver(
+        metadata_multiplier_resolver,
+        pricing_basis_by_exchange=basis_by_exchange,
+    )
+
+    source_revision = _source_revision()
+    effective_config_sha256, _ = _effective_config_sha256(
+        cfg,
+        SESSION_RULES,
+        PRICING_BASES,
+        source_revision=source_revision,
+    )
+    daily_sha256 = _frame_sha256(daily)
+    contexts_sha256 = _contexts_sha256(contexts)
+    checkpoint_payload = {
+        "version": _CHECKPOINT_VERSION,
+        "start": args.start.isoformat(),
+        "end": args.end.isoformat(),
+        "database_profile": "test" if args.use_test else "production",
+        "daily_sha256": daily_sha256,
+        "contexts_sha256": contexts_sha256,
+        "factors_sha256": _frame_sha256(factors),
+        "effective_config_sha256": effective_config_sha256,
+        "source_revision": source_revision,
+    }
+    checkpoint_key = hashlib.sha256(
+        json.dumps(
+            checkpoint_payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    checkpoint_directory = args.output_dir / ".panel-checkpoint"
 
     source.set_phase("roll_fills")
     multiplier_resolver.set_phase("roll_fills")
@@ -1159,12 +1908,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     source.set_phase("bars")
     multiplier_resolver.set_phase("bars")
-    raw_bars = build_panel(
+    raw_bars = _build_panel_checkpointed(
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange=basis_by_exchange,
         multiplier_resolver=multiplier_resolver,
         adjustment_factor_by_key={key: factor_by_key[key] for key in contexts},
+        checkpoint_directory=checkpoint_directory,
+        checkpoint_key=checkpoint_key,
+        checkpoint_state_objects={
+            "metadata_multiplier": metadata_multiplier_resolver,
+            "minute": source,
+            "multiplier": multiplier_resolver,
+        },
     )
     bars = _bundle_bars(raw_bars)
     universes = _universe_frame(products_by_month)
@@ -1172,13 +1928,6 @@ def main(argv: list[str] | None = None) -> int:
     multiplier_resolver.assert_complete(bars=bars, roll_fills=roll_fills)
 
     audit = source.audit
-    source_revision = _source_revision()
-    effective_config_sha256, _ = _effective_config_sha256(
-        cfg,
-        SESSION_RULES,
-        PRICING_BASES,
-        source_revision=source_revision,
-    )
     bundle = write_bundle(
         args.output_dir,
         bars=bars,
@@ -1192,8 +1941,8 @@ def main(argv: list[str] | None = None) -> int:
             "daily_relation": "public.futures_daily",
             "minute_relation": "public.futures_minute",
             "daily_rows": len(daily),
-            "daily_sha256": _frame_sha256(daily),
-            "minute_candidates_sha256": _contexts_sha256(contexts),
+            "daily_sha256": daily_sha256,
+            "minute_candidates_sha256": contexts_sha256,
             "minute_content_sha256": source.minute_content_sha256,
             "minute_request_digests": source.minute_request_digests,
             "multiplier_resolutions_sha256": (
@@ -1216,6 +1965,7 @@ def main(argv: list[str] | None = None) -> int:
             "minute_candidate_contract_days": audit.minute_candidate_contract_days,
         },
     )
+    _clear_panel_checkpoint(checkpoint_directory)
     print(
         f"bundle: {args.output_dir} bars={len(bundle.bars):,} "
         f"universes={len(bundle.universes):,} "

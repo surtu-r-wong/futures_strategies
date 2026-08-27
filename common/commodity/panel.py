@@ -218,6 +218,15 @@ class SessionContext:
     buckets: tuple[tuple[datetime, ...], ...]
 
 
+@dataclass(frozen=True)
+class PanelMonthChunk:
+    """Finalized bars plus the small pending-fill state after one month."""
+
+    month_start: date
+    bars: pd.DataFrame
+    pending: pd.DataFrame
+
+
 def context_choices_for_month(
     choices: Sequence[object], *, month_start: date
 ) -> tuple[object, ...]:
@@ -313,49 +322,58 @@ def slot_tz():
     return ZoneInfo("Asia/Shanghai")
 
 
-def build_panel(
+def iter_panel_months(
     *,
     contexts: Mapping[tuple[date, str], SessionContext],
     source,
     pricing_basis_by_exchange: Mapping[str, str],
     multiplier_resolver,
     adjustment_factor_by_key: Mapping[tuple[date, str], float],
-) -> pd.DataFrame:
-    """按月分批把面板建出来。
-
-    `multiplier_resolver(candidate, frame)` 交给调用方 —— 生产上走
-    `PublicMinuteSource.resolve_metadata_multiplier`，测试里给一个确定性替身。
-
-    **挂起的成交价跨日、跨月接力**：某个品种-日最后一根桶没有「之后 5 分钟」，它由
-    该品种**下一次出现**的那一天的前 5 分钟补上（计划 D14）。所以 `pending` 按品种
-    维护、跨月存活；月末那一根不会因为换了批次就丢掉。
-    """
+    resume_after: date | None = None,
+    initial_pending: pd.DataFrame | None = None,
+):
+    """Yield finalized monthly bars and the small resumable pending state."""
     if not contexts:
-        return normalise_panel(pd.DataFrame(columns=list(PANEL_COLUMNS)))
-
+        return
     missing_factors = sorted(set(contexts) - set(adjustment_factor_by_key))
     if missing_factors:
         raise ValueError(
             "panel_adjustment_factor_missing: 缺少品种日后复权因子；"
             f"first={missing_factors[0]!r} count={len(missing_factors)}"
         )
+    if resume_after is not None and (
+        type(resume_after) is not date or resume_after.day != 1
+    ):
+        raise ValueError("panel_resume_month: resume_after must be a month start")
 
     keys = sorted(contexts)
     by_month: dict[tuple[int, int], list[tuple[date, str]]] = {}
     for key in keys:
         by_month.setdefault((key[0].year, key[0].month), []).append(key)
 
-    rows: list[dict[str, object]] = []
-    pending: dict[str, int] = {}
+    pending: dict[str, dict[str, object]] = {}
+    if initial_pending is not None and not initial_pending.empty:
+        restored = normalise_panel(initial_pending)
+        if restored["product"].duplicated().any() or not restored[
+            "fill_pending"
+        ].all():
+            raise ValueError(
+                "panel_resume_pending: one pending row per product is required"
+            )
+        pending = {
+            str(row["product"]): row for row in restored.to_dict(orient="records")
+        }
 
     for month_lower, _month_upper in _months(keys[0][0], keys[-1][0]):
+        month_start = month_lower.date()
+        if resume_after is not None and month_start <= resume_after:
+            continue
         month_keys = by_month.get((month_lower.year, month_lower.month))
         if not month_keys:
             continue
+        month_rows: list[dict[str, object]] = []
+        month_row_ids: set[int] = set()
         candidates = [contexts[key].candidate for key in month_keys]
-        # ⚠️ 批次边界必须由候选窗口自己给出，不能用自然月的两端：夜盘属于**下一个**
-        # 交易日，却起在前一个自然日 21:00。2023-02-01 的 CU 候选窗起于 01-31 21:00,
-        # 用月首当下界会被分钟层判成"候选窗超出批次边界"而硬失败。
         batch_lower = min(candidate.window_start for candidate in candidates)
         batch_upper = max(candidate.window_end for candidate in candidates)
         frames = list(source.iter_month(candidates, batch_lower, batch_upper))
@@ -392,18 +410,21 @@ def build_panel(
             waiting = pending.pop(product, None)
             if waiting is not None:
                 opening_window = context.slots[:FILL_MINUTES]
-                rows[waiting]["fill_price"] = resolve_pending_fill(
+                waiting["fill_price"] = resolve_pending_fill(
                     frame,
                     slots=context.slots,
                     contract=symbol,
                     multiplier=multiplier,
                     pricing_basis=basis,
                 )
-                rows[waiting]["fill_time"] = (
+                waiting["fill_time"] = (
                     opening_window[-1] if len(opening_window) == FILL_MINUTES else None
                 )
-                rows[waiting]["fill_pending"] = False
-                rows[waiting]["fill_unpriceable"] = rows[waiting]["fill_price"] is None
+                waiting["fill_pending"] = False
+                waiting["fill_unpriceable"] = waiting["fill_price"] is None
+                if id(waiting) not in month_row_ids:
+                    month_rows.append(waiting)
+                    month_row_ids.add(id(waiting))
 
             day_rows = build_session_bars(
                 frame,
@@ -418,10 +439,50 @@ def build_panel(
             )
             for row in day_rows:
                 row["contract"] = candidate.daily_contract
-            rows.extend(day_rows)
-            pending[product] = len(rows) - 1
+                month_row_ids.add(id(row))
+            month_rows.extend(day_rows)
+            pending[product] = day_rows[-1]
 
-    return normalise_panel(pd.DataFrame(rows, columns=list(PANEL_COLUMNS)))
+        pending_ids = {id(row) for row in pending.values()}
+        bars = normalise_panel(
+            pd.DataFrame(
+                [row for row in month_rows if id(row) not in pending_ids],
+                columns=list(PANEL_COLUMNS),
+            )
+        )
+        pending_frame = normalise_panel(
+            pd.DataFrame(list(pending.values()), columns=list(PANEL_COLUMNS))
+        )
+        yield PanelMonthChunk(
+            month_start=month_start,
+            bars=bars,
+            pending=pending_frame,
+        )
+
+
+def build_panel(
+    *,
+    contexts: Mapping[tuple[date, str], SessionContext],
+    source,
+    pricing_basis_by_exchange: Mapping[str, str],
+    multiplier_resolver,
+    adjustment_factor_by_key: Mapping[tuple[date, str], float],
+) -> pd.DataFrame:
+    """Compatibility wrapper around the bounded monthly iterator."""
+    chunks = list(
+        iter_panel_months(
+            contexts=contexts,
+            source=source,
+            pricing_basis_by_exchange=pricing_basis_by_exchange,
+            multiplier_resolver=multiplier_resolver,
+            adjustment_factor_by_key=adjustment_factor_by_key,
+        )
+    )
+    if not chunks:
+        return normalise_panel(pd.DataFrame(columns=list(PANEL_COLUMNS)))
+    frames = [chunk.bars for chunk in chunks]
+    frames.append(chunks[-1].pending)
+    return normalise_panel(pd.concat(frames, ignore_index=True))
 
 
 #: 无成交 bar 的 O/H/L/C 与发不出的成交价都是 ``None``，落进 DataFrame 会变成
