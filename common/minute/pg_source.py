@@ -37,6 +37,9 @@ _DAILY_TO_MINUTE_EXCHANGE = {
     "CZC": "CZCE",
     "INE": "INE",
     "GFE": "GFEX",
+    # Stock-index and treasury futures. The minute table stores these as
+    # 'CFFEX'; the daily contract suffix is '.CFE'.
+    "CFE": "CFFEX",
 }
 _CONCRETE_CONTRACT = re.compile(
     r"^(?P<product>[A-Za-z]+)(?P<delivery>\d{3,4})\.(?P<suffix>[A-Za-z]+)$"
