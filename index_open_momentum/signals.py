@@ -31,9 +31,12 @@ def opening_signal(bars: Sequence[Bar]) -> OpeningSignal:
     上行趋势要求回撤底部逐根抬高，下行趋势要求反弹顶部逐根降低。
     """
     opening = list(bars[:OPENING_BAR_COUNT])
-    if len(opening) < OPENING_BAR_COUNT or not all(b.is_valid() for b in opening):
-        # 不足三根、或其中任一根价格不完整，都没有判据。长度这一条必须显式写：
-        # ``all(())`` 恒真，缺了它，空序列和两根序列都会被判成多头。
+    if len(opening) < OPENING_BAR_COUNT or not all(
+        b is not None and b.is_valid() for b in opening
+    ):
+        # 不足三根、其中任一根没有成交（``None``）、或价格不完整，都没有判据。
+        # 长度这一条必须显式写：``all(())`` 恒真，缺了它，空序列和两根序列都会
+        # 被判成多头。
         return OpeningSignal.NEUTRAL
 
     opens = [b.open for b in opening]

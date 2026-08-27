@@ -1,0 +1,8 @@
+exchange,product,effective_start,effective_end,night_start,night_end,version
+CFFEX,IF,2010-04-16,2015-12-31,none,none,cffex-v1
+CFFEX,IF,2016-01-01,,none,none,cffex-v1
+CFFEX,IC,2015-04-16,2015-12-31,none,none,cffex-v1
+CFFEX,IC,2016-01-01,,none,none,cffex-v1
+CFFEX,IH,2015-04-16,2015-12-31,none,none,cffex-v1
+CFFEX,IH,2016-01-01,,none,none,cffex-v1
+CFFEX,IM,2022-07-22,,none,none,cffex-v1

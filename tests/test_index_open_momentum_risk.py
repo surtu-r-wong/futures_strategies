@@ -274,3 +274,48 @@ def test_a_short_position_is_judged_by_the_short_family():
     assert stop_event(
         Direction.LONG, rising_lows, best_high_since_entry=4200.0, atr=100.0
     ) is None
+
+
+# --------------------------------------------------------------------------
+# no-trade bar：ATR 序列必须能穿过它
+# --------------------------------------------------------------------------
+#
+# ⚠️ 这一节是端到端真跑时炸出来的。先前按"零成交桶"统计得出"从未出现"的结论，
+# 只数了**存在的行**——整桶**缺行**（档案里那几分钟根本没有）不在统计里。
+# 2016 年 1~3 月的 IF 主力就有。
+
+
+def test_the_atr_series_walks_through_an_absent_bar():
+    """`None` 表示这根没成交：不贡献 TR，也不更新"上一根收盘"。"""
+    from index_open_momentum.risk import atr_series
+
+    bars = [Bar(open=100.0, high=101.0, low=99.0, close=100.0) for _ in range(20)]
+    bars[5] = None
+
+    out = atr_series(bars, window=3)
+
+    assert out[5] is None
+    assert out[6] is not None
+
+
+def test_an_absent_bar_does_not_fabricate_a_gap_in_true_range():
+    """跳过那根，而不是拿它前后两根算一个假跳空。
+
+    第 6 根的 TR 应当仍以**第 5 根**（最后一根有成交的）收盘为参照。
+    """
+    from index_open_momentum.risk import atr_series, true_range
+
+    bars = [Bar(open=100.0, high=101.0, low=99.0, close=100.0) for _ in range(6)]
+    bars.append(None)
+    bars.append(Bar(open=120.0, high=121.0, low=119.0, close=120.0))
+
+    out = atr_series(bars, window=1)
+    expected = true_range(bars[7], bars[5].close)
+
+    assert out[7] == pytest.approx(expected)
+
+
+def test_a_series_of_only_absent_bars_has_no_atr_anywhere():
+    from index_open_momentum.risk import atr_series
+
+    assert atr_series([None, None, None], window=1) == [None, None, None]

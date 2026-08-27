@@ -229,7 +229,39 @@ COMMODITY_V1 = SessionRuleset(
     allows_night=True,
 )
 
-SESSION_RULESETS: dict[str, SessionRuleset] = {COMMODITY_V1.version: COMMODITY_V1}
+# Stock-index futures. Two eras: CFFEX ran 09:15-11:30 / 13:00-15:15 until it
+# shortened the day session on 2016-01-01 to 09:30-11:30 / 13:00-15:00. Both
+# entries are the exchange's official hours; what the local minute archive
+# actually holds for the early era is 15 minutes shorter, and that shortfall is
+# registered as a known gap by the consumer rather than shaved off here.
+CFFEX_V1 = SessionRuleset(
+    version="cffex-v1",
+    capture_start=date(2010, 4, 16),
+    day_segment_schedule=(
+        (
+            date(2000, 1, 1),
+            (
+                SessionSegment(555, 690),
+                SessionSegment(780, 915),
+            ),
+        ),
+        (
+            date(2016, 1, 1),
+            (
+                SessionSegment(570, 690),
+                SessionSegment(780, 900),
+            ),
+        ),
+    ),
+    clock_start_minute=540,
+    clock_end_minute=915,
+    allows_night=False,
+)
+
+SESSION_RULESETS: dict[str, SessionRuleset] = {
+    COMMODITY_V1.version: COMMODITY_V1,
+    CFFEX_V1.version: CFFEX_V1,
+}
 
 _DAY_ONLY_EFFECTIVE_START = date(2000, 1, 1)
 

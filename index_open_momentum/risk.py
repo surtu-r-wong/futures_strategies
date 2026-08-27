@@ -34,8 +34,10 @@ def true_range(bar: Bar, previous_close: float | None) -> float:
 ATR_WINDOW = 16
 
 
-def atr_series(bars: Sequence[Bar], *, window: int = ATR_WINDOW) -> list[float | None]:
-    """逐根给出滚动 ATR；窗口未满的位置是 ``None``。
+def atr_series(
+    bars: Sequence[Bar | None], *, window: int = ATR_WINDOW
+) -> list[float | None]:
+    """逐根给出滚动 ATR；窗口未满、或这根没成交，位置是 ``None``。
 
     ⚠️ **复刻假设**：研报只写"16 根窗口"，没写平滑方式。这里取**简单算术
     均值**，不是 Wilder 平滑。两者在同一窗口长度下数值不同，会改变吊灯止损
@@ -43,19 +45,34 @@ def atr_series(bars: Sequence[Bar], *, window: int = ATR_WINDOW) -> list[float |
 
     ``None`` 而不是 0 或前向填充：窗口未满时 ATR **不存在**，用任何数值占位
     都会让下游的吊灯止损在最不该触发的时候（历史最短处）算出一个阈值。
+
+    ⚠️ 序列里的 ``None`` 表示**这根 15 分钟 K 线没有成交**（`bars.IndexBar.no_trade`）。
+    它既不贡献 TR，也**不更新"上一根收盘"** —— 拿它前后两根去算一个"跳空"，
+    等于凭空造出一次并不存在的价格跃迁。窗口按**有成交的**根数计，代价是
+    真实跨度会略长；这是显式假设，须进保真度报告。
+
+    这条不是理论情形：2016 年 1~3 月的 IF 主力就有整桶缺行的 bar。先前按
+    "零成交桶"统计得出的"从未出现"只数了存在的行，漏掉了整桶缺行那一类。
     """
-    ranges: list[float] = []
+    ranges: list[float | None] = []
     previous_close: float | None = None
     for bar in bars:
+        if bar is None:
+            ranges.append(None)
+            continue
         ranges.append(true_range(bar, previous_close))
         previous_close = bar.close
 
     out: list[float | None] = []
-    for i in range(len(ranges)):
-        if i + 1 < window:
+    available: list[float] = []
+    for value in ranges:
+        if value is None:
             out.append(None)
-        else:
-            out.append(sum(ranges[i + 1 - window : i + 1]) / window)
+            continue
+        available.append(value)
+        out.append(
+            sum(available[-window:]) / window if len(available) >= window else None
+        )
     return out
 
 

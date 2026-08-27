@@ -58,12 +58,18 @@ _DIRECTION_OF = {
 
 def simulate_session(
     *,
-    bars: Sequence[Bar],
+    bars: Sequence[Bar | None],
     atr_at: Sequence[float | None],
     fill_price: Callable[[int], float],
     next_session_open: float | None,
 ) -> SessionResult:
-    """走完一个交易日的持仓路径。"""
+    """走完一个交易日的持仓路径。
+
+    序列里的 ``None`` 表示**这根 15 分钟 K 线没有成交**（`bars.IndexBar.no_trade`）。
+    它不更新入场后极值、不触发止损，并且**打断**反向信号的连续计数 —— 见
+    `_traded_run_start`。不用平行的布尔数组：那样调用方得伪造一根 `Bar` 才能
+    占位，而伪造一根没成交过的 K 线正是 `types.Bar` 反对的事。
+    """
     signal = opening_signal(bars)
     direction = _DIRECTION_OF.get(signal)
     if direction is None:
@@ -80,8 +86,22 @@ def simulate_session(
     best_high: float | None = None
     best_low: float | None = None
 
-    for i in range(OPENING_BAR_COUNT, len(bars)):
+    run_start = 0
+    # ⚠️ 复刻假设⑪：**当日最后一根不判减仓**。研报的减仓一律按"信号后 5 分钟
+    # VWAP"成交，而最后一根之后没有那个窗口；剩余仓位本来就由日末规则处理
+    # （空头收盘平 / 多头留隔夜），所以在最后一根上再减一档是多余的，且只能
+    # 拿一个不存在的价去成交。端到端真跑炸出来的：2016-01-11 的 IF 主力在
+    # 第 15 根（当日最后一根）触发了吊灯止损。
+    for i in range(OPENING_BAR_COUNT, len(bars) - 1):
         bar = bars[i]
+        if bar is None:
+            # 没成交的这根既没有高低价可计入极值，也没有收盘价可判吊灯；而反向
+            # 信号要的是"连续 N 根"，所以它还得把连续计数打断。
+            # ⚠️ 复刻假设：研报没写无成交 bar 算不算数。取"打断"而非"透明跳过" ——
+            # 透明跳过是在断言"这段时间价格没动过"，比数据支持的更强。
+            run_start = i + 1
+            continue
+
         # 入场后的极值从建仓那根之后的第一根开始累计 —— 建仓前的高低价不属于
         # 这笔持仓。⚠️ 复刻假设：研报没写极值从哪根起算。
         best_high = bar.high if best_high is None else max(best_high, bar.high)
@@ -89,7 +109,7 @@ def simulate_session(
 
         event = stop_event(
             direction,
-            bars[: i + 1],
+            bars[run_start : i + 1],
             atr=atr_at[i],
             best_high_since_entry=best_high,
             best_low_since_entry=best_low,
@@ -111,10 +131,17 @@ def simulate_session(
     if remaining > 0.0:
         last = len(bars) - 1
         if direction is Direction.SHORT:
-            # 空头当日收盘平，不留隔夜。
-            price = bars[last].close
+            # 空头当日收盘平，不留隔夜。收盘价必须来自一根**真有成交**的 bar；
+            # 一根都没有就硬失败 —— 静默留仓过夜等于把研报的隔夜规则改掉。
+            traded_last = _last_traded_index(bars, after=entry_index)
+            if traded_last is None:
+                raise ValueError(
+                    "a short position must be closed on this session's close, but "
+                    "no traded bar after entry is available to price it"
+                )
+            price = bars[traded_last].close
             gross += sign * (price - entry_price) / entry_price * remaining
-            fills.append(Fill(FillKind.DAY_CLOSE_EXIT, last, price, remaining))
+            fills.append(Fill(FillKind.DAY_CLOSE_EXIT, traded_last, price, remaining))
         else:
             if next_session_open is None:
                 raise ValueError(
@@ -138,6 +165,18 @@ def simulate_session(
         net_return=gross - cost,
         carried_overnight=carried,
     )
+
+
+def _last_traded_index(bars: Sequence[Bar | None], *, after: int) -> int | None:
+    """入场之后最后一根有成交的 bar。
+
+    ``after`` 不能省：退到入场那根本身，等于拿**入场成交之前**观测到的收盘价来
+    平仓，是回看。没有入场后的成交价就该硬失败，而不是找个近似的顶上。
+    """
+    for index in range(len(bars) - 1, after, -1):
+        if bars[index] is not None:
+            return index
+    return None
 
 
 def _scale_downs(fills: Sequence[Fill]) -> list[Fill]:
