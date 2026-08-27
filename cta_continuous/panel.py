@@ -312,7 +312,7 @@ def build_panel(
     维护、跨月存活；月末那一根不会因为换了批次就丢掉。
     """
     if not contexts:
-        return pd.DataFrame(columns=list(PANEL_COLUMNS))
+        return _empty_panel()
 
     missing_factors = sorted(set(contexts) - set(adjustment_factor_by_key))
     if missing_factors:
@@ -417,6 +417,24 @@ _TEXT_COLUMNS = ("product", "contract", "pricing_basis")
 _INT_COLUMNS = ("continuity_segment", "multiplier")
 
 
+def _empty_panel() -> pd.DataFrame:
+    """返回列顺序与类型均已定死的空面板。"""
+    dtype_by_column = {
+        **{column: "float64" for column in _FLOAT_COLUMNS},
+        **{column: "bool" for column in _BOOL_COLUMNS},
+        **{column: "string" for column in _TEXT_COLUMNS},
+        **{column: "int64" for column in _INT_COLUMNS},
+        "trade_date": "datetime64[ns]",
+        "slot_end": "datetime64[ns, Asia/Shanghai]",
+    }
+    return pd.DataFrame(
+        {
+            column: pd.Series(dtype=dtype_by_column[column])
+            for column in PANEL_COLUMNS
+        }
+    )
+
+
 def normalise_panel(frame: pd.DataFrame) -> pd.DataFrame:
     """把面板的列类型定死，使它既能写 parquet 也能被下游安全地做算术。
 
@@ -424,6 +442,9 @@ def normalise_panel(frame: pd.DataFrame) -> pd.DataFrame:
     date 对象在 pandas 里是 object 列，fastparquet 直接拒绝写。需要 date 的调用方
     用 `.dt.date`。
     """
+    if frame.empty:
+        return _empty_panel()
+
     out = frame.copy()
     # ⚠️ 单位必须显式钉成 ns。`pd.to_datetime` 喂 `datetime.date` 会给出
     # `datetime64[s]`，fastparquet 把它按 ms 写出去、再读回来就报

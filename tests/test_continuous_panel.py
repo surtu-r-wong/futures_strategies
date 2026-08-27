@@ -242,6 +242,71 @@ def _panel():
     )
 
 
+def _assert_panel_schema(panel):
+    assert list(panel.columns) == list(continuous_panel.PANEL_COLUMNS)
+    assert {column: str(dtype) for column, dtype in panel.dtypes.items()} == {
+        "product": "string",
+        "contract": "string",
+        "trade_date": "datetime64[ns]",
+        "slot_end": "datetime64[ns, Asia/Shanghai]",
+        "open": "float64",
+        "high": "float64",
+        "low": "float64",
+        "close": "float64",
+        "volume": "float64",
+        "no_trade": "bool",
+        "adj_factor": "float64",
+        "continuity_segment": "int64",
+        "fill_price": "float64",
+        "fill_pending": "bool",
+        "fill_unpriceable": "bool",
+        "pricing_basis": "string",
+        "multiplier": "int64",
+    }
+
+
+def test_empty_contexts_return_a_typed_parquet_safe_panel(tmp_path):
+    panel = build_panel(
+        contexts={},
+        source=object(),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key={},
+        continuity_segment_by_key={},
+    )
+
+    assert panel.empty
+    _assert_panel_schema(panel)
+    path = tmp_path / "empty-panel.parquet"
+    panel.to_parquet(path, index=False)
+    restored = pd.read_parquet(path)
+    assert restored.empty
+    assert list(restored.columns) == list(continuous_panel.PANEL_COLUMNS)
+
+
+def test_contexts_without_source_rows_return_a_typed_empty_panel():
+    contexts = build_contexts(_choices(), rules=[_day_only_rule()])
+    factors = {key: 1.0 + index for index, key in enumerate(sorted(contexts))}
+    segments = {key: index for index, key in enumerate(sorted(contexts))}
+
+    class EmptySource:
+        @staticmethod
+        def iter_month(candidates, lower, upper):
+            return iter(())
+
+    panel = build_panel(
+        contexts=contexts,
+        source=EmptySource(),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key=factors,
+        continuity_segment_by_key=segments,
+    )
+
+    assert panel.empty
+    _assert_panel_schema(panel)
+
+
 def test_contexts_skip_the_first_day_because_night_slots_need_a_previous_session():
     contexts = build_contexts(_choices(), rules=[_day_only_rule()])
     assert sorted(key[0] for key in contexts) == DAYS[1:]
@@ -319,16 +384,26 @@ def test_panel_refuses_a_missing_continuity_segment():
     contexts = build_contexts(_choices(), rules=[_day_only_rule()])
     source = _FakeSource(contexts)
     factors = {key: 1.0 + index for index, key in enumerate(sorted(contexts))}
+    missing = sorted(contexts)[1:]
+    segments = {
+        key: index
+        for index, key in enumerate(sorted(contexts))
+        if key not in missing
+    }
 
-    with pytest.raises(ValueError, match="panel_continuity_segment_missing"):
+    with pytest.raises(ValueError) as caught:
         build_panel(
             contexts=contexts,
             source=source,
             pricing_basis_by_exchange={},
             multiplier_resolver=lambda candidate, frame: 10,
             adjustment_factor_by_key=factors,
-            continuity_segment_by_key={},
+            continuity_segment_by_key=segments,
         )
+    assert str(caught.value) == (
+        "panel_continuity_segment_missing: 缺少品种日连续分段；"
+        f"first={missing[0]!r} count={len(missing)}"
+    )
 
 
 def test_contexts_do_not_depend_on_the_order_choices_arrive_in():
