@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime
 import math
 from numbers import Real
 
@@ -54,7 +54,8 @@ def _date_value(value: object, *, label: str) -> date:
     if isinstance(value, datetime):
         if value.tzinfo is not None and value.utcoffset() is not None:
             raise ValueError(f"selection_{label}: date must be timezone-naive")
-        if value.time() != time.min:
+        timestamp = pd.Timestamp(value)
+        if timestamp != timestamp.normalize():
             raise ValueError(f"selection_{label}: date must be at midnight")
         return value.date()
     if isinstance(value, date):
@@ -63,7 +64,7 @@ def _date_value(value: object, *, label: str) -> date:
         timestamp = pd.Timestamp(value)
         if pd.isna(timestamp):
             raise ValueError(f"selection_{label}: date value is required")
-        if timestamp.time() != time.min:
+        if timestamp != timestamp.normalize():
             raise ValueError(f"selection_{label}: date must be at midnight")
         return timestamp.date()
     raise ValueError(f"selection_{label}: expected date values")
@@ -137,8 +138,12 @@ def trailing_scores(
     ):
         raise ValueError("observations must be a positive integer")
 
-    daily_frame = _require_frame(daily, label="daily", required=_DAILY_COLUMNS)
-    trades_frame = _require_frame(trades, label="trades", required=_TRADE_COLUMNS)
+    daily_frame = _require_frame(
+        daily, label="daily", required=_DAILY_COLUMNS
+    ).reset_index(drop=True)
+    trades_frame = _require_frame(
+        trades, label="trades", required=_TRADE_COLUMNS
+    ).reset_index(drop=True)
 
     daily_dates = _dates(daily_frame["trade_date"], label="daily_trade_date")
     historical = daily_frame.loc[daily_dates < month_start, list(_DAILY_COLUMNS)].copy()

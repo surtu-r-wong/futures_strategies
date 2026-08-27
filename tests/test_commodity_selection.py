@@ -100,6 +100,107 @@ def test_scores_stop_before_the_current_month_and_use_exact_daily_window(
     )
 
 
+def test_scores_normalize_duplicate_dataframe_indexes_positionally() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=3)
+    daily = pd.concat(
+        [
+            pd.DataFrame(
+                {
+                    "product": "RB",
+                    "trade_date": dates,
+                    "net_return": [0.01, -0.005, 0.002],
+                }
+            ),
+            pd.DataFrame(
+                {
+                    "product": "CU",
+                    "trade_date": dates,
+                    "net_return": [0.004, -0.002, 0.003],
+                }
+            ),
+        ]
+    )
+    trades = pd.concat(
+        [
+            pd.DataFrame(
+                {
+                    "trade_id": ["rb-1"],
+                    "product": ["RB"],
+                    "exit_date": [dates[-1]],
+                }
+            ),
+            pd.DataFrame(
+                {
+                    "trade_id": ["cu-1"],
+                    "product": ["CU"],
+                    "exit_date": [dates[-1]],
+                }
+            ),
+        ]
+    )
+    assert daily.index.has_duplicates
+    assert trades.index.has_duplicates
+
+    scores = trailing_scores(
+        month_start=date(2024, 2, 1),
+        daily=daily,
+        trades=trades,
+        observations=3,
+    )
+    reset_scores = trailing_scores(
+        month_start=date(2024, 2, 1),
+        daily=daily.reset_index(drop=True),
+        trades=trades.reset_index(drop=True),
+        observations=3,
+    )
+
+    assert scores == reset_scores
+    assert scores["RB"].trade_count == 1
+    assert scores["CU"].trade_count == 1
+
+
+def test_scores_reject_submicrosecond_offsets_from_midnight() -> None:
+    daily = pd.DataFrame(
+        {
+            "product": ["RB"],
+            "trade_date": [pd.Timestamp("2024-01-02") + pd.Timedelta(1, unit="ns")],
+            "net_return": [0.01],
+        }
+    )
+
+    with pytest.raises(ValueError, match="selection_daily_trade_date.*midnight"):
+        trailing_scores(
+            month_start=date(2024, 2, 1),
+            daily=daily,
+            trades=pd.DataFrame(columns=["product", "exit_date"]),
+            observations=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "trade_date",
+    [date(2024, 1, 2), pd.Timestamp("2024-01-02")],
+)
+def test_scores_accept_python_dates_and_naive_midnight_timestamps(
+    trade_date: object,
+) -> None:
+    score = trailing_scores(
+        month_start=date(2024, 2, 1),
+        daily=pd.DataFrame(
+            {
+                "product": ["RB"],
+                "trade_date": [trade_date],
+                "net_return": [0.01],
+            }
+        ),
+        trades=pd.DataFrame(columns=["product", "exit_date"]),
+        observations=1,
+    )["RB"]
+
+    assert score.first_observation == date(2024, 1, 2)
+    assert score.last_observation == date(2024, 1, 2)
+
+
 def test_scores_ignore_current_month_rows_even_when_they_are_nonfinite(
     shadow_daily: pd.DataFrame,
     shadow_trades: pd.DataFrame,
