@@ -74,6 +74,14 @@ def choose_dominant_commodity(
         subset=["contract_key", "trade_date"], keep="first"
     )
 
+    # 「当日整个品种有没有成交」。选主力用的是前一交易日的量仓，所以只看来源日
+    # 会给一个零成交日发出主力 —— 那一天没有分钟可观测、也没有仓位可动。
+    traded_days = {
+        key
+        for key, volume in frame.groupby(["product", "trade_date"])["volume"].sum().items()
+        if volume > 0
+    }
+
     sessions = sorted(set(frame["trade_date"]))
     chosen: list[DominantChoice] = []
     for product in products:
@@ -99,11 +107,14 @@ def choose_dominant_commodity(
                 continue
 
             row = pool.loc[pool["contract_key"] == held_key]
-            # D11 的「沿用」只适用于旧主力仍在当日合约池**且当日确实在交易**的情形。
-            # 已经退市/缺档的合约不能被伪造成 oi=volume=0 的可交易主力；等下一张双
-            # 最大出现再恢复。零成交的行与整行缺席是同一回事：真实数据里
-            # `OI1307.CZC` 2012 年 7 月逐日 oi=volume=0、收盘冻住，行是在的。
-            if row.empty or int(row["volume"].iloc[0]) <= 0:
+            # D11 的「沿用」只适用于旧主力仍在当日合约池的情形。已经退市/缺档的
+            # 合约不能被伪造成 oi=volume=0 的可交易主力；等下一张双最大出现再恢复。
+            if row.empty:
+                continue
+            # 沿用**可以**跨过品种整体停摆的几天（锰硅 2015-02-25~27 全品种零成交，
+            # 03-02 恢复），但发出去的那一天自己必须有成交：没有成交就没有分钟可观
+            # 测、也没有仓位可动，面板不该为它索取时段规则。
+            if (product, trade_date) not in traded_days:
                 continue
             chosen.append(
                 DominantChoice(

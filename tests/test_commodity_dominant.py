@@ -152,12 +152,8 @@ def test_a_contract_that_never_traded_is_not_the_volume_maximum():
     assert choose_dominant_commodity(frame, products=("OI",)) == ()
 
 
-def test_a_held_dominant_that_stops_trading_is_not_carried_onto_a_dead_day():
-    """沿用只在旧主力**当日仍在交易**时成立。
-
-    D11 的注释本来就是这个意思（「不能被伪造成 oi=volume=0 的可交易主力」），但它
-    只拦了合约整行缺席，没拦行在、量为零。
-    """
+def test_a_held_dominant_is_not_carried_onto_a_day_the_product_is_shut():
+    """品种整体停摆的日子不发主力 —— 没有成交就没有可观测、可交易的东西。"""
     frame = _pool(
         [
             (D[0], "RB2405.SHF", 100, 300),
@@ -169,8 +165,7 @@ def test_a_held_dominant_that_stops_trading_is_not_carried_onto_a_dead_day():
 
     chosen = choose_dominant_commodity(frame, products=("RB",))
 
-    assert [c.trade_date for c in chosen] == [D[1], D[2]]
-    assert all(c.volume > 0 for c in chosen)
+    assert [c.trade_date for c in chosen] == [D[1]]
 
 
 def test_a_traded_day_still_selects_normally():
@@ -186,3 +181,24 @@ def test_a_traded_day_still_selects_normally():
     chosen = choose_dominant_commodity(frame, products=("RB",))
 
     assert [c.contract for c in chosen] == ["RB2405.SHF"]
+
+
+def test_no_dominant_on_a_day_the_product_did_not_trade_at_all():
+    """选主力用前一交易日的量仓，但当日整个品种零成交就没有可交易主力。
+
+    真实数据：锰硅 2015-02-17 成交 6 手，2015-02-25/26/27 全品种零成交，03-02 才恢复。
+    滞后一日的规则会拿 02-17 的赢家给 02-25 发一个主力，于是面板为一个没有任何成交的
+    品种日索取时段规则 —— 而那一天根本没有分钟可观测。
+    """
+    frame = _pool(
+        [
+            (D[0], "SM1505.CZC", 4000, 6),
+            (D[1], "SM1505.CZC", 4000, 0),
+            (D[2], "SM1505.CZC", 4000, 0),
+            (D[3], "SM1505.CZC", 4000, 12),
+        ]
+    )
+
+    chosen = choose_dominant_commodity(frame, products=("SM",))
+
+    assert [c.trade_date for c in chosen] == [D[3]]
