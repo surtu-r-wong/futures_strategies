@@ -20,6 +20,8 @@
   `docs/ROADMAP.md`「股指期货」段为准）
 - `common/minute/` — 版本化交易时段 / 分钟 bar 校验与聚合 / 有界 PG 访问 /
   逐事件计价账户。商品 Carry 与股指两条线共用，市场特性走 `SessionRuleset` 传入
+- `common/commodity/` — 商品流动性池、主力链与后复权、15 分钟面板、月度筛选/
+  组合和报告原语；`cta_continuous` 保留兼容导出
 - `docs/plans|operations|specs/` — 随迁的计划 / runbook / 设计文档
 
 ## 数据源
@@ -49,6 +51,29 @@ cd ~/claude-code/futures_strategies
 ```
 
 runbook：`docs/operations/cta-strategy-replication.md`
+
+## 商品共享面板 bundle
+
+`scripts/commodity/build_panel.py` 将一次 PG 取数固化为版本化 bundle：`bars`、
+`universes`、`dominants`、`roll_fills` 四张 Parquet 表和一个逐表 SHA-256 的
+`manifest.json`，供连续信号以及后续 Bollinger/道氏策略复用。bundle 中 OHLC、
+普通成交价和换月两腿成交价均为具体合约原始价格；策略只在计算信号时把
+`adj_factor` 应用一次。
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/commodity/build_panel.py \
+  --start 2023-01-03 \
+  --end 2023-01-31 \
+  --output-dir output/commodity-panel-202301 \
+  --settings /absolute/path/to/ignored/config/settings.yaml
+```
+
+不要复制或打印含密码的 settings。linked worktree 没有 ignored settings 时，用
+`--settings` 直接引用主 checkout 的现有文件。当前交易时段资产的可靠上界是
+**2026-01-30**；精确命令、断点恢复、manifest 审计和硬失败边界见
+[`docs/operations/commodity-panel-bundle.md`](docs/operations/commodity-panel-bundle.md)。
+
+共享层和报告原语已经落地，但 Bollinger/道氏策略及其报告导出器尚未实现。
 
 ## Carry 日线研究版
 

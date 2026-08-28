@@ -128,3 +128,52 @@ commit: 97b66f81fe4b2a4af3e092eb2e0f6dcc0bd0b622
 This digest is deliberately an **unadjusted panel-wiring baseline**: every
 `adj_factor` is `1.0`. Production back-adjustment chaining remains covered by
 the focused roll tests and is not represented by this smoke digest.
+
+## After-migration verification (2026-08-28)
+
+The initial pre-documentation suite completed with **1,546 passed, 0 failed
+and 144 warnings in 170.77 seconds**. After the compatibility fix added five
+tests, the final full suite at current HEAD completed with **1,551 passed,
+0 failed and 150 warnings in 190.90 seconds**.
+
+The historical smoke script remains stale in two known ways: an ignored
+`config/settings.yaml` is not linked into this worktree, and the script does
+not pass the now-required `adjustment_factor_by_key`. The same approved
+non-mutating compatibility wrapper documented above was therefore reused. It
+referenced the main checkout's existing ignored settings file in place,
+printed no credentials, supplied factor `1.0` for all 171 contexts, and wrote
+only the ignored output plus `/tmp/commodity_core_after.parquet`.
+
+The rerun reproduced the operational counts:
+
+- 37,005 daily rows, 171 dominant choices over 5 contracts, and 171 contexts;
+- 65,115 minute rows over 3 bounded monthly queries;
+- 4,341 panel rows;
+- one final pending fill for each of CU, RB and TA, and zero unpriceable fills;
+- `amount_vwap` for CU/RB and `ohlc_typical` for TA.
+
+Both artifacts were sorted by `product,slot_end` with a reset index. The
+baseline's column list was used verbatim for the comparison, with pandas'
+exact frame assertion requiring equal dtypes and values. The only new columns
+are `open_interest` and `fill_time`, and both were outside the old-column
+comparison. The strict assertion passed:
+
+```text
+rows:                         4341
+old columns:                  16
+new columns:                  open_interest, fill_time
+baseline old-column sha256:   0d43a2771ddccca7a1b2f832fb919e4ffb452eea636bf3cae8372d0d6fb76687
+after old-column sha256:      0d43a2771ddccca7a1b2f832fb919e4ffb452eea636bf3cae8372d0d6fb76687
+exact dtype/value equality:   true
+```
+
+The post-fix compatibility output retains the frozen legacy contract values:
+`CU2303`, `CU2304`, `CU2305`, `RB2305`, and `TA2305`. The production bundle
+continues to validate canonical contract relationships separately.
+
+The production bundle builder has a separate known full-history blocker. The
+observed FU chain transitions from `FU1804.SHF` (last valid close 2018-03-30)
+to `FU1901.SHF` (first valid close 2018-07-16), so there is no common close
+anchor for an adjustment ratio. Current code correctly raises
+`roll_close_missing`; this note does not endorse inventing a 1.0 factor,
+single-leg price, theoretical price, or any fabricated bridge.

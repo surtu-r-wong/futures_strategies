@@ -1,6 +1,6 @@
 # Futures Strategies Roadmap
 
-更新日期：2026-08-27
+更新日期：2026-08-28
 
 本页是当前交付状态的唯一摘要；历史设计和实施细节保留在 `docs/plans/`、
 `docs/specs/` 和 `docs/superpowers/`。
@@ -11,6 +11,25 @@
 - `cta_carry`：分合约 Carry 日线研究版、账户对账、报告与 CLI。
 - 两条 `public-pg` 路径默认排除股指和国债期货；仅 `cta_gtja` 保留 `--include-financial`
   作为历史诊断例外，`cta_carry` 无此开关；文件源由输入数据负责边界。
+- 商品共享核心：`common/commodity` 已拥有流动性宇宙、主力/后复权、15 分钟面板、
+  四表版本化 bundle、月度选择/组合及报告原语；`cta_continuous` 保留兼容导出。
+  bundle builder 已有内容寻址 manifest、月度 checkpoint 与崩溃恢复。Bollinger 和道氏
+  的策略状态机、回测、CLI 与报告仍未实现，不能把共享原语误记为策略交付。
+
+## 商品共享核心收尾（2026-08-28）
+
+2023 Q1 三品种 PG smoke 产出 4,341 行，CU/RB 使用 `amount_vwap`、TA 使用
+`ohlc_typical`，每品种 1 个末端 pending fill、0 个 unpriceable fill；新增字段只有
+`open_interest` / `fill_time`。
+
+✅ Task 9 迁移等价闸通过：按 `product,slot_end` 稳定排序并 reset index 后，Task 1
+基线的全部 16 个旧列与迁移结果 dtype/value 精确相等，两边 SHA-256 均为
+`0d43a2771ddccca7a1b2f832fb919e4ffb452eea636bf3cae8372d0d6fb76687`。
+
+另一个全历史 PG blocker 是 FU 主力从 `FU1804.SHF` 到 `FU1901.SHF` 没有共同有效
+收盘日，现有后复权链以 `roll_close_missing` 硬失败。不得用 1.0、单腿价或人工价格
+伪造锚点；处理方案需另行实现和评审。bundle 操作边界见
+`docs/operations/commodity-panel-bundle.md`。
 
 ## 实验，不是默认策略变更
 
