@@ -42,6 +42,7 @@ from common.commodity.dominant import choose_dominant_commodity  # noqa: E402
 from common.db import get_connection  # noqa: E402
 from common.minute.sessions import SessionClockError  # noqa: E402
 from scripts.carry.capture_minute_sessions import (  # noqa: E402
+    BOUNDARY_COLUMNS as _BOUNDARY_COLUMNS,
     SessionCaptureError,
     _capture_and_publish_outcome as capture_and_publish_outcome,
     build_audit,
@@ -314,6 +315,10 @@ def boundary_cache_digest(keys) -> str:
 _DATE_COLUMNS = ("trade_date", "previous_trade_date")
 
 
+#: 时段边界列：tz-aware 时刻，且**允许为空**（没有夜盘的品种日、只有一段的日盘）。
+#: 混着 None 的 object 列 fastparquet 推不出类型、直接拒写，所以落盘前必须钉成带
+#: 时区的 datetime64，读回时再还原成 object —— 分类器按 None 判空。
+#: 列名从采集模块导入，不在这里抄一份：抄错了只会在真实数据上才炸。
 def write_boundary_cache(frame, path: Path, *, keys) -> None:
     """把观测与键集指纹一起落盘，供权威采集复用。"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -323,6 +328,13 @@ def write_boundary_cache(frame, path: Path, *, keys) -> None:
             # 显式钉住 ns：date 转出来是秒级，fastparquet 写时会因不可无损
             # 转换而拒绝（"Cannot losslessly cast ... to s"）。
             payload[column] = pd.to_datetime(payload[column]).astype("datetime64[ns]")
+    for column in _BOUNDARY_COLUMNS:
+        if column in payload.columns:
+            payload[column] = (
+                pd.to_datetime(payload[column], utc=True)
+                .dt.tz_convert("Asia/Shanghai")
+                .astype("datetime64[ns, Asia/Shanghai]")
+            )
     payload.to_parquet(path, index=False)
     _digest_path(path).write_text(boundary_cache_digest(keys), encoding="utf-8")
 
@@ -351,6 +363,13 @@ def read_boundary_cache(path: Path, *, keys):
     for column in _DATE_COLUMNS:
         if column in restored.columns:
             restored[column] = pd.to_datetime(restored[column]).dt.date
+    for column in _BOUNDARY_COLUMNS:
+        # 分类器按 object 列读这些边界（空值是 None/NaT），落盘时钉成的 tz-aware
+        # dtype 要还原回去，否则复用缓存的那一跑与直接观测的那一跑行为不同。
+        if column in restored.columns:
+            restored[column] = restored[column].astype("object").where(
+                restored[column].notna(), None
+            )
     return restored
 
 
