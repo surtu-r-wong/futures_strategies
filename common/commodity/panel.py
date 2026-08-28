@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import math
 
@@ -37,6 +38,7 @@ from common.minute.bars import (
 __all__ = [
     "FILL_MINUTES",
     "PANEL_COLUMNS",
+    "SessionCalendar",
     "SessionContext",
     "build_contexts",
     "build_panel",
@@ -50,6 +52,58 @@ __all__ = [
 
 #: 研报 §5.1：信号触发后 5 分钟 VWAP。
 FILL_MINUTES = 5
+
+
+@dataclass(frozen=True, slots=True)
+class SessionCalendar:
+    """哪一个交易日的时段真正成交了某个时间戳上的委托。
+
+    夜盘挂在**前一个自然日**的晚上（`common.minute.sessions._slot_timestamp`），
+    所以"日历日更晚"和"时段更晚"不是同一个问题：交易日 D 的 15:00 那根挂起后，
+    由 D+1 夜盘开盘的前 5 分钟补上（`resolve_pending_fill`），而那 5 分钟的墙钟
+    仍在 D 这一天。分界线因此是**本交易日最后一根 bar**，不是午夜。
+
+    没有下一个交易日在该日历日开盘时（日盘品种、或面板末尾），只能由日历日裁定。
+    """
+
+    last_slot: Mapping[date, pd.Timestamp]
+    first_slot: Mapping[date, pd.Timestamp]
+    following: Mapping[date, date]
+
+    @classmethod
+    def from_bars(cls, frame: pd.DataFrame) -> "SessionCalendar":
+        if not isinstance(frame, pd.DataFrame):
+            raise ValueError("session_calendar_bars: expected DataFrame")
+        for column in ("trade_date", "slot_end"):
+            if column not in frame.columns:
+                raise ValueError(f"session_calendar_bars: missing {column!r}")
+        if frame.empty:
+            raise ValueError("session_calendar_bars: expected at least one bar")
+        grouped = frame.groupby("trade_date")["slot_end"]
+        last = {day: pd.Timestamp(value) for day, value in grouped.max().items()}
+        first = {day: pd.Timestamp(value) for day, value in grouped.min().items()}
+        ordered = sorted(last)
+        following = {
+            day: ordered[position + 1] for position, day in enumerate(ordered[:-1])
+        }
+        return cls(last_slot=last, first_slot=first, following=following)
+
+    def execution_trade_date(self, fill_time: object, trade_date: date) -> date:
+        if trade_date not in self.last_slot:
+            raise ValueError(
+                f"session_calendar_trade_date: {trade_date!r} is not in the panel"
+            )
+        stamp = pd.Timestamp(fill_time)
+        if stamp <= self.last_slot[trade_date]:
+            return trade_date
+        following = self.following.get(trade_date)
+        if (
+            following is not None
+            and pd.Timestamp(self.first_slot[following]).date() == stamp.date()
+        ):
+            return following
+        return stamp.date()
+
 
 PANEL_COLUMNS = (
     "product",

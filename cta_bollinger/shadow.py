@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from common.commodity.indicators import atr_series
+from common.commodity.panel import SessionCalendar
 from common.leverage import atr_leverage
 from common.minute.account import EventAccount
 from cta_bollinger.indicators import bands, oi_multiplier, rolling_oi
@@ -395,38 +396,7 @@ def run_shadow_product(
             oi_long=oi_path.long[position],
         )
 
-    _slots_by_date = frame.groupby("trade_date")["slot_end"]
-    last_slot_by_date = _slots_by_date.max().to_dict()
-    first_slot_by_date = _slots_by_date.min().to_dict()
-    _ordered_dates = sorted(last_slot_by_date)
-    _next_trade_date = {
-        day: _ordered_dates[position + 1]
-        for position, day in enumerate(_ordered_dates[:-1])
-    }
-
-    def execution_trade_date(fill_time: object, trade_day: date) -> date:
-        """Which trade date's session actually executes a fill.
-
-        The panel draws a bar's fill window from its own trade date's slots
-        (``commodity.panel``), except for a bar left pending at a session end,
-        which is resolved from the next trade date's opening window. So a fill
-        past this trade date's last bar belongs to the next trade date -- and
-        because a night session is stamped on the *previous* calendar evening,
-        that next session can open on the same calendar date as the fill. A
-        plain calendar comparison cannot see this and books the execution a day
-        early. Where no next trade date has opened on the fill's calendar date,
-        the calendar date decides, which is what a day-only market gives.
-        """
-        stamp = pd.Timestamp(fill_time)
-        if stamp <= last_slot_by_date[trade_day]:
-            return trade_day
-        following = _next_trade_date.get(trade_day)
-        if (
-            following is not None
-            and pd.Timestamp(first_slot_by_date[following]).date() == stamp.date()
-        ):
-            return following
-        return stamp.date()
+    calendar = SessionCalendar.from_bars(frame)
 
     account = EventAccount(cost_bps=1.3)
     first = traded.iloc[0]
@@ -800,7 +770,9 @@ def run_shadow_product(
                                 * desired.state.oi_scale
                                 * atr_leverage(close=float(row["close"]), atr=raw_atr)
                             )
-                        execution_date = execution_trade_date(fill_time, trade_date)
+                        execution_date = calendar.execution_trade_date(
+                            fill_time, trade_date
+                        )
                         if execution_date > trade_date:
                             previous_state = state
                             state = desired.state

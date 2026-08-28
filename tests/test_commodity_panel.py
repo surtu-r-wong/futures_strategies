@@ -731,3 +731,46 @@ def test_a_no_trade_bar_reads_as_nan_not_zero():
     )
     assert pd.isna(panel.iloc[0]["close"])
     assert panel.iloc[0]["volume"] == 0.0
+
+
+def _calendar_bars() -> pd.DataFrame:
+    """Two trade dates whose night sessions sit on the previous evening."""
+    tz = ZoneInfo("Asia/Shanghai")
+    rows = []
+    for day in (date(2024, 3, 7), date(2024, 3, 8)):
+        previous = day - timedelta(days=1)
+        for stamp in (
+            pd.Timestamp(f"{previous} 21:15", tz=tz),
+            pd.Timestamp(f"{previous} 21:30", tz=tz),
+            pd.Timestamp(f"{day} 09:15", tz=tz),
+            pd.Timestamp(f"{day} 15:00", tz=tz),
+        ):
+            rows.append({"trade_date": day, "slot_end": stamp})
+    return pd.DataFrame(rows)
+
+
+def test_session_calendar_books_a_next_session_fill_on_the_date_that_trades_it():
+    calendar = commodity_panel.SessionCalendar.from_bars(_calendar_bars())
+    tz = ZoneInfo("Asia/Shanghai")
+
+    # 2024-03-07's last bar fills in 2024-03-08's night open -- same calendar
+    # date, later session.
+    assert calendar.execution_trade_date(
+        pd.Timestamp("2024-03-07 21:05", tz=tz), date(2024, 3, 7)
+    ) == date(2024, 3, 8)
+
+
+def test_session_calendar_keeps_an_in_session_fill_on_its_own_trade_date():
+    calendar = commodity_panel.SessionCalendar.from_bars(_calendar_bars())
+    tz = ZoneInfo("Asia/Shanghai")
+
+    # A night bar of trade date 2024-03-07 fills five minutes later, still on
+    # calendar date 2024-03-06 and still inside 03-07's session.
+    assert calendar.execution_trade_date(
+        pd.Timestamp("2024-03-06 21:20", tz=tz), date(2024, 3, 7)
+    ) == date(2024, 3, 7)
+    # The last bar of the panel has no following trade date, so only the
+    # calendar date is known.
+    assert calendar.execution_trade_date(
+        pd.Timestamp("2024-03-09 09:05", tz=tz), date(2024, 3, 8)
+    ) == date(2024, 3, 9)

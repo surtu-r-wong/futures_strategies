@@ -3,6 +3,7 @@
 from common.commodity.panel import (
     FILL_MINUTES,
     PANEL_COLUMNS,
+    SessionCalendar,
     SessionContext,
     build_contexts,
     build_panel,
@@ -17,6 +18,7 @@ from common.commodity.panel import (
 __all__ = [
     "FILL_MINUTES",
     "PANEL_COLUMNS",
+    "SessionCalendar",
     "SessionContext",
     "build_contexts",
     "build_panel",
