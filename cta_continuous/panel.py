@@ -22,8 +22,11 @@
 
 from __future__ import annotations
 
+import csv
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 
@@ -180,9 +183,11 @@ from dataclasses import dataclass  # noqa: E402
 
 from common.minute.pg_source import MinuteCandidate, minute_contract_identity  # noqa: E402
 from common.minute.sessions import (  # noqa: E402
+    SessionClockError,
     SessionRule,
     build_trading_slots,
     fifteen_minute_buckets,
+    matching_session_rules,
     resolve_session_rule,
 )
 
@@ -226,21 +231,20 @@ def context_choices_for_month(
     )
 
 
-def build_contexts(
+def _context_plan(
     choices: Sequence[object],
-    *,
-    rules: Sequence[SessionRule],
-) -> dict[tuple[date, str], SessionContext]:
-    """把主力选择折成分钟层认的候选 + 该日的槽位与桶。
+) -> tuple[tuple[object, date, str, str, str], ...]:
+    """每个要产出上下文的选择：`(choice, previous, product, minute_symbol, exchange)`。
 
-    夜盘属于**下一个**交易日，所以 `build_trading_slots` 需要前一交易日。第一天没有
-    前一日可用，因此从第二天起才产出上下文 —— 少一天而不是猜一个前一日。
+    `build_contexts` 与 `require_session_coverage` **共用**这一个推导，所以「闸检查的
+    键」与「实际向 `resolve_session_rule` 索取的键」不可能分叉。分叉了闸就是摆设。
 
-    ⚠️ 时段规则资产止于 2026-01-30；越界时 `resolve_session_rule` 硬失败，不静默截断。
+    夜盘属于下一个交易日，所以每个上下文都要前一交易日；每个品种的第一天没有前一日，
+    因此不产出 —— 少一天，而不是猜一个前一日。
     """
     ordered = sorted(choices, key=lambda c: (c.product, c.trade_date))
-    contexts: dict[tuple[date, str], SessionContext] = {}
     previous_by_product: dict[str, date] = {}
+    plan: list[tuple[object, date, str, str, str]] = []
     for choice in ordered:
         predecessor = previous_by_product.get(choice.product)
         selected_from = getattr(choice, "selected_from", None)
@@ -255,6 +259,95 @@ def build_contexts(
         product, minute_symbol, exchange = minute_contract_identity(
             choice.contract, choice.trade_date
         )
+        plan.append((choice, previous, product, minute_symbol, exchange))
+    return tuple(plan)
+
+
+def required_session_keys(
+    choices: Sequence[object],
+) -> tuple[tuple[str, str, date], ...]:
+    """`build_contexts` 会向 `resolve_session_rule` 索取的 `(exchange, product, date)`。"""
+    return tuple(
+        (exchange, product, choice.trade_date)
+        for choice, _previous, product, _symbol, exchange in _context_plan(choices)
+    )
+
+
+def require_session_coverage(
+    *,
+    choices: Sequence[object],
+    products_by_month: Mapping[date, Sequence[str]],
+    rules: Sequence[SessionRule],
+    manifest_path: "Path | None" = None,
+) -> None:
+    """开跑前一次性核对全区间的时段规则覆盖。
+
+    ⚠️ **必须在任何一次分钟查询之前调用。** 逐月展开整个请求区间，而不是只看当月：
+    覆盖不全要一次报全，不能跑到第 N 个月才崩 —— 本函数的存在正是因为吃过这个亏
+    （2026-08-27 那轮全历史面板先崩在 `2010-12-31 DCE A`，补掉后又崩在
+    `2011-05-17 SHFE AL`，两次都是同一个覆盖问题换个地方露头）。
+
+    两种基数都拦：0 条是资产缺口，2 条是资产自相矛盾，都不能放行。
+    """
+    rows: list[tuple[date, str, str, date, int]] = []
+    for month, products in sorted(products_by_month.items()):
+        pool = set(products)
+        eligible = tuple(choice for choice in choices if choice.product in pool)
+        if not eligible:
+            continue
+        for exchange, product, trade_date in required_session_keys(
+            context_choices_for_month(eligible, month_start=month)
+        ):
+            found = len(matching_session_rules(rules, exchange, product, trade_date))
+            if found != 1:
+                rows.append((month, exchange, product, trade_date, found))
+    if not rows:
+        return
+    if manifest_path is not None:
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with manifest_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["month", "exchange", "product", "trade_date", "found"])
+            for month, exchange, product, trade_date, found in rows:
+                writer.writerow(
+                    [
+                        f"{month:%Y-%m}",
+                        exchange,
+                        product,
+                        trade_date.isoformat(),
+                        found,
+                    ]
+                )
+    identities = {(row[1], row[2]) for row in rows}
+    by_year = Counter(row[3].year for row in rows)
+    raise SessionClockError(
+        exchange=rows[0][1],
+        product=rows[0][2],
+        trade_date=rows[0][3],
+        check="session_coverage_incomplete",
+        reason=(
+            f"{len(rows)} product-days lack exactly one session rule "
+            f"across {len(identities)} products; by year "
+            + " ".join(f"{year}:{count}" for year, count in sorted(by_year.items()))
+            + (f"; manifest={manifest_path}" if manifest_path is not None else "")
+        ),
+    )
+
+
+def build_contexts(
+    choices: Sequence[object],
+    *,
+    rules: Sequence[SessionRule],
+) -> dict[tuple[date, str], SessionContext]:
+    """把主力选择折成分钟层认的候选 + 该日的槽位与桶。
+
+    夜盘属于**下一个**交易日，所以 `build_trading_slots` 需要前一交易日。第一天没有
+    前一日可用，因此从第二天起才产出上下文 —— 少一天而不是猜一个前一日。
+
+    ⚠️ 时段规则资产止于 2026-01-30；越界时 `resolve_session_rule` 硬失败，不静默截断。
+    """
+    contexts: dict[tuple[date, str], SessionContext] = {}
+    for choice, previous, product, minute_symbol, exchange in _context_plan(choices):
         rule = resolve_session_rule(rules, exchange, product, choice.trade_date)
         slots = build_trading_slots(choice.trade_date, previous, rule)
         contexts[(choice.trade_date, product)] = SessionContext(

@@ -547,3 +547,205 @@ def test_a_no_trade_bar_reads_as_nan_not_zero():
     )
     assert pd.isna(panel.iloc[0]["close"])
     assert panel.iloc[0]["volume"] == 0.0
+
+
+# --- 覆盖闸 -----------------------------------------------------------------
+
+from common.minute.sessions import SessionClockError  # noqa: E402
+from cta_continuous.panel import (  # noqa: E402
+    require_session_coverage,
+    required_session_keys,
+)
+
+MARCH = date(2024, 3, 1)
+
+
+def test_required_session_keys_match_what_build_contexts_asks_for():
+    """闸检查的键与 build_contexts 实际索取的键必须逐点相同 —— 否则闸形同虚设。"""
+    choices = _choices()
+    contexts = build_contexts(choices, rules=[_day_only_rule()])
+
+    keys = required_session_keys(choices)
+
+    assert set(keys) == {
+        ("SHFE", product, trade_date) for trade_date, product in contexts
+    }
+
+
+def test_require_session_coverage_reports_every_uncovered_product_day(tmp_path):
+    """不是报第一个就死 —— 一次报全，并落下完整清单。"""
+    manifest = tmp_path / "gaps.csv"
+
+    with pytest.raises(SessionClockError) as exc_info:
+        require_session_coverage(
+            choices=_choices(),
+            products_by_month={MARCH: ("RB",)},
+            rules=(),
+            manifest_path=manifest,
+        )
+
+    assert exc_info.value.check == "session_coverage_incomplete"
+    # DAYS 有三天，首日没有前一交易日因而不需要规则，故剩两天。
+    assert "2 product-days" in str(exc_info.value)
+    rows = manifest.read_text(encoding="utf-8").strip().splitlines()
+    assert rows[0] == "month,exchange,product,trade_date,found"
+    assert rows[1] == "2024-03,SHFE,RB,2024-03-05,0"
+    assert rows[2] == "2024-03,SHFE,RB,2024-03-06,0"
+    assert len(rows) == 3
+
+
+def test_require_session_coverage_also_rejects_ambiguous_days(tmp_path):
+    """闸要防两边：0 条固然是缺，2 条是资产自相矛盾，同样不能放行。"""
+    manifest = tmp_path / "gaps.csv"
+
+    with pytest.raises(SessionClockError) as exc_info:
+        require_session_coverage(
+            choices=_choices(),
+            products_by_month={MARCH: ("RB",)},
+            rules=(_day_only_rule(), _day_only_rule()),
+            manifest_path=manifest,
+        )
+
+    assert exc_info.value.check == "session_coverage_incomplete"
+    assert manifest.read_text(encoding="utf-8").strip().splitlines()[1].endswith(",2")
+
+
+def test_require_session_coverage_ignores_products_outside_the_month_universe(tmp_path):
+    """该月宇宙里没有的品种不该被要求具备规则。"""
+    require_session_coverage(
+        choices=_choices(),
+        products_by_month={MARCH: ()},
+        rules=(),
+        manifest_path=tmp_path / "gaps.csv",
+    )
+
+    assert not (tmp_path / "gaps.csv").exists()
+
+
+def test_require_session_coverage_is_silent_when_every_day_is_covered(tmp_path):
+    manifest = tmp_path / "gaps.csv"
+
+    require_session_coverage(
+        choices=_choices(),
+        products_by_month={MARCH: ("RB",)},
+        rules=(_day_only_rule(),),
+        manifest_path=manifest,
+    )
+
+    assert not manifest.exists()
+
+
+# --- 接线：闸必须挡在任何分钟查询之前 ---------------------------------------
+
+import importlib.util  # noqa: E402
+import sys  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+_BUILD_PANEL_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "continuous" / "build_panel.py"
+)
+
+
+def _load_build_panel():
+    spec = importlib.util.spec_from_file_location(
+        "_build_panel_under_test", _BUILD_PANEL_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class _GateReached(Exception):
+    """闸被调用到了 —— 用它把 main() 在闸处截停。"""
+
+
+def _daily_frame():
+    """一个品种、一张合约，覆盖 2023-09 至 2024-03，成交额远超 50 亿门槛。"""
+    days = pd.bdate_range("2023-09-01", "2024-03-29").date
+    return pd.DataFrame(
+        {
+            "symbol": ["RB2405.SHF"] * len(days),
+            "trade_date": list(days),
+            "oi": [10_000] * len(days),
+            "volume": [10_000] * len(days),
+            "turnover": [5e10] * len(days),
+            "close": [3500.0] * len(days),
+        }
+    )
+
+
+@contextmanager
+def _fake_connection(_pg):
+    class _Cursor:
+        def execute(self, *_args, **_kwargs):
+            return None
+
+    class _Conn:
+        @contextmanager
+        def cursor(self):
+            yield _Cursor()
+
+    yield _Conn()
+
+
+def test_build_panel_gates_coverage_before_touching_the_minute_source(
+    monkeypatch, tmp_path
+):
+    """闸必须挡在 PublicMinuteSource 之前。
+
+    只断言「闸被调用了」不够 —— 闸挪到分钟源之后照样能通过那种断言，而那时第一次
+    查询已经发出去了。这里让分钟源一被构造就炸，闸一被调用就截停：顺序错了，
+    异常类型就不同，测试变红。
+    """
+    module = _load_build_panel()
+    monkeypatch.setattr(module, "resolve_settings_path", lambda: Path("unused.yaml"))
+    monkeypatch.setattr(module, "load_config", lambda _path: {})
+    monkeypatch.setattr(module, "pg_config_from", lambda _cfg: {})
+    monkeypatch.setattr(module, "get_connection", _fake_connection)
+    monkeypatch.setattr(module, "_copy", lambda _cur, _sql, columns: _daily_frame())
+
+    def _gate(**_kwargs):
+        raise _GateReached
+
+    def _forbidden(**_kwargs):
+        raise AssertionError("minute source built before the coverage gate ran")
+
+    monkeypatch.setattr(module, "require_session_coverage", _gate)
+    monkeypatch.setattr(module, "PublicMinuteSource", _forbidden)
+
+    with pytest.raises(_GateReached):
+        module.main(
+            ["--start", "2024-03", "--end", "2024-03", "--out", str(tmp_path / "panel")]
+        )
+
+
+def test_build_panel_hands_the_gate_the_whole_requested_range(monkeypatch, tmp_path):
+    """闸要拿到整个请求区间的宇宙，而不是只有当月 —— 否则又变成逐月才发现。"""
+    module = _load_build_panel()
+    monkeypatch.setattr(module, "resolve_settings_path", lambda: Path("unused.yaml"))
+    monkeypatch.setattr(module, "load_config", lambda _path: {})
+    monkeypatch.setattr(module, "pg_config_from", lambda _cfg: {})
+    monkeypatch.setattr(module, "get_connection", _fake_connection)
+    monkeypatch.setattr(module, "_copy", lambda _cur, _sql, columns: _daily_frame())
+
+    seen = {}
+
+    def _gate(**kwargs):
+        seen.update(kwargs)
+        raise _GateReached
+
+    monkeypatch.setattr(module, "require_session_coverage", _gate)
+    monkeypatch.setattr(
+        module, "PublicMinuteSource", lambda **_kw: pytest.fail("too early")
+    )
+
+    with pytest.raises(_GateReached):
+        module.main(
+            ["--start", "2024-02", "--end", "2024-03", "--out", str(tmp_path / "panel")]
+        )
+
+    assert set(seen["products_by_month"]) == {date(2024, 2, 1), date(2024, 3, 1)}
+    assert seen["rules"]
+    assert seen["choices"]

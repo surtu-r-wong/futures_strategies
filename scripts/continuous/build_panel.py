@@ -34,6 +34,7 @@ from cta_continuous.panel import (  # noqa: E402
     build_contexts,
     build_panel,
     context_choices_for_month,
+    require_session_coverage,
 )
 from cta_continuous.universe import (  # noqa: E402
     product_daily_turnover,
@@ -149,6 +150,16 @@ def main(argv: list[str] | None = None) -> int:
         f"全历史主力 {len(choices):,} 个品种日，后复权因子 {len(factor_by_key):,} 个，"
         f"连续段 {segment_total:,}，断代 {break_total:,}",
         flush=True,
+    )
+
+    # ⚠️ 闸必须挡在**任何**分钟查询之前。覆盖不全要在这里一次报全，不能跑到第 N 个月
+    # 才崩：2026-08-27 那轮全历史面板先崩在 `2010-12-31 DCE A`，补掉后又崩在
+    # `2011-05-17 SHFE AL`，两次都是同一个覆盖问题换个地方露头，中间白跑了数小时。
+    require_session_coverage(
+        choices=choices,
+        products_by_month=products_by_month,
+        rules=rules,
+        manifest_path=args.out / "session_coverage_gaps.csv",
     )
 
     source = PublicMinuteSource(pg=pg)
