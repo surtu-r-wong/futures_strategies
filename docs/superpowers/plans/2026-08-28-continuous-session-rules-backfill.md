@@ -483,3 +483,42 @@ DCE EG 上夜盘前的日盘期、GFEX PT（广期所四品种全历史无夜盘
 既验证补采，也**反向验证了从未被独立复算过的 Carry 资产** —— 这正是 D3 选「整体重采」的回报。
 
 **覆盖闸验收通过**：真实数据上静默放行、不落缺口清单，面板跑过了原先崩掉的 2011-05。
+
+---
+
+## Task 11 交接状态（2026-08-28 收工时）
+
+**Step 1–2 已完成并提交**：`build_panel.py` 与 `2026-08-27-panel-smoke.py` 已改读
+`config/continuous_minute_sessions.csv`，全量 1385 passed。
+
+**Step 3 验收已通过**：真实数据上覆盖闸**静默放行**、不落缺口清单，
+面板跑过了原先崩掉的 2011-05。
+
+**Step 4 全历史面板正在 WSL2 跑**（收工时 159 / 181 个月）：
+
+```
+远端  /home/ghls/futures_strategies_continuous_20260827  @ 1fcbb89
+进程  PID 139265（setsid 已脱离；SID=PGID=139263，断 ssh 不受影响）
+日志  logs/panel_1fcbb89.log
+产出  output/continuous/panel/panel-YYYY-MM.parquet（逐月落盘，可续跑）
+```
+
+**接手先跑这条看是否已完成**：
+
+```bash
+ssh -p 2223 ghls@100.120.152.1 'cd /home/ghls/futures_strategies_continuous_20260827 && \
+  tail -3 logs/panel_1fcbb89.log && ls output/continuous/panel/*.parquet | wc -l'
+```
+
+181 个分片 = 2011-01..2026-01 全覆盖。若中断，**原命令重跑即可**（已存在的分片会被跳过并做
+schema 校验）：
+
+```bash
+.venv/bin/python scripts/continuous/build_panel.py --start 2011-01 --end 2026-01 \
+  --out output/continuous/panel
+```
+
+**Step 5 未做**：跑完要核对分片数与总 bar 数，写进研究笔记。
+
+⚠️ 停远端长跑**不要**用 `pkill -f "build_panel.py ..."` —— 该模式会匹配到执行它的 ssh shell
+自身并把它杀掉（本轮踩过：搬完分片就断线、重启那行根本没执行）。用 PID，或把启动写进脚本文件。
