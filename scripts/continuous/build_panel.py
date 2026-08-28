@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import argparse
-import io
 import sys
 import time
 from datetime import date
@@ -22,24 +21,18 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from common.config import load_config, resolve_settings_path  # noqa: E402
-from common.db import get_connection, pg_config_from  # noqa: E402
+from common.db import pg_config_from  # noqa: E402
 from common.minute.pg_source import PublicMinuteSource  # noqa: E402
 from common.minute.sessions import load_session_rules  # noqa: E402
 from cta_carry.session_authority import load_pricing_bases, pricing_basis_for  # noqa: E402
-from cta_continuous.continuous import (  # noqa: E402
-    adjustment_factors,
-    choose_dominant_commodity,
-)
+from cta_continuous.continuous import adjustment_factors  # noqa: E402
 from cta_continuous.panel import (  # noqa: E402
     build_contexts,
     build_panel,
     context_choices_for_month,
     require_session_coverage,
 )
-from cta_continuous.universe import (  # noqa: E402
-    product_daily_turnover,
-    universe_for_month,
-)
+from cta_continuous.scope import load_scope_daily, panel_scope  # noqa: E402
 
 SESSION_RULES = Path("config/carry_minute_sessions.csv")
 PRICING_BASES = Path("config/carry_minute_pricing_basis.csv")
@@ -52,14 +45,6 @@ def _month(value: str) -> date:
 
 def _next_month(anchor: date) -> date:
     return date(anchor.year + anchor.month // 12, anchor.month % 12 + 1, 1)
-
-
-def _copy(cur, sql: str, columns: list[str]) -> pd.DataFrame:
-    buffer = io.StringIO()
-    cur.copy_expert(f"COPY ({sql}) TO STDOUT WITH CSV HEADER", buffer)
-    frame = pd.read_csv(io.StringIO(buffer.getvalue()))
-    frame["trade_date"] = pd.to_datetime(frame["trade_date"]).dt.date
-    return frame.loc[:, columns]
 
 
 def _validate_existing_shard(path: Path) -> None:
@@ -102,33 +87,12 @@ def main(argv: list[str] | None = None) -> int:
     rules = load_session_rules(SESSION_RULES)
     bases = load_pricing_bases(PRICING_BASES)
 
-    # 后复权因子必须沿**全历史**展期链累乘；从目标月往前截一年会让每次续跑
-    # 都把因子重置为 1，月界就不再是同一条连续价。研报基期是 2010-01-01。
-    daily_from = date(2010, 1, 1)
-    with get_connection(pg) as conn, conn.cursor() as cur:
-        cur.execute("SET statement_timeout='900s'")
-        stats = _copy(
-            cur,
-            "SELECT symbol, trade_date, oi, volume, turnover, close "
-            "FROM public.futures_daily "
-            f"WHERE trade_date >= DATE '{daily_from}' AND trade_date < DATE '{_next_month(args.end)}' "
-            "AND oi IS NOT NULL AND volume IS NOT NULL",
-            ["symbol", "trade_date", "oi", "volume", "turnover", "close"],
-        )
+    stats = load_scope_daily(pg, end=args.end)
     print(f"日线 {len(stats):,} 行", flush=True)
-    turnover = product_daily_turnover(
-        stats.loc[:, ["symbol", "trade_date", "turnover"]]
-    )
-
-    products_by_month: dict[date, tuple[str, ...]] = {}
-    month = args.start
-    while month <= args.end:
-        products_by_month[month] = universe_for_month(turnover, month_start=month)
-        month = _next_month(month)
-    history_products = tuple(
-        sorted({product for products in products_by_month.values() for product in products})
-    )
-    choices = choose_dominant_commodity(stats, products=history_products)
+    # 口径与补采驱动共用，见 cta_continuous/scope.py 的模块注释（设计 D4）。
+    scope = panel_scope(stats, start=args.start, end=args.end)
+    products_by_month = scope.products_by_month
+    choices = scope.choices
     closes = {
         (trade_date, str(symbol)): float(close)
         for trade_date, symbol, close in stats.loc[

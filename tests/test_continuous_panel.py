@@ -639,7 +639,6 @@ def test_require_session_coverage_is_silent_when_every_day_is_covered(tmp_path):
 
 import importlib.util  # noqa: E402
 import sys  # noqa: E402
-from contextlib import contextmanager  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 _BUILD_PANEL_PATH = (
@@ -676,20 +675,6 @@ def _daily_frame():
     )
 
 
-@contextmanager
-def _fake_connection(_pg):
-    class _Cursor:
-        def execute(self, *_args, **_kwargs):
-            return None
-
-    class _Conn:
-        @contextmanager
-        def cursor(self):
-            yield _Cursor()
-
-    yield _Conn()
-
-
 def test_build_panel_gates_coverage_before_touching_the_minute_source(
     monkeypatch, tmp_path
 ):
@@ -703,8 +688,7 @@ def test_build_panel_gates_coverage_before_touching_the_minute_source(
     monkeypatch.setattr(module, "resolve_settings_path", lambda: Path("unused.yaml"))
     monkeypatch.setattr(module, "load_config", lambda _path: {})
     monkeypatch.setattr(module, "pg_config_from", lambda _cfg: {})
-    monkeypatch.setattr(module, "get_connection", _fake_connection)
-    monkeypatch.setattr(module, "_copy", lambda _cur, _sql, columns: _daily_frame())
+    monkeypatch.setattr(module, "load_scope_daily", lambda _pg, *, end: _daily_frame())
 
     def _gate(**_kwargs):
         raise _GateReached
@@ -727,8 +711,7 @@ def test_build_panel_hands_the_gate_the_whole_requested_range(monkeypatch, tmp_p
     monkeypatch.setattr(module, "resolve_settings_path", lambda: Path("unused.yaml"))
     monkeypatch.setattr(module, "load_config", lambda _path: {})
     monkeypatch.setattr(module, "pg_config_from", lambda _cfg: {})
-    monkeypatch.setattr(module, "get_connection", _fake_connection)
-    monkeypatch.setattr(module, "_copy", lambda _cur, _sql, columns: _daily_frame())
+    monkeypatch.setattr(module, "load_scope_daily", lambda _pg, *, end: _daily_frame())
 
     seen = {}
 

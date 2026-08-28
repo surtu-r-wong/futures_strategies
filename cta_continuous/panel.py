@@ -273,6 +273,28 @@ def required_session_keys(
     )
 
 
+def required_session_keys_by_month(
+    *,
+    choices: Sequence[object],
+    products_by_month: Mapping[date, Sequence[str]],
+) -> dict[date, tuple[tuple[str, str, date], ...]]:
+    """逐月：该月宇宙下 `build_contexts` 会索取的时段规则键。
+
+    覆盖闸与连续采集驱动**共用**这一个推导，所以「采集覆盖的集合」与「面板要求的
+    集合」在构造上相同，而不是靠两处各自写对（设计 D4）。
+    """
+    by_month: dict[date, tuple[tuple[str, str, date], ...]] = {}
+    for month, products in sorted(products_by_month.items()):
+        pool = set(products)
+        eligible = tuple(choice for choice in choices if choice.product in pool)
+        if not eligible:
+            continue
+        by_month[month] = required_session_keys(
+            context_choices_for_month(eligible, month_start=month)
+        )
+    return by_month
+
+
 def require_session_coverage(
     *,
     choices: Sequence[object],
@@ -290,14 +312,11 @@ def require_session_coverage(
     两种基数都拦：0 条是资产缺口，2 条是资产自相矛盾，都不能放行。
     """
     rows: list[tuple[date, str, str, date, int]] = []
-    for month, products in sorted(products_by_month.items()):
-        pool = set(products)
-        eligible = tuple(choice for choice in choices if choice.product in pool)
-        if not eligible:
-            continue
-        for exchange, product, trade_date in required_session_keys(
-            context_choices_for_month(eligible, month_start=month)
-        ):
+    by_month = required_session_keys_by_month(
+        choices=choices, products_by_month=products_by_month
+    )
+    for month, keys in by_month.items():
+        for exchange, product, trade_date in keys:
             found = len(matching_session_rules(rules, exchange, product, trade_date))
             if found != 1:
                 rows.append((month, exchange, product, trade_date, found))
