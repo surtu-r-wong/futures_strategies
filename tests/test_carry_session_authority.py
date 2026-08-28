@@ -779,8 +779,12 @@ def test_repository_uses_only_the_session_exception_authority_contract():
     )
     # Batches A/C/D/E (149) plus F (74), G (304), G-3 (11), the two 2017
     # option-launch evenings, and H (15), all reviewed on 2026-08-25.
-    assert len(authority.session_exceptions) == 555
-    assert len(authority.day_only_regimes) == 37
+    # 557 起于 2026-08-29：并入连续补采那轮裁决的两条 INE 节后无夜盘
+    # （2018-05-02 / 2018-06-19），两条都带上交能源的公告直链。
+    assert len(authority.session_exceptions) == 557
+    # 39 起于 2026-08-29：并入连续补采那轮裁决新增的两个 day-only 品种，
+    # 依据同样是交易所夜盘上线通知的逐批名单。
+    assert len(authority.day_only_regimes) == 39
     assert authority.liquidity_history_exceptions == ()
     # Only the evening of 2019-12-25 needs product-scoped rows: Shanghai wrote
     # three closes and the energy centre two, so an exchange-wide row cannot

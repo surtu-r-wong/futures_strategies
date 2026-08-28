@@ -231,9 +231,11 @@ SHFE,commodity-v1,2018-04-09,,none,none,no night session before the post-holiday
 CZCE,commodity-v1,2018-05-02,,none,none,no night session on the first trading day after a statutory holiday per the exchange standing rule notice_evening=2018-04-27,https://www.czce.com.cn/cn/rootfiles/2014/11/24/1415698818159779-1415698818161921.pdf
 DCE,commodity-v1,2018-05-02,,none,none,no night session before the post-holiday session notice_evening=2018-04-27,http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6082201/index.html
 SHFE,commodity-v1,2018-05-02,,none,none,no night session before the post-holiday session notice_evening=2018-04-27,https://www.shfe.com.cn/publicnotice/notice/201712/t20171222_792839.html
+INE,commodity-v1,2018-05-02,,none,none,no night session before the post-holiday session notice_evening=2018-04-27,https://www.ine.cn/publicnotice/notice/201803/t20180314_811180.html
 CZCE,commodity-v1,2018-06-19,,none,none,no night session on the first trading day after a statutory holiday per the exchange standing rule notice_evening=2018-06-15,https://www.czce.com.cn/cn/rootfiles/2014/11/24/1415698818159779-1415698818161921.pdf
 DCE,commodity-v1,2018-06-19,,none,none,no night session before the post-holiday session notice_evening=2018-06-15,http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6082201/index.html
 SHFE,commodity-v1,2018-06-19,,none,none,no night session before the post-holiday session notice_evening=2018-06-15,https://www.shfe.com.cn/publicnotice/notice/201712/t20171222_792839.html
+INE,commodity-v1,2018-06-19,,none,none,no night session before the post-holiday session notice_evening=2018-06-15,https://www.ine.cn/publicnotice/notice/201803/t20180314_811180.html
 CZCE,commodity-v1,2018-09-25,,none,none,no night session on the first trading day after a statutory holiday per the exchange standing rule notice_evening=2018-09-21,https://www.czce.com.cn/cn/rootfiles/2014/11/24/1415698818159779-1415698818161921.pdf
 DCE,commodity-v1,2018-09-25,,none,none,no night session before the post-holiday session notice_evening=2018-09-21,http://qhxy.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/6082201/index.html
 INE,commodity-v1,2018-09-25,,none,none,no night session before the post-holiday session notice_evening=2018-09-21,https://www.ine.cn/publicnotice/notice/201803/t20180314_811180.html
