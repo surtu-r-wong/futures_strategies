@@ -19,6 +19,20 @@ PYTHONPATH=. .venv/bin/python scripts/commodity/build_panel.py \
   --settings /absolute/path/to/ignored/config/settings.yaml
 ```
 
+The command above assumes a normal checkout with an executable
+`.venv/bin/python`. A linked worktree normally has no local `.venv`; verify and
+reuse the main-checkout interpreter and settings in place:
+
+```bash
+test -x /home/elfbob/claude-code/futures_strategies/.venv/bin/python
+PYTHONPATH=. /home/elfbob/claude-code/futures_strategies/.venv/bin/python \
+  scripts/commodity/build_panel.py \
+  --start 2023-01-03 \
+  --end 2023-01-31 \
+  --output-dir output/commodity-panel-202301 \
+  --settings /home/elfbob/claude-code/futures_strategies/config/settings.yaml
+```
+
 `scripts/continuous/build_panel.py` is a compatibility entry point to the same
 builder. It also accepts legacy `--out` and `YYYY-MM` bounds, but ISO dates and
 `--output-dir` are preferred. Add `--use-test` only when the requested build is
@@ -67,9 +81,11 @@ artifacts fail closed.
   overridden to `ohlc_typical` because its stored `amount` is synthesized from
   an integer price and cannot recover an exact VWAP. The chosen basis is stored
   on every bar/fill.
-- `open_interest` is the last finite OI of the traded minutes in each 15-minute
-  bar. `fill_time` is the last slot of the subsequent five-minute execution
-  window, including a cross-session resolution when applicable.
+- `open_interest` comes from the chronologically last positive-volume minute
+  in the 15-minute bar, but only when that minute's OI is finite. Otherwise it
+  is null; the builder does not fall back to an earlier traded minute.
+  `fill_time` is the last slot of the subsequent five-minute execution window,
+  including a cross-session resolution when applicable.
 
 ## Manifest provenance and secrecy
 
@@ -106,17 +122,31 @@ Long panel extraction uses `OUTPUT_DIR/.panel-checkpoint`, guarded by an
 adjacent file lock. Each completed month atomically records finalized bars, the
 per-product pending fills carried into the next month, minute-query audit
 state, and multiplier-resolution state. A retry with the same checkpoint key
-resumes after the latest completed month. The key binds dates, daily/context/
-factor content, safe effective configuration, and production source revision.
-After successful bundle publication the builder safely clears only its own
-declared checkpoint files.
+resumes after the latest completed month. The key binds dates, database
+profile, daily/context/factor content, safe effective configuration, and
+production source revision. After successful bundle publication the builder
+safely clears only its own declared checkpoint files.
 
-A different input, configuration, source revision, minute content, multiplier
-resolution, or bundle version is **not** an incremental update. Existing
-incompatible output fails with `bundle_input_mismatch`,
-`panel_checkpoint_mismatch`, or `bundle_version_unsupported` and is left
-untouched. Preserve/archive it and run a full build into a new empty output
-directory. A compatible repeat is a byte-identical no-op.
+Checkpoint resume is crash recovery, not a fresh source reproducibility check.
+For completed months it restores saved Parquet rows and saved minute/multiplier
+audit state; it does **not** re-query or revalidate mutable upstream minute
+content or private multiplier evidence. If upstream data changes after the
+crash, later months can be fetched at a different time and the final manifest
+can represent a mixture of saved and new fetches. `panel_checkpoint_mismatch`
+does not detect this completed-month drift.
+
+For strict reproducibility after an interruption or a known source update, do
+not resume that checkpoint. Preserve or discard the interrupted target and run
+a full build from scratch into a fresh empty output/checkpoint directory.
+
+Final bundle publication is a separate compatibility gate. When a committed
+bundle already exists, newly assembled `inputs`/`provenance` that differ are
+rejected with `bundle_input_mismatch`; an unsupported artifact version is
+rejected with `bundle_version_unsupported`. These final checks do not
+retroactively revalidate source evidence restored from completed checkpoint
+months. Changed inputs, configuration, source, minute content, multiplier
+resolution, or version therefore require a full build in a new directory. A
+compatible repeat of a final bundle is a byte-identical no-op.
 
 ## Expected hard failures and current blockers
 
@@ -129,7 +159,8 @@ The builder deliberately refuses to continue on, among other cases:
 - a dominant roll without both raw five-minute fill legs;
 - missing/changed bundle files, unsupported versions, schema/key/relationship
   violations, unsafe manifest data, or ambiguous recovery state;
-- a changed checkpoint key or changed inputs/provenance in an existing target.
+- a changed checkpoint-key input, or changed inputs/provenance against an
+  existing committed bundle.
 
 The small 2023-Q1 CU/RB/TA smoke avoids a known full-history blocker. The live
 daily chain rolls from `FU1804.SHF` (last valid close 2018-03-30) to

@@ -68,6 +68,11 @@ PYTHONPATH=. .venv/bin/python scripts/commodity/build_panel.py \
   --settings /absolute/path/to/ignored/config/settings.yaml
 ```
 
+上面命令适用于 `.venv/bin/python` 存在且可执行的普通 checkout。linked worktree
+通常没有自己的 `.venv`；应直接使用主 checkout 的绝对解释器
+`/home/elfbob/claude-code/futures_strategies/.venv/bin/python`。完整 linked-worktree
+命令见 bundle runbook。
+
 不要复制或打印含密码的 settings。linked worktree 没有 ignored settings 时，用
 `--settings` 直接引用主 checkout 的现有文件。当前交易时段资产的可靠上界是
 **2026-01-30**；精确命令、断点恢复、manifest 审计和硬失败边界见

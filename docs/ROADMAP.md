@@ -73,8 +73,10 @@ CU 库存只覆盖上海保税区、AL/CU/RB 现货是周频而其余六个是�
 
 ## 外部阻塞
 
-- `futures_daily` 与 `continuous_contract_ohlc` 的 EOD 日更仍止于 2026-04-29；
-  builder 的交易日历取自该表，所以任何 build 的上界都在那里。
+- `futures_daily` 与 `continuous_contract_ohlc` 的 EOD 日更仍止于 2026-04-29。
+  对共享面板 builder，2026-04-29 只代表 `futures_daily` 的数据上界，不是当前命令的
+  可执行上界；其交易时段 authority 更严格，只到 **2026-01-30**，请求更晚日期会先
+  以 `panel_session_authority` 拒绝。
 
 ## 仓库边界
 
