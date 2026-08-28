@@ -395,6 +395,39 @@ def run_shadow_product(
             oi_long=oi_path.long[position],
         )
 
+    _slots_by_date = frame.groupby("trade_date")["slot_end"]
+    last_slot_by_date = _slots_by_date.max().to_dict()
+    first_slot_by_date = _slots_by_date.min().to_dict()
+    _ordered_dates = sorted(last_slot_by_date)
+    _next_trade_date = {
+        day: _ordered_dates[position + 1]
+        for position, day in enumerate(_ordered_dates[:-1])
+    }
+
+    def execution_trade_date(fill_time: object, trade_day: date) -> date:
+        """Which trade date's session actually executes a fill.
+
+        The panel draws a bar's fill window from its own trade date's slots
+        (``commodity.panel``), except for a bar left pending at a session end,
+        which is resolved from the next trade date's opening window. So a fill
+        past this trade date's last bar belongs to the next trade date -- and
+        because a night session is stamped on the *previous* calendar evening,
+        that next session can open on the same calendar date as the fill. A
+        plain calendar comparison cannot see this and books the execution a day
+        early. Where no next trade date has opened on the fill's calendar date,
+        the calendar date decides, which is what a day-only market gives.
+        """
+        stamp = pd.Timestamp(fill_time)
+        if stamp <= last_slot_by_date[trade_day]:
+            return trade_day
+        following = _next_trade_date.get(trade_day)
+        if (
+            following is not None
+            and pd.Timestamp(first_slot_by_date[following]).date() == stamp.date()
+        ):
+            return following
+        return stamp.date()
+
     account = EventAccount(cost_bps=1.3)
     first = traded.iloc[0]
     current_contract = str(first["contract"])
@@ -497,17 +530,41 @@ def run_shadow_product(
             _, _, payload = heapq.heappop(pending_fills)
             execute_pending_fill(payload)
 
-    def close_account_day(trade_day: date, close_timestamp: pd.Timestamp) -> None:
+    def close_account_day(
+        trade_day: date, last_slot_end: pd.Timestamp | None
+    ) -> None:
+        """Close one trade date just after that trade date's own last activity.
+
+        A calendar-end stamp cannot serve here. ``sessions._slot_timestamp``
+        puts a trade date's night session on the **previous** calendar evening,
+        so the next trade date's first bars carry timestamps before midnight of
+        this one; stamping the close at ``time.max`` would put it after them and
+        the account's strictly increasing clock would reject the next fill.
+        Anchoring on this trade date's last bar or execution keeps the boundary
+        inside the gap that separates two sessions.
+        """
         if trade_day in closed_dates:
             raise ValueError(f"bollinger_shadow_daily_duplicate: {trade_day}")
-        drain_pending(close_timestamp)
-        if account.events and account.events[-1].timestamp >= close_timestamp:
-            last_timestamp = pd.Timestamp(account.events[-1].timestamp)
-            if last_timestamp.date() != trade_day:
-                raise ValueError(
-                    "bollinger_shadow_daily_time: future event crossed daily boundary"
-                )
-            close_timestamp = last_timestamp + timedelta(microseconds=1)
+        while (
+            pending_fills
+            and pending_fills[0][2]["execution_trade_date"] <= trade_day
+        ):
+            _, _, payload = heapq.heappop(pending_fills)
+            execute_pending_fill(payload)
+        candidates: list[pd.Timestamp] = []
+        if last_slot_end is not None:
+            candidates.append(pd.Timestamp(last_slot_end))
+        if account.events:
+            candidates.append(pd.Timestamp(account.events[-1].timestamp))
+        if not candidates:
+            raise ValueError(
+                f"bollinger_shadow_daily_activity: {trade_day} has no activity"
+            )
+        close_timestamp = max(candidates) + timedelta(microseconds=1)
+        if close_timestamp.date() != trade_day:
+            raise ValueError(
+                "bollinger_shadow_daily_time: trade date activity left its calendar day"
+            )
 
         prices: dict[str, float] = {}
         if current_target:
@@ -536,15 +593,11 @@ def run_shadow_product(
         closed_dates.add(trade_day)
 
     def close_pending_dates_before(next_day: date | None) -> None:
-        timezone = frame["slot_end"].dt.tz
         while pending_fills:
-            pending_day = pending_fills[0][0].date()
+            pending_day = pending_fills[0][2]["execution_trade_date"]
             if next_day is not None and pending_day >= next_day:
                 return
-            close_timestamp = pd.Timestamp(
-                datetime.combine(pending_day, time.max, tzinfo=timezone)
-            )
-            close_account_day(pending_day, close_timestamp)
+            close_account_day(pending_day, None)
 
     for trade_date, day_frame in frame.groupby("trade_date", sort=True):
         close_pending_dates_before(trade_date)
@@ -747,7 +800,8 @@ def run_shadow_product(
                                 * desired.state.oi_scale
                                 * atr_leverage(close=float(row["close"]), atr=raw_atr)
                             )
-                        if pd.Timestamp(fill_time).date() > trade_date:
+                        execution_date = execution_trade_date(fill_time, trade_date)
+                        if execution_date > trade_date:
                             previous_state = state
                             state = desired.state
                             fill_sequence += 1
@@ -757,6 +811,7 @@ def run_shadow_product(
                                     pd.Timestamp(fill_time),
                                     fill_sequence,
                                     {
+                                        "execution_trade_date": execution_date,
                                         "fill_time": fill_time,
                                         "fill_price": fill_price,
                                         "contract": current_contract,
@@ -858,11 +913,7 @@ def run_shadow_product(
                 target_weight=current_target,
             )
 
-        timezone = frame["slot_end"].dt.tz
-        close_timestamp = pd.Timestamp(
-            datetime.combine(trade_date, time.max, tzinfo=timezone)
-        )
-        close_account_day(trade_date, close_timestamp)
+        close_account_day(trade_date, day_frame["slot_end"].max())
 
     close_pending_dates_before(None)
 

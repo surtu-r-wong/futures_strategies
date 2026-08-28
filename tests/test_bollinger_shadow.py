@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -396,3 +397,96 @@ def test_shadow_result_is_frozen_and_defensively_copies_frames() -> None:
     assert result.signals.loc[0, "x"] == 1
     with pytest.raises(FrozenInstanceError):
         result.product = "CU"
+
+
+def _night_panel(closes: list[float]) -> pd.DataFrame:
+    """Four slots per trade date, with the night session on the prior evening.
+
+    ``common.minute.sessions._slot_timestamp`` puts a trade date's night
+    session on ``previous_trade_date``, so trade date D's 21:00 bar carries a
+    wall-clock timestamp on calendar date D-1.  A bar inside a session fills
+    five minutes later; the last bar of a session fills in the first five
+    minutes of the next one, which for a 15:00 bar is 21:00 on the same
+    calendar date -- a window that belongs to trade date D+1.
+    """
+    trade_dates = [date(2024, 3, 5), date(2024, 3, 6), date(2024, 3, 7), date(2024, 3, 8)]
+    if len(closes) != 4 * len(trade_dates):
+        raise AssertionError("night fixture expects four bars per trade date")
+
+    rows: list[dict[str, object]] = []
+    for day in trade_dates:
+        previous = day - timedelta(days=1)
+        slots = (
+            (datetime.combine(previous, time(21, 15), tzinfo=TZ),
+             datetime.combine(previous, time(21, 20), tzinfo=TZ)),
+            (datetime.combine(previous, time(21, 30), tzinfo=TZ),
+             datetime.combine(day, time(9, 5), tzinfo=TZ)),
+            (datetime.combine(day, time(9, 15), tzinfo=TZ),
+             datetime.combine(day, time(9, 20), tzinfo=TZ)),
+            (datetime.combine(day, time(15, 0), tzinfo=TZ),
+             datetime.combine(day, time(21, 5), tzinfo=TZ)),
+        )
+        for slot_end, fill_time in slots:
+            close = closes[len(rows)]
+            rows.append(
+                {
+                    "product": "RB",
+                    "contract": "RB2405.SHF",
+                    "trade_date": day,
+                    "slot_end": pd.Timestamp(slot_end),
+                    "open": close,
+                    "high": close + 1.0,
+                    "low": close - 1.0,
+                    "close": close,
+                    "volume": 1.0,
+                    "open_interest": 1000.0 + len(rows),
+                    "no_trade": False,
+                    "adj_factor": 1.0,
+                    "fill_time": pd.Timestamp(fill_time),
+                    "fill_price": close,
+                    "fill_pending": False,
+                    "fill_unpriceable": False,
+                    "pricing_basis": "amount_vwap",
+                    "multiplier": 10,
+                }
+            )
+    frame = pd.DataFrame(rows)
+    for column in ("product", "contract", "pricing_basis"):
+        frame[column] = frame[column].astype("string")
+    frame["multiplier"] = frame["multiplier"].astype("int64")
+    return frame
+
+
+def _night_kwargs() -> dict[str, int]:
+    return {"band_length": 5, "atr_window": 2, "oi_short": 2, "oi_long": 3}
+
+
+def test_a_night_bar_can_trade_after_the_previous_trade_date_closed() -> None:
+    # The cross lands on trade date 2024-03-07's first night bucket and fills
+    # at 21:20, both on calendar date 2024-03-06 -- before any calendar-end
+    # stamp that 03-06 could carry.
+    panel = _night_panel([100.0] * 8 + [101.0] * 8)
+
+    result = run_shadow_product(panel, product="RB", **_night_kwargs())
+
+    entry = result.signals.loc[result.signals["action"] == "upper_cross"]
+    assert len(entry) == 1
+    assert entry.iloc[0]["trade_date"] == date(2024, 3, 7)
+    assert entry.iloc[0]["slot_end"] == pd.Timestamp("2024-03-06 21:15", tz=TZ)
+    assert result.daily.set_index("trade_date").loc[date(2024, 3, 7), "turnover"] > 0.0
+
+
+def test_a_fill_in_the_next_session_belongs_to_the_next_trade_date() -> None:
+    # The cross lands on 2024-03-07's 15:00 bar; its fill window is 21:00 on
+    # 2024-03-07, the first five minutes of trade date 2024-03-08's session.
+    panel = _night_panel([100.0] * 11 + [101.0] * 5)
+
+    result = run_shadow_product(panel, product="RB", **_night_kwargs())
+
+    entry = result.signals.loc[result.signals["action"] == "upper_cross"]
+    assert len(entry) == 1
+    assert entry.iloc[0]["fill_time"] == pd.Timestamp("2024-03-07 21:05", tz=TZ)
+
+    daily = result.daily.set_index("trade_date")
+    assert daily.loc[date(2024, 3, 7), "turnover"] == 0.0
+    assert daily.loc[date(2024, 3, 8), "turnover"] > 0.0
