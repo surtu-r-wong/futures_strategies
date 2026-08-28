@@ -1948,9 +1948,27 @@ def main(argv: list[str] | None = None) -> int:
         month: universe_for_month(turnover, month_start=month)
         for month in _months(args.start, args.end)
     }
-    history_products = tuple(sorted(set(turnover["product"]) - FINANCIAL_FUTURES))
+    # 影子策略只在**可能被选中**的品种上有意义：`selected = pool ∩ eligible`，
+    # 而 `pool` 就是逐月宇宙。一个在整个区间里从没跨过 50 亿门槛的品种永远进不了
+    # pool，它的影子再怎么跑也不会进组合 —— 只会白扫几万个品种日的分钟表，并要求
+    # 一批永远用不上的时段规则。窗口内曾入池过的品种全部保留（含入池前的历史），
+    # 因为月度筛选要读它入池前 252 天的影子表现。
+    tradeable = {
+        product
+        for products in products_by_month.values()
+        for product in products
+    }
+    history_products = tuple(
+        sorted((set(turnover["product"]) - FINANCIAL_FUTURES) & tradeable)
+    )
     if not history_products:
         raise ValueError("panel_products_empty: no commodity products in daily history")
+    dropped = len(set(turnover["product"]) - FINANCIAL_FUTURES) - len(history_products)
+    print(
+        f"products: {len(history_products)} tradeable "
+        f"({dropped} never reach the liquidity gate, excluded)",
+        flush=True,
+    )
 
     choices = choose_dominant_commodity(daily, products=history_products)
     closes = {
