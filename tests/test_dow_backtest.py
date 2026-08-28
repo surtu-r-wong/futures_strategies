@@ -52,6 +52,7 @@ def _bars(product: str, phase: float, days: list[date], multiplier: int) -> pd.D
             "open_interest": np.arange(count, dtype="float64") + 1000.0,
             "no_trade": np.zeros(count, dtype="bool"),
             "adj_factor": np.ones(count),
+            "continuity_segment": np.zeros(count, dtype="int64"),
             "fill_time": slot_end + pd.Timedelta(minutes=5),
             "fill_price": close,
             "fill_pending": np.zeros(count, dtype="bool"),

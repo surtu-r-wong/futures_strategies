@@ -54,6 +54,7 @@ TABLE_SCHEMAS: dict[str, dict[str, str]] = {
         "open_interest": "float64",
         "no_trade": "bool",
         "adj_factor": "float64",
+        "continuity_segment": "int64",
         "fill_time": "aware_datetime",
         "fill_price": "float64",
         "fill_pending": "bool",

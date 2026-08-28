@@ -1752,6 +1752,7 @@ def _build_panel_checkpointed_locked(
     pricing_basis_by_exchange,
     multiplier_resolver,
     adjustment_factor_by_key,
+    continuity_segment_by_key,
     checkpoint_directory: str | Path,
     checkpoint_key: str,
     checkpoint_state_objects: Mapping[str, object] | None = None,
@@ -1781,6 +1782,7 @@ def _build_panel_checkpointed_locked(
         pricing_basis_by_exchange=pricing_basis_by_exchange,
         multiplier_resolver=multiplier_resolver,
         adjustment_factor_by_key=adjustment_factor_by_key,
+        continuity_segment_by_key=continuity_segment_by_key,
         resume_after=resume_after,
         initial_pending=initial_pending,
     ):
@@ -1957,6 +1959,19 @@ def main(argv: list[str] | None = None) -> int:
         ].itertuples(index=False, name=None)
     }
     factors = adjustment_factors(choices, closes=closes)
+    segment_by_key = {
+        (row.trade_date, row.product): int(row.continuity_segment)
+        for row in factors.itertuples(index=False)
+    }
+    breaks = int(factors["continuity_segment"].max()) if len(factors) else 0
+    if breaks:
+        summary = (
+            factors.loc[factors["continuity_segment"] > 0]
+            .groupby("product")["continuity_segment"]
+            .max()
+            .to_dict()
+        )
+        print(f"continuity breaks: {breaks} across {summary}", flush=True)
     factor_by_key = {
         (row.trade_date, row.product): float(row.adj_factor)
         for row in factors.itertuples(index=False)
@@ -2036,6 +2051,7 @@ def main(argv: list[str] | None = None) -> int:
         pricing_basis_by_exchange=basis_by_exchange,
         multiplier_resolver=multiplier_resolver,
         adjustment_factor_by_key={key: factor_by_key[key] for key in contexts},
+        continuity_segment_by_key={key: segment_by_key[key] for key in contexts},
         checkpoint_directory=checkpoint_directory,
         checkpoint_key=checkpoint_key,
         checkpoint_state_objects={

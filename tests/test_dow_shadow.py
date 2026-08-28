@@ -79,6 +79,7 @@ def _dow_panel(
             "open_interest": np.arange(count, dtype="float64") + 1000.0,
             "no_trade": np.zeros(count, dtype="bool"),
             "adj_factor": factors,
+            "continuity_segment": np.zeros(count, dtype="int64"),
             "fill_time": slot_end + pd.Timedelta(minutes=5),
             "fill_price": raw_close,
             "fill_pending": np.zeros(count, dtype="bool"),

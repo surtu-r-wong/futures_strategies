@@ -118,6 +118,7 @@ PANEL_COLUMNS = (
     "open_interest",
     "no_trade",
     "adj_factor",
+    "continuity_segment",
     "fill_time",
     "fill_price",
     "fill_pending",
@@ -148,6 +149,7 @@ def build_session_bars(
     product: str | None = None,
     trade_date: date | None = None,
     adj_factor: float = 1.0,
+    continuity_segment: int = 0,
 ) -> list[dict[str, object]]:
     """把一个品种-日的分钟行折成 15 分钟 bar，并给每根配好它的成交价。
 
@@ -209,6 +211,7 @@ def build_session_bars(
                 "open_interest": open_interest,
                 "no_trade": bar.no_trade,
                 "adj_factor": adj_factor,
+                "continuity_segment": continuity_segment,
                 "fill_time": fill_time,
                 "fill_price": price,
                 "fill_pending": pending,
@@ -383,6 +386,7 @@ def iter_panel_months(
     pricing_basis_by_exchange: Mapping[str, str],
     multiplier_resolver,
     adjustment_factor_by_key: Mapping[tuple[date, str], float],
+    continuity_segment_by_key: Mapping[tuple[date, str], int],
     resume_after: date | None = None,
     initial_pending: pd.DataFrame | None = None,
 ):
@@ -394,6 +398,14 @@ def iter_panel_months(
         raise ValueError(
             "panel_adjustment_factor_missing: 缺少品种日后复权因子；"
             f"first={missing_factors[0]!r} count={len(missing_factors)}"
+        )
+    # 分段与因子同等 fail-closed：缺映射时默认成 0，等于把一次市场断代悄悄
+    # 抹平成一条连续序列，正是分段机制要防的事。
+    missing_segments = sorted(set(contexts) - set(continuity_segment_by_key))
+    if missing_segments:
+        raise ValueError(
+            "panel_continuity_segment_missing: 缺少品种日连续分段；"
+            f"first={missing_segments[0]!r} count={len(missing_segments)}"
         )
     if resume_after is not None and (
         type(resume_after) is not date or resume_after.day != 1
@@ -490,6 +502,7 @@ def iter_panel_months(
                 product=product,
                 trade_date=candidate.trade_date,
                 adj_factor=adjustment_factor_by_key[key],
+                continuity_segment=continuity_segment_by_key[key],
             )
             for row in day_rows:
                 month_row_ids.add(id(row))
@@ -520,6 +533,7 @@ def build_panel(
     pricing_basis_by_exchange: Mapping[str, str],
     multiplier_resolver,
     adjustment_factor_by_key: Mapping[tuple[date, str], float],
+    continuity_segment_by_key: Mapping[tuple[date, str], int],
 ) -> pd.DataFrame:
     """Compatibility wrapper around the bounded monthly iterator."""
     chunks = list(
@@ -529,6 +543,7 @@ def build_panel(
             pricing_basis_by_exchange=pricing_basis_by_exchange,
             multiplier_resolver=multiplier_resolver,
             adjustment_factor_by_key=adjustment_factor_by_key,
+            continuity_segment_by_key=continuity_segment_by_key,
         )
     )
     if not chunks:
@@ -591,5 +606,6 @@ def normalise_panel(frame: pd.DataFrame) -> pd.DataFrame:
         out[column] = out[column].astype("bool")
     for column in _TEXT_COLUMNS:
         out[column] = out[column].astype("string")
-    out["multiplier"] = pd.to_numeric(out["multiplier"]).astype("int64")
+    for column in ("multiplier", "continuity_segment"):
+        out[column] = pd.to_numeric(out[column]).astype("int64")
     return out

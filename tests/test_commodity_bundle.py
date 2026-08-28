@@ -234,6 +234,8 @@ def test_schema_constants_declare_all_production_columns():
         "open_interest",
         "no_trade",
         "adj_factor",
+        # 市场断代分段：价格型状态不得跨段延续，所以它必须随每根 bar 落盘。
+        "continuity_segment",
         "fill_time",
         "fill_price",
         "fill_pending",
@@ -791,6 +793,7 @@ def test_month_checkpoint_resumes_after_later_failure_without_rebuilding_complet
             pricing_basis_by_exchange={},
             multiplier_resolver=lambda candidate, frame: 10,
             adjustment_factor_by_key={},
+            continuity_segment_by_key={},
             checkpoint_directory=checkpoint,
             checkpoint_key="a" * 64,
         )
@@ -806,6 +809,7 @@ def test_month_checkpoint_resumes_after_later_failure_without_rebuilding_complet
         pricing_basis_by_exchange={},
         multiplier_resolver=lambda candidate, frame: 10,
         adjustment_factor_by_key={},
+            continuity_segment_by_key={},
         checkpoint_directory=checkpoint,
         checkpoint_key="a" * 64,
     )
@@ -821,6 +825,7 @@ def test_month_checkpoint_resumes_after_later_failure_without_rebuilding_complet
             pricing_basis_by_exchange={},
             multiplier_resolver=lambda candidate, frame: 10,
             adjustment_factor_by_key={},
+            continuity_segment_by_key={},
             checkpoint_directory=checkpoint,
             checkpoint_key="b" * 64,
         )
@@ -848,6 +853,7 @@ def _crash_checkpoint_after_first_month_file(directory, chunk):
         pricing_basis_by_exchange={},
         multiplier_resolver=lambda candidate, frame: 10,
         adjustment_factor_by_key={},
+            continuity_segment_by_key={},
         checkpoint_directory=directory,
         checkpoint_key="c" * 64,
     )
@@ -882,6 +888,7 @@ def test_checkpoint_recovers_after_child_exit_during_first_month_file(
         pricing_basis_by_exchange={},
         multiplier_resolver=lambda candidate, frame: 10,
         adjustment_factor_by_key={},
+            continuity_segment_by_key={},
         checkpoint_directory=checkpoint,
         checkpoint_key="c" * 64,
     )
@@ -1386,6 +1393,7 @@ def _bar_multiplier_digest(multiplier):
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
         multiplier_resolver=resolver,
         adjustment_factor_by_key={(choice.trade_date, choice.product): 1.0},
+        continuity_segment_by_key={(choice.trade_date, choice.product): 0},
     )
     bars = _bundle_bars(
         bars,

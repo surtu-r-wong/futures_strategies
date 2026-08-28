@@ -326,6 +326,7 @@ def _panel(*, silent_opening_dates=()):
         pricing_basis_by_exchange={},
         multiplier_resolver=lambda candidate, frame: 10,
         adjustment_factor_by_key=factors,
+        continuity_segment_by_key={key: 0 for key in factors},
     )
 
 
@@ -390,6 +391,7 @@ def test_panel_resolves_date_effective_multiplier_for_every_product_day():
         pricing_basis_by_exchange={},
         multiplier_resolver=resolve,
         adjustment_factor_by_key={key: 1.0 for key in contexts},
+            continuity_segment_by_key={key: 0 for key in contexts},
     )
 
     assert [call[:2] for call in calls] == [
@@ -441,6 +443,7 @@ def _panel_with_missing_context(days, missing_date):
         pricing_basis_by_exchange={},
         multiplier_resolver=lambda candidate, frame: 10,
         adjustment_factor_by_key={key: 1.0 for key in contexts},
+            continuity_segment_by_key={key: 0 for key in contexts},
     )
 
 
@@ -514,6 +517,7 @@ def test_month_iterator_retains_only_pending_rows_across_boundaries():
             pricing_basis_by_exchange={},
             multiplier_resolver=lambda candidate, frame: 10,
             adjustment_factor_by_key={key: 1.0 for key in contexts},
+            continuity_segment_by_key={key: 0 for key in contexts},
         )
     )
 
@@ -539,6 +543,7 @@ def test_month_iterator_resumes_without_refetching_completed_month():
         pricing_basis_by_exchange={},
         multiplier_resolver=lambda candidate, frame: 10,
         adjustment_factor_by_key={key: 1.0 for key in contexts},
+            continuity_segment_by_key={key: 0 for key in contexts},
     )
     january = next(iterator)
     with pytest.raises(RuntimeError, match="later-month failure"):
@@ -552,6 +557,7 @@ def test_month_iterator_resumes_without_refetching_completed_month():
             pricing_basis_by_exchange={},
             multiplier_resolver=lambda candidate, frame: 10,
             adjustment_factor_by_key={key: 1.0 for key in contexts},
+            continuity_segment_by_key={key: 0 for key in contexts},
             resume_after=january.month_start,
             initial_pending=january.pending,
         )
@@ -567,6 +573,7 @@ def test_month_iterator_resumes_without_refetching_completed_month():
         pricing_basis_by_exchange={},
         multiplier_resolver=lambda candidate, frame: 10,
         adjustment_factor_by_key={key: 1.0 for key in contexts},
+            continuity_segment_by_key={key: 0 for key in contexts},
     )
     assert restarted.equals(clean)
 
@@ -596,6 +603,7 @@ def test_panel_refuses_a_missing_adjustment_factor():
             pricing_basis_by_exchange={},
             multiplier_resolver=lambda candidate, frame: 10,
             adjustment_factor_by_key={},
+            continuity_segment_by_key={},
         )
 
 
@@ -687,6 +695,7 @@ def test_empty_panel_has_the_normalised_schema():
         pricing_basis_by_exchange={},
         multiplier_resolver=lambda candidate, frame: 10,
         adjustment_factor_by_key={},
+            continuity_segment_by_key={},
     )
     assert list(panel.columns) == list(PANEL_COLUMNS)
     assert panel["open_interest"].dtype == "float64"

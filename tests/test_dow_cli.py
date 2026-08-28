@@ -113,6 +113,8 @@ def _tiny_bundle(directory: Path) -> None:
                     "open_interest": 1000.0 + index,
                     "no_trade": False,
                     "adj_factor": 1.0,
+                "continuity_segment": 0,
+                    "continuity_segment": 0,
                     "fill_time": slot_end + pd.Timedelta(minutes=5),
                     "fill_price": close,
                     "fill_pending": False,

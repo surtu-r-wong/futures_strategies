@@ -26,6 +26,8 @@ def _chain():
             (D[1], "RB2410.SHF"): 125.0,
             (D[2], "RB2410.SHF"): 130.0,
             (D[3], "RB2410.SHF"): 200.0,
+            # 真实的后继合约在前任还挂着的时候就已经在交易了。
+            (D[0], "RB2501.SHF"): 240.0,
             (D[3], "RB2501.SHF"): 250.0,
             (D[4], "RB2501.SHF"): 260.0,
         },
@@ -68,7 +70,11 @@ def test_adjusted_series_has_no_roll_gap():
 
 
 def test_adjustment_refuses_to_default_a_missing_roll_close():
-    """缺前一日收盘价时必须报错。悄悄取 1.0 会造出一个假的无跳空序列。"""
+    """缺前一日收盘价时必须报错。悄悄取 1.0 会造出一个假的无跳空序列。
+
+    新合约在旧合约挂牌期内就有成交（D0），所以两段区间重叠 —— 这是缺价，不是
+    市场断代，不许走分段那条路绕过去。
+    """
     choices, closes = _chain()
     closes.pop((D[3], "RB2501.SHF"))
     with pytest.raises(ValueError, match="roll_close_missing"):
@@ -118,3 +124,89 @@ def test_czce_symbol_alias_change_is_not_a_roll():
     factors = adjustment_factors(choices, closes={})
 
     assert list(factors["adj_factor"]) == [1.0, 1.0]
+
+
+def _break_chain():
+    """FU 那种真实断代：旧合约 3-30 收摊，新合约 7-16 才开张，一天不重叠。"""
+    old_days = [date(2018, 3, 29), date(2018, 3, 30)]
+    new_days = [date(2018, 7, 16), date(2018, 7, 17)]
+    choices = [
+        DominantChoice(
+            trade_date=day, product="FU", contract="FU1804.SHF",
+            oi=1, volume=1, selected_from=day,
+        )
+        for day in old_days
+    ] + [
+        DominantChoice(
+            trade_date=day, product="FU", contract="FU1901.SHF",
+            oi=1, volume=1, selected_from=day,
+        )
+        for day in new_days
+    ]
+    closes = {
+        (old_days[0], "FU1804.SHF"): 3000.0,
+        (old_days[1], "FU1804.SHF"): 3100.0,
+        (new_days[0], "FU1901.SHF"): 2600.0,
+        (new_days[1], "FU1901.SHF"): 2650.0,
+    }
+    return choices, closes
+
+
+def test_a_disjoint_contract_pair_starts_a_new_continuity_segment():
+    choices, closes = _break_chain()
+
+    factors = adjustment_factors(choices, closes=closes)
+
+    assert list(factors["continuity_segment"]) == [0, 0, 1, 1]
+    # 新段从 1.0 重新开始 —— 没有可观察的比率，就不许造一个。
+    assert list(factors["adj_factor"]) == pytest.approx([1.0, 1.0, 1.0, 1.0])
+
+
+def test_a_normal_roll_keeps_the_same_continuity_segment():
+    choices, closes = _chain()
+
+    factors = adjustment_factors(choices, closes=closes)
+
+    assert list(factors["continuity_segment"]) == [0, 0, 0, 0, 0]
+
+
+def test_overlapping_ranges_without_a_common_close_still_fail():
+    """区间有重叠却找不到共同收盘日 —— 那是缺数据，不是市场断代，必须硬失败。"""
+    choices, closes = _break_chain()
+    # 让新合约多出一个落在旧合约区间内的收盘日，但两者永不同日。
+    closes[(date(2018, 3, 28), "FU1901.SHF")] = 2900.0
+
+    with pytest.raises(ValueError, match="roll_close_missing"):
+        adjustment_factors(choices, closes=closes)
+
+
+def test_a_contract_with_no_valid_close_still_fails():
+    choices, closes = _break_chain()
+    for key in [key for key in closes if key[1] == "FU1901.SHF"]:
+        closes.pop(key)
+
+    with pytest.raises(ValueError, match="roll_close_missing"):
+        adjustment_factors(choices, closes=closes)
+
+
+def test_each_product_counts_its_own_segments():
+    break_choices, break_closes = _break_chain()
+    chain_choices, chain_closes = _chain()
+
+    factors = adjustment_factors(
+        list(break_choices) + list(chain_choices),
+        closes={**break_closes, **chain_closes},
+    )
+
+    per_product = factors.groupby("product")["continuity_segment"].max().to_dict()
+    assert per_product == {"FU": 1, "RB": 0}
+
+
+def test_a_successor_with_no_overlapping_close_is_a_defect_not_a_break():
+    """旧合约让出主力后还在交易 —— 那就不是重新挂牌，缺价就得报缺价。"""
+    choices, closes = _break_chain()
+    # 旧合约在让出主力之后仍有收盘，证明它没被摘牌。
+    closes[(date(2018, 7, 20), "FU1804.SHF")] = 3050.0
+
+    with pytest.raises(ValueError, match="roll_close_missing"):
+        adjustment_factors(choices, closes=closes)

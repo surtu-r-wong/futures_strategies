@@ -91,6 +91,7 @@ def bundle_frames():
             "open_interest": pd.Series([1000.0, 2000.0, 1010.0, 2010.0], dtype="float64"),
             "no_trade": pd.Series([False, False, False, False], dtype="bool"),
             "adj_factor": pd.Series([1.0, 1.0, 0.95, 1.0], dtype="float64"),
+            "continuity_segment": pd.Series([0, 0, 0, 0], dtype="int64"),
             "fill_time": fill_times,
             "fill_price": pd.Series([101.5, 202.5, 111.5, 204.5], dtype="float64"),
             "fill_pending": pd.Series([False, False, False, False], dtype="bool"),
