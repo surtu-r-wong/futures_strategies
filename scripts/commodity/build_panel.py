@@ -38,7 +38,8 @@ from common.commodity.bundle import (  # noqa: E402
 )
 from common.commodity.continuous import adjustment_factors  # noqa: E402
 from common.commodity.dominant import choose_dominant_commodity  # noqa: E402
-from common.commodity.panel import (  # noqa: E402
+from common.commodity.panel import (
+    require_session_coverage,  # noqa: E402
     FILL_MINUTES,
     build_contexts,
     context_choices_for_month,
@@ -69,7 +70,7 @@ from cta_carry.session_authority import (  # noqa: E402
     pricing_basis_for,
 )
 
-SESSION_RULES = _REPO_ROOT / "config" / "carry_minute_sessions.csv"
+SESSION_RULES = _REPO_ROOT / "config" / "continuous_minute_sessions.csv"
 PRICING_BASES = _REPO_ROOT / "config" / "carry_minute_pricing_basis.csv"
 DAILY_HISTORY_START = date(2010, 1, 1)
 _DAILY_COLUMNS = ["symbol", "trade_date", "oi", "volume", "turnover", "close"]
@@ -1976,6 +1977,14 @@ def main(argv: list[str] | None = None) -> int:
         (row.trade_date, row.product): float(row.adj_factor)
         for row in factors.itertuples(index=False)
     }
+    # 覆盖闸必须在任何一次分钟查询之前：缺规则要一次报全，而不是跑到第 N 个月
+    # 才崩在某一天上。这个失效模式已经露头过三次。
+    require_session_coverage(
+        choices=choices,
+        months=list(_months(args.start, args.end)),
+        rules=rules,
+        manifest_path=Path(args.output_dir) / "session-coverage-gap.csv",
+    )
     contexts = _target_contexts(
         choices=choices,
         rules=rules,
