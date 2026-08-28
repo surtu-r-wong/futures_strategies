@@ -448,7 +448,7 @@ def _legacy_bundle_inputs(bundle_frames):
     frames["bars"].loc[:, "fill_time"] = pd.DatetimeIndex(
         ["2023-03-06 09:20"] * 2, tz="Asia/Shanghai"
     )
-    frames["bars"].loc[:, "contract"] = ["RB2305", "TA305"]
+    frames["bars"].loc[:, "contract"] = ["RB2305", "TA2305"]
     frames["dominants"].loc[:, "trade_date"] = trade_date
     frames["dominants"].loc[:, "selected_from"] = pd.Timestamp("2023-03-03")
     frames["dominants"].loc[:, "contract"] = ["RB2305.SHF", "TA305.CZC"]
@@ -456,7 +456,7 @@ def _legacy_bundle_inputs(bundle_frames):
     frames["roll_fills"] = frames["roll_fills"].iloc[:0].copy()
     contexts = {}
     for row in frames["dominants"].itertuples(index=False):
-        minute_symbol = "TA305" if row.product == "TA" else "RB2305"
+        minute_symbol = "TA2305" if row.product == "TA" else "RB2305"
         key = (row.trade_date.date(), row.product)
         contexts[key] = SimpleNamespace(
             candidate=SimpleNamespace(
@@ -506,7 +506,7 @@ def test_bundle_builder_rejects_an_ambiguous_daily_dominant_mapping(bundle_frame
 
 def test_bundle_builder_rejects_a_mismatched_minute_contract(bundle_frames):
     frames, contexts = _legacy_bundle_inputs(bundle_frames)
-    frames["bars"].loc[frames["bars"]["product"].eq("TA"), "contract"] = "TA2305"
+    frames["bars"].loc[frames["bars"]["product"].eq("TA"), "contract"] = "TA305"
 
     with pytest.raises(
         ValueError, match="panel_bundle_contract_mapping.*minute_contract"
