@@ -279,3 +279,38 @@ def test_initialize_and_boundary_type_are_validated() -> None:
     account.mark_close(date(2024, 1, 8), _ts(15, 0), {})
     with pytest.raises(ValueError, match="boundary_type"):
         account.drain_daily_row(date(2024, 1, 8), "")
+
+
+def test_a_no_trade_day_holding_a_position_reports_zero_cost() -> None:
+    """Rounding must not turn a costless day into a negative cost.
+
+    Once an entry has been paid for, opening gross and net equity differ. A day
+    with no trades then computes the same return from two different bases, and
+    the two divisions can disagree by one unit in the last place -- which used
+    to make `gross_return - net_return` about -1e-16 and abort the run. Any
+    backtest that holds a position through a quiet day could hit this.
+    """
+    account = EventAccount(cost_bps=1.3)
+    account.initialize({"RB": 100.0})
+    entry_day = date(2024, 1, 2)
+    account.rebalance(
+        datetime(2024, 1, 2, 9, 20, tzinfo=TZ),
+        {"RB": 100.0},
+        {"RB": 1.0},
+        {"RB": "entry"},
+    )
+    account.mark_close(
+        entry_day, datetime(2024, 1, 2, 15, 0, tzinfo=TZ), {"RB": 101.0}
+    )
+    account.drain_daily_row(entry_day, "close")
+
+    quiet_day = date(2024, 1, 3)
+    account.mark_close(
+        quiet_day, datetime(2024, 1, 3, 15, 0, tzinfo=TZ), {"RB": 100.06}
+    )
+    row = account.drain_daily_row(quiet_day, "close")
+
+    assert row.turnover == 0.0
+    assert row.direct_cost == 0.0
+    assert row.cost == 0.0
+    assert row.gross_return == pytest.approx(row.net_return, abs=1e-15)

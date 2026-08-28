@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime
 import math
+import sys
 from types import MappingProxyType
 from typing import Mapping
 
@@ -237,6 +238,15 @@ class EventAccount:
         gross_return = self._gross_equity / opening_gross - 1.0
         net_return = self._net_equity / opening_net - 1.0
         cost = gross_return - net_return
+        # 两个收益是从**不同基数**除出来的：成本一旦发生，gross 与 net 的开盘净值
+        # 就分开了。于是一个零换手日的两次除法会差 1 ULP，cost 变成 -1e-16 —— 那
+        # 不是符号错误而是舍入。按 ULP 量级归零，真正的负成本仍然拒绝。持仓穿过
+        # 一个无交易日就能触发，所以任何长回测都会随机撞上。
+        rounding = 8.0 * sys.float_info.epsilon * max(
+            1.0, abs(gross_return), abs(net_return)
+        )
+        if -rounding <= cost < 0.0:
+            cost = 0.0
         gross_leverage = math.fsum(
             abs(self._weights[contract]) for contract in sorted(self._weights)
         )
