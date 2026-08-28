@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+from datetime import date
 import json
 import math
 import multiprocessing
 import os
 from pathlib import Path
 import threading
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -408,7 +410,22 @@ def test_builder_caches_raw_ohlc_and_only_carries_the_adjustment_factor(
         lambda frame: pytest.fail("builder applied signal adjustment before caching"),
     )
 
-    cached = _bundle_bars(raw)
+    row = raw.iloc[0]
+    contexts = {
+        (row["trade_date"].date(), row["product"]): SimpleNamespace(
+            candidate=SimpleNamespace(
+                trade_date=row["trade_date"].date(),
+                product=row["product"],
+                minute_symbol="RB2410",
+                daily_contract=row["contract"],
+            )
+        )
+    }
+    cached = _bundle_bars(
+        raw.assign(contract="RB2410"),
+        contexts=contexts,
+        dominants=bundle_frames["dominants"].iloc[[2]],
+    )
 
     assert cached.loc[0, ["open", "high", "low", "close"]].tolist() == [
         100.0,
@@ -417,6 +434,97 @@ def test_builder_caches_raw_ohlc_and_only_carries_the_adjustment_factor(
         105.0,
     ]
     assert cached.loc[0, "adj_factor"] == 0.5
+
+
+def _legacy_bundle_inputs(bundle_frames):
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    frames["bars"] = frames["bars"].iloc[:2].copy().reset_index(drop=True)
+    frames["dominants"] = frames["dominants"].iloc[:2].copy().reset_index(drop=True)
+    trade_date = pd.Timestamp("2023-03-06")
+    frames["bars"].loc[:, "trade_date"] = trade_date
+    frames["bars"].loc[:, "slot_end"] = pd.DatetimeIndex(
+        ["2023-03-06 09:15"] * 2, tz="Asia/Shanghai"
+    )
+    frames["bars"].loc[:, "fill_time"] = pd.DatetimeIndex(
+        ["2023-03-06 09:20"] * 2, tz="Asia/Shanghai"
+    )
+    frames["bars"].loc[:, "contract"] = ["RB2305", "TA305"]
+    frames["dominants"].loc[:, "trade_date"] = trade_date
+    frames["dominants"].loc[:, "selected_from"] = pd.Timestamp("2023-03-03")
+    frames["dominants"].loc[:, "contract"] = ["RB2305.SHF", "TA305.CZC"]
+    frames["universes"].loc[:, "month_start"] = pd.Timestamp("2023-03-01")
+    frames["roll_fills"] = frames["roll_fills"].iloc[:0].copy()
+    contexts = {}
+    for row in frames["dominants"].itertuples(index=False):
+        minute_symbol = "TA305" if row.product == "TA" else "RB2305"
+        key = (row.trade_date.date(), row.product)
+        contexts[key] = SimpleNamespace(
+            candidate=SimpleNamespace(
+                trade_date=key[0],
+                product=row.product,
+                minute_symbol=minute_symbol,
+                daily_contract=row.contract,
+            )
+        )
+    return frames, contexts
+
+
+def test_bundle_builder_maps_legacy_minute_ids_to_exact_daily_dominants(
+    tmp_path, bundle_frames
+):
+    frames, contexts = _legacy_bundle_inputs(bundle_frames)
+
+    frames["bars"] = _bundle_bars(
+        frames["bars"], contexts=contexts, dominants=frames["dominants"]
+    )
+    write_bundle(tmp_path, **frames)
+
+    assert frames["bars"]["contract"].tolist() == [
+        "RB2305.SHF",
+        "TA305.CZC",
+    ]
+    assert read_bundle(tmp_path).bars.equals(frames["bars"])
+
+
+def test_bundle_builder_rejects_a_missing_contract_identity_mapping(bundle_frames):
+    frames, contexts = _legacy_bundle_inputs(bundle_frames)
+    contexts.pop((date(2023, 3, 6), "TA"))
+
+    with pytest.raises(ValueError, match="panel_bundle_contract_mapping.*missing"):
+        _bundle_bars(frames["bars"], contexts=contexts, dominants=frames["dominants"])
+
+
+def test_bundle_builder_rejects_an_ambiguous_daily_dominant_mapping(bundle_frames):
+    frames, contexts = _legacy_bundle_inputs(bundle_frames)
+    duplicate = frames["dominants"].iloc[[0]].copy()
+    duplicate.loc[:, "contract"] = "RB2410.SHF"
+    ambiguous = pd.concat([frames["dominants"], duplicate], ignore_index=True)
+
+    with pytest.raises(ValueError, match="panel_bundle_contract_mapping.*ambiguous"):
+        _bundle_bars(frames["bars"], contexts=contexts, dominants=ambiguous)
+
+
+def test_bundle_builder_rejects_a_mismatched_minute_contract(bundle_frames):
+    frames, contexts = _legacy_bundle_inputs(bundle_frames)
+    frames["bars"].loc[frames["bars"]["product"].eq("TA"), "contract"] = "TA2305"
+
+    with pytest.raises(
+        ValueError, match="panel_bundle_contract_mapping.*minute_contract"
+    ):
+        _bundle_bars(frames["bars"], contexts=contexts, dominants=frames["dominants"])
+
+
+def test_bundle_builder_rejects_context_daily_contract_that_disagrees_with_dominant(
+    bundle_frames,
+):
+    frames, contexts = _legacy_bundle_inputs(bundle_frames)
+    key = (date(2023, 3, 6), "TA")
+    contexts[key].candidate.daily_contract = "TA405.CZC"
+
+    with pytest.raises(
+        ValueError, match="panel_bundle_contract_mapping.*daily contract"
+    ):
+        _bundle_bars(frames["bars"], contexts=contexts, dominants=frames["dominants"])
 
 
 def test_signal_bars_are_adjusted_without_adjusting_actual_fills(bundle_frames):
@@ -1278,6 +1386,17 @@ def _bar_multiplier_digest(multiplier):
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
         multiplier_resolver=resolver,
         adjustment_factor_by_key={(choice.trade_date, choice.product): 1.0},
+    )
+    bars = _bundle_bars(
+        bars,
+        contexts=contexts,
+        dominants=pd.DataFrame(
+            {
+                "trade_date": [choice.trade_date],
+                "product": [choice.product],
+                "contract": [choice.contract],
+            }
+        ),
     )
     resolver.assert_complete(bars=bars, roll_fills=pd.DataFrame())
     assert not bars.empty

@@ -367,10 +367,13 @@ def test_panel_covers_every_bucket_of_every_context():
     assert len(panel) == expected
 
 
-def test_panel_uses_daily_concrete_contract_ids_with_exchange_suffix():
-    _, panel = _panel()
+def test_panel_preserves_the_minute_contract_identity_for_legacy_consumers():
+    contexts, panel = _panel()
 
-    assert set(panel["contract"]) == {"RB2405.SHF"}
+    assert set(panel["contract"]) == {
+        context.candidate.minute_symbol for context in contexts.values()
+    }
+    assert set(panel["contract"]) == {"RB2405"}
 
 
 def test_panel_resolves_date_effective_multiplier_for_every_product_day():

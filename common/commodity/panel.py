@@ -438,7 +438,6 @@ def iter_panel_months(
                 adj_factor=adjustment_factor_by_key[key],
             )
             for row in day_rows:
-                row["contract"] = candidate.daily_contract
                 month_row_ids.add(id(row))
             month_rows.extend(day_rows)
             pending[product] = day_rows[-1]

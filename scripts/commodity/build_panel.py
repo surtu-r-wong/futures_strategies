@@ -1259,9 +1259,131 @@ def build_roll_fills(
     )
 
 
-def _bundle_bars(frame: pd.DataFrame) -> pd.DataFrame:
-    """Cache raw panel OHLC; consumers apply ``adj_factor`` exactly once."""
-    return normalise_bundle_table("bars", frame)
+def _bundle_bars(
+    frame: pd.DataFrame,
+    *,
+    contexts: Mapping[tuple[date, str], object],
+    dominants: pd.DataFrame,
+) -> pd.DataFrame:
+    """Map legacy minute IDs to exact dominant IDs at the bundle boundary.
+
+    Both spellings come from the already-resolved session context.  This boundary
+    deliberately does not add exchange suffixes or otherwise guess contract IDs.
+    """
+    bar_required = {"trade_date", "product", "contract"}
+    dominant_required = {"trade_date", "product", "contract"}
+    if not bar_required.issubset(frame.columns):
+        missing = sorted(bar_required - set(frame.columns))
+        raise ValueError(
+            f"panel_bundle_contract_mapping: missing bar columns={missing!r}"
+        )
+    if not dominant_required.issubset(dominants.columns):
+        missing = sorted(dominant_required - set(dominants.columns))
+        raise ValueError(
+            f"panel_bundle_contract_mapping: missing dominant columns={missing!r}"
+        )
+
+    dominant_map = dominants.loc[:, ["trade_date", "product", "contract"]].copy()
+    dominant_map["trade_date"] = pd.to_datetime(
+        dominant_map["trade_date"], errors="coerce"
+    ).dt.date
+    dominant_map["product"] = dominant_map["product"].astype("string")
+    if dominant_map[["trade_date", "product"]].isna().any(axis=None):
+        raise ValueError("panel_bundle_contract_mapping: missing dominant key")
+    duplicate = dominant_map.duplicated(["trade_date", "product"], keep=False)
+    if duplicate.any():
+        first = dominant_map.loc[duplicate, ["trade_date", "product"]].iloc[0]
+        raise ValueError(
+            "panel_bundle_contract_mapping: ambiguous daily dominant mapping; "
+            f"first={(first['trade_date'], first['product'])!r}"
+        )
+
+    identity_records = []
+    for key, context in contexts.items():
+        candidate = context.candidate
+        candidate_key = (candidate.trade_date, str(candidate.product))
+        declared_key = (key[0], str(key[1]))
+        if declared_key != candidate_key:
+            raise ValueError(
+                "panel_bundle_contract_mapping: context key mismatch; "
+                f"declared={declared_key!r} candidate={candidate_key!r}"
+            )
+        identity_records.append(
+            {
+                "trade_date": candidate.trade_date,
+                "product": str(candidate.product),
+                "minute_contract": candidate.minute_symbol,
+                "daily_contract": candidate.daily_contract,
+            }
+        )
+    identity_map = pd.DataFrame.from_records(
+        identity_records,
+        columns=["trade_date", "product", "minute_contract", "daily_contract"],
+    )
+    identity_map["product"] = identity_map["product"].astype("string")
+
+    mapping = dominant_map.merge(
+        identity_map,
+        on=["trade_date", "product"],
+        how="outer",
+        indicator=True,
+        validate="one_to_one",
+    )
+    missing_mapping = mapping["_merge"].ne("both")
+    if missing_mapping.any():
+        first = mapping.loc[missing_mapping, ["trade_date", "product", "_merge"]].iloc[
+            0
+        ]
+        raise ValueError(
+            "panel_bundle_contract_mapping: missing identity mapping; "
+            f"first={(first['trade_date'], first['product'], first['_merge'])!r}"
+        )
+
+    daily_mismatch = (
+        mapping["contract"]
+        .astype("string")
+        .ne(mapping["daily_contract"].astype("string"))
+        .fillna(True)
+    )
+    if daily_mismatch.any():
+        first = mapping.loc[
+            daily_mismatch,
+            ["trade_date", "product", "contract", "daily_contract"],
+        ].iloc[0]
+        raise ValueError(
+            "panel_bundle_contract_mapping: context daily contract disagrees with dominant; "
+            f"first={tuple(first)!r}"
+        )
+    key_columns = ["trade_date", "product"]
+    mapping_index = pd.MultiIndex.from_frame(mapping.loc[:, key_columns])
+    minute_by_key = pd.Series(mapping["minute_contract"].array, index=mapping_index)
+    daily_by_key = pd.Series(mapping["contract"].array, index=mapping_index)
+    out = frame.copy().reset_index(drop=True)
+    bar_dates = pd.to_datetime(out["trade_date"], errors="coerce").dt.date
+    bar_products = out["product"].astype("string")
+    bar_index = pd.MultiIndex.from_arrays([bar_dates, bar_products], names=key_columns)
+    expected_minute = minute_by_key.reindex(bar_index).reset_index(drop=True)
+    daily_contract = daily_by_key.reindex(bar_index).reset_index(drop=True)
+    if expected_minute.isna().any() or daily_contract.isna().any():
+        first = next(
+            index
+            for index, value in enumerate(expected_minute)
+            if pd.isna(value) or pd.isna(daily_contract.iloc[index])
+        )
+        raise ValueError(
+            "panel_bundle_contract_mapping: missing bar identity mapping; "
+            f"first={(bar_dates.iloc[first], bar_products.iloc[first])!r}"
+        )
+    raw_contract = out["contract"].astype("string")
+    mismatch = raw_contract.ne(expected_minute.astype("string")).fillna(True)
+    if mismatch.any():
+        first = mismatch[mismatch].index[0]
+        raise ValueError(
+            "panel_bundle_contract_mapping: minute_contract mismatch; "
+            f"first={(bar_dates.iloc[first], bar_products.iloc[first], raw_contract.iloc[first], expected_minute.iloc[first])!r}"
+        )
+    out["contract"] = daily_contract.astype("string")
+    return normalise_bundle_table("bars", out)
 
 
 def adjust_signal_bars(frame: pd.DataFrame) -> pd.DataFrame:
@@ -1922,9 +2044,9 @@ def main(argv: list[str] | None = None) -> int:
             "multiplier": multiplier_resolver,
         },
     )
-    bars = _bundle_bars(raw_bars)
-    universes = _universe_frame(products_by_month)
     dominants = _dominant_frame(choices, contexts=contexts, factor_by_key=factor_by_key)
+    bars = _bundle_bars(raw_bars, contexts=contexts, dominants=dominants)
+    universes = _universe_frame(products_by_month)
     multiplier_resolver.assert_complete(bars=bars, roll_fills=roll_fills)
 
     audit = source.audit
