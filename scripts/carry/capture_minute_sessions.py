@@ -2128,14 +2128,20 @@ def _capture_and_publish_outcome(
         raise SessionCaptureError(
             "checked_days_mismatch: boundary and yearly audited totals differ"
         )
-    classified, ambiguities, attribution_notes = classify_authorized_boundaries(
-        boundaries,
-        authority,
-        global_calendar=audit.global_calendar,
-        audit_keys=(
-            audit.key_sets.audit_keys if forgive_unaudited_exceptions else None
-        ),
-    )
+    # Bound once: the sibling second look below reclassifies, and two argument
+    # lists would drift. They did -- the audit scope was passed here and not
+    # there, so a run with siblings silently lost the forgiveness.
+    def _classify(frame):
+        return classify_authorized_boundaries(
+            frame,
+            authority,
+            global_calendar=audit.global_calendar,
+            audit_keys=(
+                audit.key_sets.audit_keys if forgive_unaudited_exceptions else None
+            ),
+        )
+
+    classified, ambiguities, attribution_notes = _classify(boundaries)
     # Second look: a session is a fact about the product, so a product-day the
     # first pass could not settle gets to hear from the product's other
     # contracts before it is called ambiguous. Only unsettled rows are touched,
@@ -2173,13 +2179,7 @@ def _capture_and_publish_outcome(
                 for line in widened_lines:
                     print(line)
                 log_lines = (*log_lines, *widened_lines)
-                classified, ambiguities, attribution_notes = (
-                    classify_authorized_boundaries(
-                        boundaries,
-                        authority,
-                        global_calendar=audit.global_calendar,
-                    )
-                )
+                classified, ambiguities, attribution_notes = _classify(boundaries)
     log_lines = (*log_lines, *attribution_notes)
     if ambiguities:
         for item in ambiguities:
