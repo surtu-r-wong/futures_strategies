@@ -104,6 +104,15 @@ SHARED_FIDELITY_ROWS: tuple[dict[str, str], ...] = (
         "impact": "郑商所品种成交价不是精确 VWAP，data_quality 逐笔可查",
     },
     {
+        "rule_id": "F9",
+        "paper_text": "过去一年策略已实现波动率",
+        "implementation": "窗口内收益全为零时视为预热未完成：本月不建仓，并计入 data_quality",
+        "basis": "研报未写预热期怎么处理；全零窗口是'还没开始交易'，不是'波动率为零'",
+        "status": "preregistered_default",
+        "variant": "none",
+        "impact": "样本开头若干月不建仓，而不是让整段回测硬失败",
+    },
+    {
         "rule_id": "F8",
         "paper_text": "主力合约切换",
         "implementation": "在新交易日首个可成交窗口平旧腿、建新腿，两腿分别计成本",

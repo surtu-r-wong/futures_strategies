@@ -144,6 +144,8 @@ def result() -> BacktestResult:
 
 
 def test_fidelity_contains_every_registered_rule() -> None:
+    # F9 is shared with the Dow replication: a flat volatility window is
+    # warmup, not a zero volatility.
     assert FIDELITY_RULE_IDS == (
         "B1",
         "B2",
@@ -157,6 +159,7 @@ def test_fidelity_contains_every_registered_rule() -> None:
         "F6",
         "F7",
         "F8",
+        "F9",
     )
 
 
