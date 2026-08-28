@@ -18,6 +18,17 @@ __all__ = [
 ]
 
 
+def _readonly_float_array(values: Sequence[float], *, label: str) -> np.ndarray:
+    try:
+        array = np.array(values, dtype="float64", copy=True)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{label}: values must be numeric") from exc
+    if array.ndim != 1:
+        raise ValueError(f"{label}: expected one dimension")
+    array.setflags(write=False)
+    return array
+
+
 @dataclass(frozen=True, slots=True)
 class BandPath:
     """Full-length Bollinger path with ``NaN`` values during warmup."""
@@ -27,6 +38,16 @@ class BandPath:
     upper: np.ndarray
     lower: np.ndarray
 
+    def __post_init__(self) -> None:
+        for name in ("middle", "std", "upper", "lower"):
+            object.__setattr__(
+                self,
+                name,
+                _readonly_float_array(
+                    getattr(self, name), label=f"bollinger_band_{name}"
+                ),
+            )
+
 
 @dataclass(frozen=True, slots=True)
 class OpenInterestPath:
@@ -34,6 +55,16 @@ class OpenInterestPath:
 
     short: np.ndarray
     long: np.ndarray
+
+    def __post_init__(self) -> None:
+        for name in ("short", "long"):
+            object.__setattr__(
+                self,
+                name,
+                _readonly_float_array(
+                    getattr(self, name), label=f"bollinger_oi_{name}"
+                ),
+            )
 
 
 def _finite_float_array(values: Sequence[float], *, label: str) -> np.ndarray:

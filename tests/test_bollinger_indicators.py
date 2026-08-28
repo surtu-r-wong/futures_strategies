@@ -67,6 +67,64 @@ def test_band_path_is_frozen_slotted_and_preserves_float64_length():
         result.middle = np.zeros(3)
 
 
+def test_every_returned_indicator_array_is_read_only():
+    band_path = bands([1.0, 2.0, 3.0], length=2)
+    oi_path = rolling_oi([10.0, 20.0, 30.0], short=1, long=2)
+
+    for values in (
+        band_path.middle,
+        band_path.std,
+        band_path.upper,
+        band_path.lower,
+        oi_path.short,
+        oi_path.long,
+    ):
+        with pytest.raises(ValueError, match="read-only"):
+            values[0] = 999.0
+
+
+def test_public_path_constructors_defensively_copy_and_freeze_arrays():
+    float_source = np.array([1.0, 2.0, 3.0], dtype="float64")
+    int_source = np.array([4, 5, 6], dtype="int32")
+    band_path = BandPath(float_source, int_source, float_source, int_source)
+    oi_path = OpenInterestPath(float_source, int_source)
+
+    float_source[0] = 999.0
+    int_source[0] = 999
+    for values, source, expected in (
+        (band_path.middle, float_source, 1.0),
+        (band_path.std, int_source, 4.0),
+        (band_path.upper, float_source, 1.0),
+        (band_path.lower, int_source, 4.0),
+        (oi_path.short, float_source, 1.0),
+        (oi_path.long, int_source, 4.0),
+    ):
+        assert values.dtype == np.dtype("float64")
+        assert values.shape == (3,)
+        assert values[0] == expected
+        assert not np.shares_memory(values, source)
+        with pytest.raises(ValueError, match="read-only"):
+            values[0] = 999.0
+
+
+@pytest.mark.parametrize(
+    ("constructor", "arguments"),
+    [
+        (BandPath, (np.ones((1, 2)), np.ones(2), np.ones(2), np.ones(2))),
+        (BandPath, (np.ones(2), np.ones((1, 2)), np.ones(2), np.ones(2))),
+        (BandPath, (np.ones(2), np.ones(2), np.ones((1, 2)), np.ones(2))),
+        (BandPath, (np.ones(2), np.ones(2), np.ones(2), np.ones((1, 2)))),
+        (OpenInterestPath, (np.ones((1, 2)), np.ones(2))),
+        (OpenInterestPath, (np.ones(2), np.ones((1, 2)))),
+    ],
+)
+def test_public_path_constructors_reject_non_one_dimensional_arrays(
+    constructor, arguments
+):
+    with pytest.raises(ValueError, match="expected one dimension"):
+        constructor(*arguments)
+
+
 @pytest.mark.parametrize("closes", [1.0, [[1.0, 2.0]], np.ones((2, 2))])
 def test_bands_reject_non_one_dimensional_input(closes):
     with pytest.raises(ValueError, match="bollinger_closes: expected one dimension"):
