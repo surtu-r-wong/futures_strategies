@@ -858,3 +858,24 @@ def test_session_coverage_refuses_a_self_contradicting_asset():
             months=[_date(2024, 3, 1)],
             rules=[rule, rule],
         )
+
+
+def test_the_gate_and_the_capture_ask_for_the_same_keys():
+    """One derivation, so a capture cannot cover a different set than the panel."""
+    from datetime import date as _date
+
+    from common.commodity.panel import (
+        require_session_coverage,
+        required_session_keys_by_month,
+    )
+    from common.minute.sessions import SessionClockError
+
+    choices = _coverage_choices()
+    months = [_date(2024, 3, 1)]
+    keys = required_session_keys_by_month(choices=choices, months=months)
+    demanded = sum(len(value) for value in keys.values())
+
+    with pytest.raises(SessionClockError) as excinfo:
+        require_session_coverage(choices=choices, months=months, rules=[])
+
+    assert f"{demanded} product-days" in str(excinfo.value)

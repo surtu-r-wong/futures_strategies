@@ -50,6 +50,7 @@ __all__ = [
     "normalise_panel",
     "require_session_coverage",
     "required_session_keys",
+    "required_session_keys_by_month",
     "resolve_pending_fill",
     "slot_frame",
     "slot_tz",
@@ -358,6 +359,31 @@ def required_session_keys(
     )
 
 
+def required_session_keys_by_month(
+    *,
+    choices: Sequence[object],
+    months: Sequence[date],
+) -> dict[date, tuple[tuple[str, str, date], ...]]:
+    """Per month, the session-rule keys `build_contexts` will ask for.
+
+    The coverage gate and the capture driver share this one derivation, so
+    "what the capture covered" and "what the panel demands" are the same set by
+    construction rather than by two people writing it correctly (design D4).
+    """
+    by_month: dict[date, tuple[tuple[str, str, date], ...]] = {}
+    for month in sorted(months):
+        keys = tuple(
+            key
+            for key in required_session_keys(
+                context_choices_for_month(choices, month_start=month)
+            )
+            if _month_of(key[2]) == month
+        )
+        if keys:
+            by_month[month] = keys
+    return by_month
+
+
 def require_session_coverage(
     *,
     choices: Sequence[object],
@@ -376,12 +402,10 @@ def require_session_coverage(
     asset contradicting itself.
     """
     rows: list[tuple[date, str, str, date, int]] = []
-    for month in sorted(months):
-        for exchange, product, trade_date in required_session_keys(
-            context_choices_for_month(choices, month_start=month)
-        ):
-            if _month_of(trade_date) != month:
-                continue
+    for month, keys in required_session_keys_by_month(
+        choices=choices, months=months
+    ).items():
+        for exchange, product, trade_date in keys:
             found = len(matching_session_rules(rules, exchange, product, trade_date))
             if found != 1:
                 rows.append((month, exchange, product, trade_date, found))

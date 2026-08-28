@@ -18,6 +18,7 @@ from common.minute.sessions import (
     build_trading_slots,
     fifteen_minute_buckets,
     load_session_rules,
+    matching_session_rules,
     next_slots,
     resolve_session_rule,
     validate_capture_coverage,
@@ -366,6 +367,22 @@ def _assert_structured_error(error, *, trade_date, check):
     assert "AU" in message
     assert str(trade_date) in message
     assert check in message
+
+
+def test_matching_session_rules_returns_every_rule_covering_the_day():
+    """覆盖闸与 resolve_session_rule 必须共用同一个谓词，否则两者会分叉。"""
+    trade_date = date(2024, 1, 8)
+    covered = _rule(effective_start=date(2020, 1, 1), effective_end=trade_date)
+    later = _rule(effective_start=trade_date)
+
+    assert matching_session_rules((covered, later), "SHFE", "AU", trade_date) == (
+        covered,
+        later,
+    )
+    assert matching_session_rules((covered,), "SHFE", "AU", trade_date) == (covered,)
+    assert matching_session_rules((covered,), "SHFE", "AU", date(2019, 12, 31)) == ()
+    assert matching_session_rules((covered,), "DCE", "AU", trade_date) == ()
+    assert matching_session_rules((covered,), "SHFE", "CU", trade_date) == ()
 
 
 def test_resolve_session_rule_rejects_overlapping_inclusive_ranges():
@@ -1618,6 +1635,38 @@ def test_default_liquidity_envelope_uses_threshold_equality_and_per_product_mean
             _audit_key(days[-1]),
         }
     )
+
+
+def test_build_audit_accepts_a_pool_the_carry_liquidity_rule_would_not_produce():
+    """采集核心必须与宇宙口径无关：注入什么池就用什么池。
+
+    这三天的历史短到 Carry 的流动性规则会把它判成 `insufficient_since_inception`
+    并踢出池（见下一条测试）。核心照单全收，才说明池子真的是外部注入的。
+    """
+    days = [date(2024, 1, day) for day in (2, 3, 4)]
+    target = days[-1]
+    key = _audit_key(target)
+
+    seen = {}
+
+    def _resolve_pool(*, representative_index, normalized_keys, global_calendar):
+        seen["normalized"] = normalized_keys
+        return frozenset({key}), {key: "lookback_complete"}
+
+    audit = capture_module.build_audit(
+        pd.DataFrame(_liquidity_prices(days)),
+        resolve_pool=_resolve_pool,
+        start=target,
+        end=target,
+    )
+
+    # 解析器拿得到规范化后的宇宙，才能在需要时据此判定（Carry 的历史闸就靠它）。
+    assert seen["normalized"] == frozenset({key})
+
+    assert audit.key_sets.in_pool_keys == frozenset({key})
+    assert audit.history_status_by_key == {key: "lookback_complete"}
+    assert audit.candidates
+    assert audit.global_calendar == tuple(days)
 
 
 def test_default_liquidity_envelope_marks_short_new_listing_out_of_pool():
@@ -3827,3 +3876,247 @@ def test_capture_rejects_colliding_output_paths_before_any_write_or_load(
         )
 
     assert output.read_bytes() == b"old\n"
+
+
+def test_capture_uses_an_injected_audit_builder_instead_of_the_carry_pool(
+    monkeypatch, tmp_path
+):
+    """连续策略要按自己的宇宙采集，所以发布路径必须能被注入 audit builder。
+
+    只断言「注入的被调了」不够 —— 两个都被调也能通过。这里让 Carry 的池子一旦被
+    调用就直接 fail，注入才算真的取代了它。
+    """
+    _install_capture_flow(monkeypatch, night_ends=("none", "none"))
+    # 上一行装的替身忽略入参，所以可以就地取回它要返回的 audit。
+    audit = capture_module._build_default_liquidity_audit()
+    monkeypatch.setattr(
+        capture_module,
+        "_build_default_liquidity_audit",
+        lambda *args, **kwargs: pytest.fail(
+            "Carry pool was used despite an injected audit builder"
+        ),
+    )
+    seen = []
+
+    def _builder(prices, **kwargs):
+        seen.append((prices, kwargs))
+        return audit
+
+    capture_module.capture_and_publish(
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 9),
+        backtest_start=date(2026, 1, 9),
+        output=tmp_path / "sessions.csv",
+        inventory_output=tmp_path / "inventory.csv",
+        audit_report=tmp_path / "audit.txt",
+        settings=None,
+        use_test=True,
+        audit_builder=_builder,
+    )
+
+    assert len(seen) == 1
+    _prices, kwargs = seen[0]
+    assert set(kwargs) == {
+        "history_starts",
+        "history_exceptions",
+        "start",
+        "end",
+        "config",
+    }
+
+
+def test_capture_falls_back_to_the_carry_pool_when_no_builder_is_injected(
+    monkeypatch, tmp_path
+):
+    """不注入时必须仍走 Carry 的池子 —— 默认行为一个字节都不能变。"""
+    _install_capture_flow(monkeypatch, night_ends=("none", "none"))
+    audit = capture_module._build_default_liquidity_audit()
+    calls = []
+    monkeypatch.setattr(
+        capture_module,
+        "_build_default_liquidity_audit",
+        lambda *args, **kwargs: calls.append(kwargs) or audit,
+    )
+
+    capture_module.capture_and_publish(
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 9),
+        backtest_start=date(2026, 1, 9),
+        output=tmp_path / "sessions.csv",
+        inventory_output=tmp_path / "inventory.csv",
+        audit_report=tmp_path / "audit.txt",
+        settings=None,
+        use_test=True,
+    )
+
+    assert len(calls) == 1
+
+
+def test_capture_uses_an_injected_coverage_check(monkeypatch, tmp_path):
+    """预热覆盖是 Carry 消费者的不变量，别的消费者要能声明自己的。
+
+    这里的 start == backtest_start 在默认的 730 天预热下必然被拒；注入之后必须放行，
+    才说明这条不变量真的换成了调用方声明的那条。
+    """
+    _install_capture_flow(monkeypatch, night_ends=("none", "none"))
+    seen = []
+
+    def _coverage(*, capture_start, backtest_start, prewarm_calendar_days):
+        seen.append((capture_start, backtest_start, prewarm_calendar_days))
+        return capture_start
+
+    capture_module.capture_and_publish(
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 9),
+        backtest_start=date(2024, 1, 8),
+        output=tmp_path / "sessions.csv",
+        inventory_output=tmp_path / "inventory.csv",
+        audit_report=tmp_path / "audit.txt",
+        settings=None,
+        use_test=True,
+        coverage_check=_coverage,
+    )
+
+    assert seen == [(date(2024, 1, 8), date(2024, 1, 8), 730)]
+
+
+def test_capture_still_enforces_the_carry_prewarm_without_an_injected_check(
+    monkeypatch, tmp_path
+):
+    """不注入时，默认的预热覆盖一个字节不变。"""
+    _install_capture_flow(monkeypatch, night_ends=("none", "none"))
+
+    with pytest.raises(SessionClockError, match="session_asset_prewarm_coverage"):
+        capture_module.capture_and_publish(
+            start=date(2024, 1, 8),
+            end=date(2024, 1, 9),
+            backtest_start=date(2024, 1, 8),
+            output=tmp_path / "sessions.csv",
+            inventory_output=tmp_path / "inventory.csv",
+            audit_report=tmp_path / "audit.txt",
+            settings=None,
+            use_test=True,
+        )
+
+
+def test_repository_asset_still_refuses_a_partial_capture_start(tmp_path):
+    """保护 Carry 资产的那道闸与预热无关，永远生效。"""
+    with pytest.raises(SessionCaptureError, match="repository_capture_start"):
+        capture_module.validate_capture_request(
+            start=date(2018, 1, 2),
+            backtest_start=date(2026, 1, 2),
+            output=capture_module.SESSION_RULES_PATH,
+            prewarm_calendar_days=730,
+        )
+
+
+def test_capture_reuses_supplied_boundaries_instead_of_requerying(
+    monkeypatch, tmp_path
+):
+    """普查已经观测过一遍分钟表；权威采集应能直接吃那份观测，不再查一遍。"""
+    _install_capture_flow(monkeypatch, night_ends=("none", "none"))
+    captured = capture_module.capture_session_boundaries(None, None)
+    monkeypatch.setattr(
+        capture_module,
+        "capture_session_boundaries",
+        lambda *args, **kwargs: pytest.fail("re-queried despite supplied boundaries"),
+    )
+
+    capture_module.capture_and_publish(
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 9),
+        backtest_start=date(2026, 1, 9),
+        output=tmp_path / "sessions.csv",
+        inventory_output=tmp_path / "inventory.csv",
+        audit_report=tmp_path / "audit.txt",
+        settings=None,
+        use_test=True,
+        boundaries=captured,
+    )
+
+
+def _unconsumed(ambiguities):
+    return [
+        (item.exchange, item.product, item.trade_date)
+        for item in ambiguities
+        if item.check == "session_exception_unconsumed"
+    ]
+
+
+def test_unconsumed_exception_outside_the_audit_scope_is_forgiven_when_declared():
+    """另一个宇宙合法用不上的授权行，不该把它的采集永久卡死。
+
+    真实来由：2019-12-26 全市场夜盘延后至 22:30，上期所按品种写了 14 条例外。连续
+    策略那天黄金换月双最大拉锯、没有主力，于是从不审计 AU，那条 AU 例外便永远无人
+    消费 —— 而它对 Carry 是对的。
+    """
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    declared = SessionException(
+        exchange="SHFE",
+        version=SESSION_RULES_VERSION,
+        trade_date=monday,
+        product="AU",
+        night_start="none",
+        night_end="none",
+        reason="notice_evening=2024-01-05 holiday halt",
+        source_url="https://www.shfe.com.cn/example",
+    )
+
+    _rows, ambiguities, notes = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([_observation(monday, friday, night_end="23:00", product="RB")]),
+        _authority(session_exceptions=(declared,)),
+        global_calendar=(friday, monday),
+        audit_keys=frozenset({("SHFE", "RB", monday)}),
+    )
+
+    assert _unconsumed(ambiguities) == []
+    assert any("session_exception_unaudited" in note for note in notes), (
+        "赦免必须留痕，否则就是静默放过"
+    )
+
+
+def test_unconsumed_exception_inside_the_audit_scope_stays_fatal():
+    """该审计却没消费，是真异常 —— 一条也不放过。"""
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    declared = SessionException(
+        exchange="SHFE",
+        version=SESSION_RULES_VERSION,
+        trade_date=monday,
+        product="AU",
+        night_start="none",
+        night_end="none",
+        reason="notice_evening=2024-01-05 holiday halt",
+        source_url="https://www.shfe.com.cn/example",
+    )
+
+    _rows, ambiguities, _notes = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([_observation(monday, friday, night_end="23:00", product="RB")]),
+        _authority(session_exceptions=(declared,)),
+        global_calendar=(friday, monday),
+        audit_keys=frozenset({("SHFE", "AU", monday), ("SHFE", "RB", monday)}),
+    )
+
+    assert _unconsumed(ambiguities) == [("SHFE", "AU", monday)]
+
+
+def test_unconsumed_exception_still_blocks_when_no_audit_scope_is_declared():
+    """不声明审计范围时，行为与拆分前一字不差。"""
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    declared = SessionException(
+        exchange="SHFE",
+        version=SESSION_RULES_VERSION,
+        trade_date=monday,
+        product="AU",
+        night_start="none",
+        night_end="none",
+        reason="notice_evening=2024-01-05 holiday halt",
+        source_url="https://www.shfe.com.cn/example",
+    )
+
+    _rows, ambiguities, _notes = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([_observation(monday, friday, night_end="23:00", product="RB")]),
+        _authority(session_exceptions=(declared,)),
+        global_calendar=(friday, monday),
+    )
+
+    assert _unconsumed(ambiguities) == [("SHFE", "AU", monday)]
