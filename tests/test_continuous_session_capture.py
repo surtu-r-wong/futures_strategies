@@ -6,6 +6,7 @@
 """
 
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 
@@ -355,3 +356,52 @@ def test_survey_reports_progress_per_month():
     survey_boundaries(items, capture=capture, on_month=lambda *args: beats.append(args))
 
     assert [beat[0] for beat in beats] == [(2024, 1), (2024, 2)]
+
+
+def test_driver_exits_nonzero_when_publication_is_blocked(monkeypatch, tmp_path):
+    """发布被阻止却返回 0，自动化会把「没发布」当成「成功」。"""
+    import scripts.continuous.capture_sessions as driver
+
+    monkeypatch.setattr(driver, "load_config", lambda _p: {})
+    monkeypatch.setattr(driver, "resolve_settings_path", lambda: Path("x.yaml"))
+    monkeypatch.setattr(driver, "pg_config_from", lambda _c, use_test=False: {})
+    monkeypatch.setattr(driver, "load_scope_daily", lambda _pg, *, end: _daily())
+    monkeypatch.setattr(
+        driver,
+        "capture_and_publish_outcome",
+        lambda **kwargs: SimpleNamespace(counts=(63, 0, 126771, 58), blocked=True),
+    )
+
+    code = driver.main(
+        [
+            "--start", "2024-03-01", "--end", "2024-03-31",
+            "--output", str(tmp_path / "s.csv"),
+            "--inventory-output", str(tmp_path / "i.csv"),
+            "--audit-report", str(tmp_path / "a.txt"),
+        ]
+    )
+
+    assert code == 1
+
+
+def test_driver_exits_zero_when_publication_succeeds(monkeypatch, tmp_path):
+    import scripts.continuous.capture_sessions as driver
+
+    monkeypatch.setattr(driver, "load_config", lambda _p: {})
+    monkeypatch.setattr(driver, "resolve_settings_path", lambda: Path("x.yaml"))
+    monkeypatch.setattr(driver, "pg_config_from", lambda _c, use_test=False: {})
+    monkeypatch.setattr(driver, "load_scope_daily", lambda _pg, *, end: _daily())
+    monkeypatch.setattr(
+        driver,
+        "capture_and_publish_outcome",
+        lambda **kwargs: SimpleNamespace(counts=(63, 5292, 126771, 0), blocked=False),
+    )
+
+    assert driver.main(
+        [
+            "--start", "2024-03-01", "--end", "2024-03-31",
+            "--output", str(tmp_path / "s.csv"),
+            "--inventory-output", str(tmp_path / "i.csv"),
+            "--audit-report", str(tmp_path / "a.txt"),
+        ]
+    ) == 0

@@ -25,12 +25,19 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from common.config import load_config, resolve_settings_path  # noqa: E402
+from common.db import pg_config_from  # noqa: E402
 from common.minute.bars import MinuteDataError  # noqa: E402
 from cta_continuous.panel import required_session_keys_by_month  # noqa: E402
-from cta_continuous.scope import DAILY_FROM, panel_scope  # noqa: E402
+from cta_continuous.scope import (  # noqa: E402
+    DAILY_FROM,
+    load_scope_daily,
+    panel_scope,
+)
 from common.minute.sessions import SessionClockError  # noqa: E402
 from scripts.carry.capture_minute_sessions import (  # noqa: E402
     SessionCaptureError,
+    _capture_and_publish_outcome as capture_and_publish_outcome,
     build_audit,
 )
 
@@ -389,11 +396,6 @@ def run_survey(*, keys, start, end, settings, use_test, manifest, cache):
 def main(argv: "list[str] | None" = None) -> int:
     import argparse
 
-    from common.config import load_config, resolve_settings_path
-    from common.db import pg_config_from
-    from cta_continuous.scope import load_scope_daily
-    from scripts.carry.capture_minute_sessions import capture_and_publish
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start", required=True, type=date.fromisoformat)
     parser.add_argument("--end", required=True, type=date.fromisoformat)
@@ -458,7 +460,7 @@ def main(argv: "list[str] | None" = None) -> int:
         hit = "hit" if boundaries is not None else "miss"
         print(f"boundary_cache={hit}", flush=True)
 
-    counts = capture_and_publish(
+    outcome = capture_and_publish_outcome(
         start=args.start,
         end=args.end,
         backtest_start=panel_start,
@@ -472,10 +474,12 @@ def main(argv: "list[str] | None" = None) -> int:
         boundaries=boundaries,
     )
     print(
-        "products={} rules={} checked_days={} ambiguous={}".format(*counts),
+        "products={} rules={} checked_days={} ambiguous={}".format(*outcome.counts),
         flush=True,
     )
-    return 0
+    # 发布被阻止时必须非零退出，否则自动化会把「没发布」读成「成功」。
+    # Carry 的 CLI 同样是 `return int(outcome.blocked)`。
+    return int(outcome.blocked)
 
 
 if __name__ == "__main__":
