@@ -18,6 +18,7 @@ from common.minute.sessions import (
     build_trading_slots,
     fifteen_minute_buckets,
     load_session_rules,
+    matching_session_rules,
     next_slots,
     resolve_session_rule,
     validate_capture_coverage,
@@ -366,6 +367,22 @@ def _assert_structured_error(error, *, trade_date, check):
     assert "AU" in message
     assert str(trade_date) in message
     assert check in message
+
+
+def test_matching_session_rules_returns_every_rule_covering_the_day():
+    """覆盖闸与 resolve_session_rule 必须共用同一个谓词，否则两者会分叉。"""
+    trade_date = date(2024, 1, 8)
+    covered = _rule(effective_start=date(2020, 1, 1), effective_end=trade_date)
+    later = _rule(effective_start=trade_date)
+
+    assert matching_session_rules((covered, later), "SHFE", "AU", trade_date) == (
+        covered,
+        later,
+    )
+    assert matching_session_rules((covered,), "SHFE", "AU", trade_date) == (covered,)
+    assert matching_session_rules((covered,), "SHFE", "AU", date(2019, 12, 31)) == ()
+    assert matching_session_rules((covered,), "DCE", "AU", trade_date) == ()
+    assert matching_session_rules((covered,), "SHFE", "CU", trade_date) == ()
 
 
 def test_resolve_session_rule_rejects_overlapping_inclusive_ranges():
