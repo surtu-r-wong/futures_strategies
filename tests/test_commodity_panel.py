@@ -783,3 +783,78 @@ def test_session_calendar_keeps_an_in_session_fill_on_its_own_trade_date():
     assert calendar.execution_trade_date(
         pd.Timestamp("2024-03-09 09:05", tz=tz), date(2024, 3, 8)
     ) == date(2024, 3, 9)
+
+
+def _coverage_choice(product, trade_date, contract, selected_from):
+    from common.dominant import DominantChoice
+
+    return DominantChoice(
+        trade_date=trade_date,
+        product=product,
+        contract=contract,
+        oi=1,
+        volume=1,
+        selected_from=selected_from,
+    )
+
+
+def _coverage_choices():
+    from datetime import date as _date
+
+    days = [_date(2024, 3, d) for d in (5, 6, 7)]
+    return [
+        _coverage_choice("RB", day, "RB2405.SHF", days[max(0, index - 1)])
+        for index, day in enumerate(days)
+    ]
+
+
+def test_session_coverage_passes_when_every_product_day_has_one_rule():
+    from datetime import date as _date
+
+    from common.commodity.panel import require_session_coverage
+    from common.minute.sessions import SessionRule
+
+    rule = SessionRule.day_only("SHFE", "RB", version="commodity-v1")
+    require_session_coverage(
+        choices=_coverage_choices(),
+        months=[_date(2024, 3, 1)],
+        rules=[rule],
+    )
+
+
+def test_session_coverage_reports_the_whole_gap_not_the_first_day(tmp_path):
+    from datetime import date as _date
+
+    from common.commodity.panel import require_session_coverage
+    from common.minute.sessions import SessionClockError
+
+    manifest = tmp_path / "gap.csv"
+    with pytest.raises(SessionClockError) as excinfo:
+        require_session_coverage(
+            choices=_coverage_choices(),
+            months=[_date(2024, 3, 1)],
+            rules=[],
+            manifest_path=manifest,
+        )
+
+    # Two product-days need a rule (the first has no predecessor), and the
+    # error must say so rather than naming only the first.
+    assert "2 product-days" in str(excinfo.value)
+    written = manifest.read_text(encoding="utf-8").strip().splitlines()
+    assert written[0] == "month,exchange,product,trade_date,found"
+    assert len(written) == 3
+
+
+def test_session_coverage_refuses_a_self_contradicting_asset():
+    from datetime import date as _date
+
+    from common.commodity.panel import require_session_coverage
+    from common.minute.sessions import SessionClockError, SessionRule
+
+    rule = SessionRule.day_only("SHFE", "RB", version="commodity-v1")
+    with pytest.raises(SessionClockError, match="session_coverage_incomplete"):
+        require_session_coverage(
+            choices=_coverage_choices(),
+            months=[_date(2024, 3, 1)],
+            rules=[rule, rule],
+        )

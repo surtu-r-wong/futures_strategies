@@ -263,9 +263,11 @@ from dataclasses import dataclass  # noqa: E402
 
 from common.minute.pg_source import MinuteCandidate, minute_contract_identity  # noqa: E402
 from common.minute.sessions import (  # noqa: E402
+    SessionClockError,
     SessionRule,
     build_trading_slots,
     fifteen_minute_buckets,
+    matching_session_rules,
     resolve_session_rule,
 )
 
