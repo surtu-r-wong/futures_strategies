@@ -543,15 +543,28 @@ def _validate_loaded_history_starts(
             )
 
 
-def _build_default_liquidity_audit(
+def build_audit(
     prices: pd.DataFrame,
     *,
-    history_starts: pd.DataFrame,
-    history_exceptions: Iterable[EffectiveAuthorityRange],
+    resolve_pool,
     start: date,
     end: date,
-    config: CarryConfig,
+    config: CarryConfig | None = None,
 ) -> DefaultLiquidityAudit:
+    """Build the capture envelope from an externally decided pool.
+
+    The pool is the only thing that differs between consumers. Carry ranks on
+    its own liquidity rule; the continuous strategy uses the report's turnover
+    universe. Everything else here -- representative contracts, the global
+    calendar, the audit key sets, the candidates -- is the same work either way.
+
+    ``resolve_pool`` is a callable, not a plain set, so the representative index
+    is built exactly once: deriving it walks every daily row through
+    ``minute_contract_identity``, and Carry's pool rule needs to read it.
+
+    It is called as ``resolve_pool(representative_index=..., normalized_keys=...,
+    global_calendar=...)`` and returns ``(in_pool_source_keys, history_status_by_key)``.
+    """
     _require_capture_dates(start, end)
     representative_index = _build_representative_index(prices)
     global_calendar = _ordered_calendar(prices["trade_date"].drop_duplicates().tolist())
@@ -561,54 +574,12 @@ def _build_default_liquidity_audit(
     if not normalized_keys:
         raise SessionCaptureError("requested range contains no normalized product-days")
 
-    liquidity = aggregate_product_liquidity(prices, config)
-    liquidity_by_product_date = {
-        (row.product, row.trade_date): row for row in liquidity.itertuples(index=False)
-    }
-    in_pool_source_keys = frozenset(
-        key
-        for key in representative_index
-        if bool(liquidity_by_product_date[(key[1], key[2])].in_pool)
+    in_pool_source_keys, history_status_by_key = resolve_pool(
+        representative_index=representative_index,
+        normalized_keys=normalized_keys,
+        global_calendar=global_calendar,
     )
-
-    daily_load_start = start - timedelta(days=config.prewarm_calendar_days)
-    first_by_product = _history_start_by_product(history_starts)
-    _validate_loaded_history_starts(
-        representative_index,
-        first_by_product,
-    )
-    exception_rows = tuple(history_exceptions)
-    first_target_by_identity: dict[tuple[str, str], date] = {}
-    for exchange, product, trade_date in sorted(
-        normalized_keys, key=lambda item: (item[0], item[1], item[2])
-    ):
-        first_target_by_identity.setdefault((exchange, product), trade_date)
-
-    history_status_by_key: dict[AuditKey, str] = {}
-    for (exchange, product), first_target in first_target_by_identity.items():
-        key = (exchange, product, first_target)
-        first_history = first_by_product[product]
-        liquidity_row = liquidity_by_product_date[(product, first_target)]
-        if _finite_liquidity(liquidity_row.liquidity_mean):
-            status = "finite"
-        elif first_history >= daily_load_start:
-            status = "insufficient_since_inception"
-        else:
-            if matching_ranges(exception_rows, exchange, product, first_target):
-                status = "authorized_history_gap"
-            else:
-                raise SessionCaptureError(
-                    "liquidity_history_incomplete: "
-                    f"exchange={exchange} product={product} "
-                    f"trade_date={first_target} "
-                    f"daily_load_start={daily_load_start} "
-                    f"first_trade_date={first_history}"
-                )
-        history_status_by_key[key] = status
-        if status != "finite" and key in in_pool_source_keys:
-            raise SessionCaptureError(
-                f"{status} product-day must remain out of pool: {key!r}"
-            )
+    in_pool_source_keys = frozenset(in_pool_source_keys)
 
     key_sets = build_audit_key_sets(
         normalized_keys=normalized_keys,
@@ -624,12 +595,102 @@ def _build_default_liquidity_audit(
         global_calendar=global_calendar,
     )
     return DefaultLiquidityAudit(
-        config=config,
+        config=CarryConfig() if config is None else config,
         global_calendar=global_calendar,
         key_sets=key_sets,
         in_pool_source_keys=in_pool_source_keys,
         history_status_by_key=history_status_by_key,
         candidates=candidates,
+    )
+
+
+def _carry_liquidity_pool(
+    prices: pd.DataFrame,
+    *,
+    history_starts: pd.DataFrame,
+    history_exceptions: Iterable[EffectiveAuthorityRange],
+    start: date,
+    config: CarryConfig,
+):
+    """Carry's own pool rule and history gate, unchanged, as a ``resolve_pool``."""
+
+    def resolve(*, representative_index, normalized_keys, global_calendar):
+        liquidity = aggregate_product_liquidity(prices, config)
+        liquidity_by_product_date = {
+            (row.product, row.trade_date): row
+            for row in liquidity.itertuples(index=False)
+        }
+        in_pool_source_keys = frozenset(
+            key
+            for key in representative_index
+            if bool(liquidity_by_product_date[(key[1], key[2])].in_pool)
+        )
+
+        daily_load_start = start - timedelta(days=config.prewarm_calendar_days)
+        first_by_product = _history_start_by_product(history_starts)
+        _validate_loaded_history_starts(
+            representative_index,
+            first_by_product,
+        )
+        exception_rows = tuple(history_exceptions)
+        first_target_by_identity: dict[tuple[str, str], date] = {}
+        for exchange, product, trade_date in sorted(
+            normalized_keys, key=lambda item: (item[0], item[1], item[2])
+        ):
+            first_target_by_identity.setdefault((exchange, product), trade_date)
+
+        history_status_by_key: dict[AuditKey, str] = {}
+        for (exchange, product), first_target in first_target_by_identity.items():
+            key = (exchange, product, first_target)
+            first_history = first_by_product[product]
+            liquidity_row = liquidity_by_product_date[(product, first_target)]
+            if _finite_liquidity(liquidity_row.liquidity_mean):
+                status = "finite"
+            elif first_history >= daily_load_start:
+                status = "insufficient_since_inception"
+            else:
+                if matching_ranges(exception_rows, exchange, product, first_target):
+                    status = "authorized_history_gap"
+                else:
+                    raise SessionCaptureError(
+                        "liquidity_history_incomplete: "
+                        f"exchange={exchange} product={product} "
+                        f"trade_date={first_target} "
+                        f"daily_load_start={daily_load_start} "
+                        f"first_trade_date={first_history}"
+                    )
+            history_status_by_key[key] = status
+            if status != "finite" and key in in_pool_source_keys:
+                raise SessionCaptureError(
+                    f"{status} product-day must remain out of pool: {key!r}"
+                )
+
+        return in_pool_source_keys, history_status_by_key
+
+    return resolve
+
+
+def _build_default_liquidity_audit(
+    prices: pd.DataFrame,
+    *,
+    history_starts: pd.DataFrame,
+    history_exceptions: Iterable[EffectiveAuthorityRange],
+    start: date,
+    end: date,
+    config: CarryConfig,
+) -> DefaultLiquidityAudit:
+    return build_audit(
+        prices,
+        resolve_pool=_carry_liquidity_pool(
+            prices,
+            history_starts=history_starts,
+            history_exceptions=history_exceptions,
+            start=start,
+            config=config,
+        ),
+        start=start,
+        end=end,
+        config=config,
     )
 
 

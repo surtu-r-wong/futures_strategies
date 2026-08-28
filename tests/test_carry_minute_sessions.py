@@ -1637,6 +1637,38 @@ def test_default_liquidity_envelope_uses_threshold_equality_and_per_product_mean
     )
 
 
+def test_build_audit_accepts_a_pool_the_carry_liquidity_rule_would_not_produce():
+    """采集核心必须与宇宙口径无关：注入什么池就用什么池。
+
+    这三天的历史短到 Carry 的流动性规则会把它判成 `insufficient_since_inception`
+    并踢出池（见下一条测试）。核心照单全收，才说明池子真的是外部注入的。
+    """
+    days = [date(2024, 1, day) for day in (2, 3, 4)]
+    target = days[-1]
+    key = _audit_key(target)
+
+    seen = {}
+
+    def _resolve_pool(*, representative_index, normalized_keys, global_calendar):
+        seen["normalized"] = normalized_keys
+        return frozenset({key}), {key: "lookback_complete"}
+
+    audit = capture_module.build_audit(
+        pd.DataFrame(_liquidity_prices(days)),
+        resolve_pool=_resolve_pool,
+        start=target,
+        end=target,
+    )
+
+    # 解析器拿得到规范化后的宇宙，才能在需要时据此判定（Carry 的历史闸就靠它）。
+    assert seen["normalized"] == frozenset({key})
+
+    assert audit.key_sets.in_pool_keys == frozenset({key})
+    assert audit.history_status_by_key == {key: "lookback_complete"}
+    assert audit.candidates
+    assert audit.global_calendar == tuple(days)
+
+
 def test_default_liquidity_envelope_marks_short_new_listing_out_of_pool():
     days = [date(2024, 1, day) for day in (2, 3, 4)]
     audit = build_default_liquidity_audit(
