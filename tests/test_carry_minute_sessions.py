@@ -4008,3 +4008,28 @@ def test_repository_asset_still_refuses_a_partial_capture_start(tmp_path):
             output=capture_module.SESSION_RULES_PATH,
             prewarm_calendar_days=730,
         )
+
+
+def test_capture_reuses_supplied_boundaries_instead_of_requerying(
+    monkeypatch, tmp_path
+):
+    """普查已经观测过一遍分钟表；权威采集应能直接吃那份观测，不再查一遍。"""
+    _install_capture_flow(monkeypatch, night_ends=("none", "none"))
+    captured = capture_module.capture_session_boundaries(None, None)
+    monkeypatch.setattr(
+        capture_module,
+        "capture_session_boundaries",
+        lambda *args, **kwargs: pytest.fail("re-queried despite supplied boundaries"),
+    )
+
+    capture_module.capture_and_publish(
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 9),
+        backtest_start=date(2026, 1, 9),
+        output=tmp_path / "sessions.csv",
+        inventory_output=tmp_path / "inventory.csv",
+        audit_report=tmp_path / "audit.txt",
+        settings=None,
+        use_test=True,
+        boundaries=captured,
+    )

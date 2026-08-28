@@ -1940,6 +1940,7 @@ def _capture_and_publish_outcome(
     use_test: bool,
     audit_builder=None,
     coverage_check=None,
+    boundaries=None,
 ) -> _CaptureOutcome:
     """Capture, authority-check, and atomically publish session rules.
 
@@ -2070,9 +2071,13 @@ def _capture_and_publish_outcome(
         (row.trade_date, row.exchange, row.product)
         for row in authority.absent_product_days
     )
-    boundaries = capture_session_boundaries(
-        source, audit.candidates, absent_identities=absent_identities
-    )
+    # Observing the minute table is the expensive step and the survey has
+    # already done it. Reuse that frame when it is handed over; capture fresh
+    # otherwise, which is what every existing caller does.
+    if boundaries is None:
+        boundaries = capture_session_boundaries(
+            source, audit.candidates, absent_identities=absent_identities
+        )
     absent_lines = authorized_absent_day_session_lines(
         authority.absent_product_days, consumed_absent_day_sessions(boundaries)
     )
@@ -2216,6 +2221,7 @@ def capture_and_publish(
     use_test: bool,
     audit_builder=None,
     coverage_check=None,
+    boundaries=None,
 ) -> tuple[int, int, int, int]:
     """Capture and publish while retaining the established four-count API."""
     return _capture_and_publish_outcome(
@@ -2229,6 +2235,7 @@ def capture_and_publish(
         use_test=use_test,
         audit_builder=audit_builder,
         coverage_check=coverage_check,
+        boundaries=boundaries,
     ).counts
 
 

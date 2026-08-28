@@ -13,7 +13,10 @@
 
 from __future__ import annotations
 
+import csv
+import hashlib
 import sys
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -21,6 +24,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from common.minute.bars import MinuteDataError  # noqa: E402
 from cta_continuous.panel import required_session_keys_by_month  # noqa: E402
 from cta_continuous.scope import DAILY_FROM, panel_scope  # noqa: E402
 from common.minute.sessions import SessionClockError  # noqa: E402
@@ -35,9 +39,14 @@ UNIVERSE_LOOKBACK_MONTHS = 6
 __all__ = [
     "audit_builder_for",
     "capture_keys",
+    "BlockedCandidate",
     "continuous_capture_coverage",
     "main",
     "month_start",
+    "read_boundary_cache",
+    "survey_boundaries",
+    "write_blocked_manifest",
+    "write_boundary_cache",
 ]
 
 
@@ -135,6 +144,219 @@ def continuous_capture_coverage(
     return capture_start
 
 
+@dataclass(frozen=True)
+class BlockedCandidate:
+    """一个采集不到分钟观测的品种日。"""
+
+    exchange: str
+    product: str
+    trade_date: date
+    daily_contract: str
+    check: str
+    reason: str
+
+
+def survey_boundaries(candidates, *, capture):
+    """采集边界观测；批内有品种日缺分钟数据时二分定位，记账后继续采其余。
+
+    权威采集撞上第一个缺数据的候选就抛，而它是**按月批量**查的，于是一个坏候选会让
+    整个月中止、每轮只能知道一个。普查要的是一次拿到完整清单再统一裁决，所以失败的
+    批做二分：正常批零额外开销，只有失败批付大约 O(k·log n) 次查询。
+
+    ⚠️ **不使用 `tolerate_empty`。** 它的文档串明写 "must never be set for the
+    audited representative" —— 打开后缺数据的行会被当成「已授权的缺席」保留下来送进
+    分类器，那是在把缺陷伪装成授权，比不做还危险。
+
+    返回 `(拿到的观测, 缺数据的品种日)`。
+    """
+    frames = []
+    blocked: list[BlockedCandidate] = []
+
+    def walk(batch):
+        if not batch:
+            return
+        try:
+            frames.append(capture(batch))
+            return
+        except (MinuteDataError, SessionCaptureError) as exc:
+            if len(batch) == 1:
+                item = batch[0].candidate
+                blocked.append(
+                    BlockedCandidate(
+                        exchange=item.exchange,
+                        product=item.product,
+                        trade_date=item.trade_date,
+                        daily_contract=item.daily_contract,
+                        check=getattr(exc, "check", "unknown"),
+                        reason=str(exc),
+                    )
+                )
+                return
+        middle = len(batch) // 2
+        walk(batch[:middle])
+        walk(batch[middle:])
+
+    walk(list(candidates))
+    frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    return frame, tuple(blocked)
+
+
+def write_blocked_manifest(blocked, path: Path) -> None:
+    """把清单落盘供逐条裁决 —— 这份文件是普查唯一的产物，它不接发布路径。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            ["exchange", "product", "trade_date", "daily_contract", "check", "reason"]
+        )
+        for item in sorted(
+            blocked, key=lambda row: (row.trade_date, row.exchange, row.product)
+        ):
+            writer.writerow(
+                [
+                    item.exchange,
+                    item.product,
+                    item.trade_date.isoformat(),
+                    item.daily_contract,
+                    item.check,
+                    item.reason.replace("\n", " "),
+                ]
+            )
+
+
+def _digest_path(path: Path) -> Path:
+    return path.with_name(path.name + ".digest")
+
+
+def boundary_cache_digest(keys) -> str:
+    """键集的指纹 —— 缓存属于哪一次采集，靠它认。"""
+    payload = "\n".join(
+        f"{exchange}/{product}/{trade_date.isoformat()}"
+        for exchange, product, trade_date in sorted(keys)
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+#: 边界帧里以 python ``date`` 存在的列。parquet 推不出 ``object`` 里装的 ``date``，
+#: 必须显式转成 datetime64 再写、读回后转回来 —— 否则整条缓存路径在真实数据上才炸。
+_DATE_COLUMNS = ("trade_date", "previous_trade_date")
+
+
+def write_boundary_cache(frame, path: Path, *, keys) -> None:
+    """把观测与键集指纹一起落盘，供权威采集复用。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = frame.copy()
+    for column in _DATE_COLUMNS:
+        if column in payload.columns:
+            # 显式钉住 ns：date 转出来是秒级，fastparquet 写时会因不可无损
+            # 转换而拒绝（"Cannot losslessly cast ... to s"）。
+            payload[column] = pd.to_datetime(payload[column]).astype("datetime64[ns]")
+    payload.to_parquet(path, index=False)
+    _digest_path(path).write_text(boundary_cache_digest(keys), encoding="utf-8")
+
+
+def read_boundary_cache(path: Path, *, keys):
+    """读缓存；不存在返回 ``None``，键集对不上则**拒绝**。
+
+    观测最贵的一步就是查分钟表，所以普查的观测值得复用。但复用的前提是「这份观测确实
+    属于这次采集」—— 键集变了却照用，等于拿旧宇宙的观测发布新资产。所以对不上就抛，
+    不静默重查、也不静默沿用（沿用 `b19103b` 拒绝陈旧分片的姿态）。
+    """
+    if not path.exists():
+        return None
+    digest_path = _digest_path(path)
+    expected = boundary_cache_digest(keys)
+    actual = (
+        digest_path.read_text(encoding="utf-8").strip()
+        if digest_path.exists()
+        else None
+    )
+    if actual != expected:
+        raise SessionCaptureError(
+            f"boundary_cache_stale: path={path} expected={expected} observed={actual}"
+        )
+    restored = pd.read_parquet(path)
+    for column in _DATE_COLUMNS:
+        if column in restored.columns:
+            restored[column] = pd.to_datetime(restored[column]).dt.date
+    return restored
+
+
+def _capture_context(*, settings, use_test):
+    """采集要用的授权表、日线与分钟源 —— 普查与权威采集共用同一套入参。"""
+    from cta_carry.config import CarryConfig
+    from cta_carry.pg_source import (
+        load_public_carry_data,
+        load_public_product_history_starts,
+    )
+    from common.minute.pg_source import PublicMinuteSource
+    from scripts.carry.capture_minute_sessions import (
+        ABSENT_PRODUCT_DAYS_PATH,
+        DAY_ONLY_PATH,
+        HISTORY_EXCEPTIONS_PATH,
+        SESSION_EXCEPTIONS_PATH,
+    )
+    from cta_carry.session_authority import load_session_authority
+
+    authority = load_session_authority(
+        session_exception_path=SESSION_EXCEPTIONS_PATH,
+        day_only_path=DAY_ONLY_PATH,
+        history_exception_path=HISTORY_EXCEPTIONS_PATH,
+        absent_product_day_path=ABSENT_PRODUCT_DAYS_PATH,
+    )
+    return (
+        CarryConfig(),
+        authority,
+        load_public_carry_data,
+        load_public_product_history_starts,
+        PublicMinuteSource,
+    )
+
+
+def run_survey(*, keys, start, end, settings, use_test, manifest, cache):
+    """只读普查：一次跑出完整的「缺分钟观测」清单，**不接发布路径**。
+
+    产物只有两样：阻塞清单，以及（清单为空时）可供权威采集复用的边界观测缓存。
+
+    ⚠️ 缓存是整份的：清单非空时不写。也就是说一轮裁决之后重跑普查仍要重新观测一遍；
+    真正省下的是「普查 → 权威采集」这一跳，权威采集不必再查一遍分钟表。
+    """
+    from scripts.carry.capture_minute_sessions import capture_session_boundaries
+
+    config, authority, load_daily, load_history, minute_source = _capture_context(
+        settings=settings, use_test=use_test
+    )
+    data = load_daily(
+        start=start, end=end, config=config, config_path=settings, use_test=use_test
+    )
+    history_starts = load_history(config_path=settings, use_test=use_test)
+    audit = audit_builder_for(keys)(
+        data.prices,
+        history_starts=history_starts,
+        history_exceptions=authority.liquidity_history_exceptions,
+        start=start,
+        end=end,
+        config=config,
+    )
+    source = minute_source(config_path=settings, use_test=use_test)
+    absent = frozenset(
+        (row.trade_date, row.exchange, row.product)
+        for row in authority.absent_product_days
+    )
+    print(f"普查候选 {len(audit.candidates):,} 个", flush=True)
+
+    def capture(batch):
+        return capture_session_boundaries(source, batch, absent_identities=absent)
+
+    frame, blocked = survey_boundaries(audit.candidates, capture=capture)
+    write_blocked_manifest(blocked, manifest)
+    if cache is not None and not blocked:
+        write_boundary_cache(
+            frame, cache, keys=frozenset(k for k in keys if start <= k[2] <= end)
+        )
+    return blocked
+
+
 def main(argv: "list[str] | None" = None) -> int:
     import argparse
 
@@ -147,11 +369,18 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--start", required=True, type=date.fromisoformat)
     parser.add_argument("--end", required=True, type=date.fromisoformat)
     parser.add_argument("--panel-start", type=date.fromisoformat)
-    parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--inventory-output", required=True, type=Path)
-    parser.add_argument("--audit-report", required=True, type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--inventory-output", type=Path)
+    parser.add_argument("--audit-report", type=Path)
     parser.add_argument("--settings", type=Path)
     parser.add_argument("--use-test", action="store_true")
+    parser.add_argument(
+        "--survey",
+        type=Path,
+        metavar="MANIFEST",
+        help="只读普查：把采集不到分钟观测的品种日一次列全到 MANIFEST，不发布任何资产",
+    )
+    parser.add_argument("--boundary-cache", type=Path)
     args = parser.parse_args(argv)
     panel_start = args.panel_start or args.start
 
@@ -160,14 +389,45 @@ def main(argv: "list[str] | None" = None) -> int:
     stats = load_scope_daily(pg, end=args.end)
     print(f"日线 {len(stats):,} 行", flush=True)
 
-    keys = capture_keys(
-        stats, start=month_start(args.start), end=month_start(args.end)
-    )
-    products = sorted({key[1] for key in keys})
+    keys = capture_keys(stats, start=month_start(args.start), end=month_start(args.end))
     print(
-        f"连续宇宙 {len(keys):,} 个品种日，{len(products)} 个品种",
+        f"连续宇宙 {len(keys):,} 个品种日，{len({key[1] for key in keys})} 个品种",
         flush=True,
     )
+
+    if args.survey is not None:
+        blocked = run_survey(
+            keys=keys,
+            start=args.start,
+            end=args.end,
+            settings=args.settings,
+            use_test=args.use_test,
+            manifest=args.survey,
+            cache=args.boundary_cache,
+        )
+        print(f"survey blocked={len(blocked)} manifest={args.survey}", flush=True)
+        return 1 if blocked else 0
+
+    missing = [
+        name
+        for name, value in (
+            ("--output", args.output),
+            ("--inventory-output", args.inventory_output),
+            ("--audit-report", args.audit_report),
+        )
+        if value is None
+    ]
+    if missing:
+        parser.error(f"publishing requires {', '.join(missing)}")
+
+    boundaries = None
+    if args.boundary_cache is not None:
+        boundaries = read_boundary_cache(
+            args.boundary_cache,
+            keys=frozenset(k for k in keys if args.start <= k[2] <= args.end),
+        )
+        hit = "hit" if boundaries is not None else "miss"
+        print(f"boundary_cache={hit}", flush=True)
 
     counts = capture_and_publish(
         start=args.start,
@@ -180,6 +440,7 @@ def main(argv: "list[str] | None" = None) -> int:
         use_test=args.use_test,
         audit_builder=audit_builder_for(keys),
         coverage_check=continuous_capture_coverage,
+        boundaries=boundaries,
     )
     print(
         "products={} rules={} checked_days={} ambiguous={}".format(*counts),

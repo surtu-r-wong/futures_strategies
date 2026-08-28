@@ -164,3 +164,154 @@ def test_continuous_coverage_refuses_an_asset_that_starts_after_the_panel():
 
 def test_month_start_folds_a_capture_date_onto_the_panel_month():
     assert month_start(date(2011, 1, 4)) == date(2011, 1, 1)
+
+
+# --- 普查：二分定位缺分钟数据的品种日 ---------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from common.minute.bars import MinuteDataError  # noqa: E402
+from scripts.continuous.capture_sessions import (  # noqa: E402
+    survey_boundaries,
+    write_blocked_manifest,
+)
+
+
+def _candidate(day, product="RB"):
+    return SimpleNamespace(
+        candidate=SimpleNamespace(
+            exchange="SHFE",
+            product=product,
+            trade_date=day,
+            daily_contract=f"{product}2405.SHF",
+        )
+    )
+
+
+def _capture_missing(broken_days):
+    """撞上任何一个坏候选就抛 —— 与真实 `iter_session_boundaries` 的姿态一致。"""
+    calls = []
+
+    def capture(batch):
+        calls.append(len(batch))
+        bad = [
+            item for item in batch if item.candidate.trade_date in broken_days
+        ]
+        if bad:
+            raise MinuteDataError(
+                check="session_representative_missing_minutes",
+                reason="session representative has no minute observations",
+                trade_date=bad[0].candidate.trade_date,
+                product=bad[0].candidate.product,
+                contract=bad[0].candidate.daily_contract,
+            )
+        return pd.DataFrame(
+            [{"trade_date": item.candidate.trade_date} for item in batch]
+        )
+
+    return capture, calls
+
+
+def test_survey_isolates_every_product_day_with_no_minute_bars():
+    """权威采集撞上第一个就抛，只能知道一个；普查要一次拿到完整清单。"""
+    days = [date(2024, 3, 1) + pd.Timedelta(days=n).to_pytimedelta() for n in range(8)]
+    items = [_candidate(day) for day in days]
+    capture, calls = _capture_missing({days[2], days[5]})
+
+    frame, blocked = survey_boundaries(items, capture=capture)
+
+    assert {(item.product, item.trade_date) for item in blocked} == {
+        ("RB", days[2]),
+        ("RB", days[5]),
+    }
+    assert len(frame) == 6, "其余 6 个候选的观测必须照常拿到"
+    assert all(
+        item.check == "session_representative_missing_minutes" for item in blocked
+    )
+    # 二分而不是逐个查：8 个候选、2 个坏的，远少于 8 次单点查询。
+    assert sum(1 for size in calls if size == 1) < 8
+
+
+def test_survey_makes_no_extra_queries_when_nothing_is_missing():
+    items = [_candidate(date(2024, 3, 1))]
+    capture, calls = _capture_missing(frozenset())
+
+    frame, blocked = survey_boundaries(items, capture=capture)
+
+    assert blocked == ()
+    assert len(frame) == 1
+    assert calls == [1]
+
+
+def test_blocked_manifest_lists_every_row(tmp_path):
+    items = [_candidate(date(2024, 3, 4))]
+    capture, _ = _capture_missing({date(2024, 3, 4)})
+    _frame, blocked = survey_boundaries(items, capture=capture)
+    path = tmp_path / "blocked.csv"
+
+    write_blocked_manifest(blocked, path)
+
+    rows = path.read_text(encoding="utf-8").strip().splitlines()
+    assert rows[0] == "exchange,product,trade_date,daily_contract,check,reason"
+    assert rows[1].startswith("SHFE,RB,2024-03-04,RB2405.SHF,")
+    assert len(rows) == 2
+
+
+# --- 边界观测缓存 -----------------------------------------------------------
+
+from scripts.continuous.capture_sessions import (  # noqa: E402
+    read_boundary_cache,
+    write_boundary_cache,
+)
+
+_KEYS_A = frozenset({("SHFE", "RB", date(2024, 3, 4))})
+_KEYS_B = frozenset({("SHFE", "RB", date(2024, 3, 5))})
+
+
+def _observations():
+    """真实边界帧的这两列就是 python ``date``，夹具必须照实。"""
+    return pd.DataFrame(
+        [
+            {
+                "trade_date": date(2024, 3, 4),
+                "previous_trade_date": date(2024, 3, 1),
+                "product": "RB",
+                "n": 225,
+            }
+        ]
+    )
+
+
+def test_boundary_cache_round_trips(tmp_path):
+    path = tmp_path / "boundaries.parquet"
+    write_boundary_cache(_observations(), path, keys=_KEYS_A)
+
+    restored = read_boundary_cache(path, keys=_KEYS_A)
+
+    assert restored["n"].tolist() == [225]
+    # 日期列必须原样是 python date 回来，不能变成 Timestamp —— 下游按 date 比键。
+    assert restored["trade_date"].tolist() == [date(2024, 3, 4)]
+    assert restored["previous_trade_date"].tolist() == [date(2024, 3, 1)]
+
+
+def test_boundary_cache_refuses_a_different_key_set(tmp_path):
+    """键集变了缓存就不是这次要的观测 —— 拒绝，不静默沿用。"""
+    path = tmp_path / "boundaries.parquet"
+    write_boundary_cache(_observations(), path, keys=_KEYS_A)
+
+    with pytest.raises(SessionCaptureError, match="boundary_cache_stale"):
+        read_boundary_cache(path, keys=_KEYS_B)
+
+
+def test_boundary_cache_absent_means_capture_fresh(tmp_path):
+    assert read_boundary_cache(tmp_path / "nope.parquet", keys=_KEYS_A) is None
+
+
+def test_boundary_cache_refuses_a_parquet_with_no_digest(tmp_path):
+    """只有数据没有摘要，就无法确认它属于这次采集 —— 同样拒绝。"""
+    path = tmp_path / "boundaries.parquet"
+    write_boundary_cache(_observations(), path, keys=_KEYS_A)
+    path.with_name(path.name + ".digest").unlink()
+
+    with pytest.raises(SessionCaptureError, match="boundary_cache_stale"):
+        read_boundary_cache(path, keys=_KEYS_A)
