@@ -117,8 +117,8 @@ def step(
     upper = _finite_number(upper, label="upper")
     lower = _finite_number(lower, label="lower")
     std = _finite_number(std, label="std")
-    if std <= 0.0:
-        raise ValueError("std: expected finite positive value")
+    if std < 0.0:
+        raise ValueError("std: expected finite nonnegative value")
     supplied_scale = _supplied_scale(oi_scale)
 
     if state.position is Position.LONG:

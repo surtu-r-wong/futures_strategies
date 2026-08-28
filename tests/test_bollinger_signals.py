@@ -345,10 +345,59 @@ def test_step_validates_every_supplied_indicator_even_while_positioned(name, bad
         step(state, **bar(**{name: bad}))
 
 
-@pytest.mark.parametrize("std", [0.0, -1.0])
-def test_step_requires_positive_std(std):
+def test_flat_constant_bands_with_zero_std_return_no_cross():
+    action = step(
+        flat(),
+        **bar(
+            previous_close=100.0,
+            previous_middle=100.0,
+            previous_upper=100.0,
+            previous_lower=100.0,
+            close=100.0,
+            middle=100.0,
+            upper=100.0,
+            lower=100.0,
+            std=0.0,
+        ),
+    )
+
+    assert action == Action(flat(), 0, False, "no_cross")
+
+
+@pytest.mark.parametrize(
+    ("state", "kwargs", "reason"),
+    [
+        (
+            State(Position.LONG, take_profit=108.5, oi_scale=0.5),
+            dict(
+                previous_close=101.0,
+                previous_middle=100.0,
+                close=99.0,
+                middle=100.0,
+            ),
+            "middle_cross",
+        ),
+        (
+            State(Position.SHORT, take_profit=91.5, oi_scale=1.0),
+            dict(
+                previous_close=98.0,
+                previous_middle=97.0,
+                close=91.5,
+                middle=95.0,
+            ),
+            "take_profit",
+        ),
+    ],
+)
+def test_positioned_state_processes_exit_rules_with_zero_std(state, kwargs, reason):
+    action = step(state, **bar(std=0.0, **kwargs))
+
+    assert action == Action(flat(), 0, True, reason)
+
+
+def test_step_rejects_negative_std():
     with pytest.raises(ValueError, match="std"):
-        step(flat(), **bar(std=std))
+        step(flat(), **bar(std=-1.0))
 
 
 @pytest.mark.parametrize("oi_scale", [0.0, 0.75, np.nan, np.inf, True])
