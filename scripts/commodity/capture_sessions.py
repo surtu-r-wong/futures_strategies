@@ -35,6 +35,7 @@ from common.minute.bars import MinuteDataError  # noqa: E402
 from common.commodity.panel import required_session_keys_by_month  # noqa: E402
 from common.commodity.universe import (  # noqa: E402
     product_daily_turnover,
+    shadow_scope,
     universe_for_month,
 )
 from common.commodity.dominant import choose_dominant_commodity  # noqa: E402
@@ -114,6 +115,13 @@ def capture_keys(
         sorted((set(turnover["product"]) - FINANCIAL_FUTURES) & tradeable)
     )
     choices = choose_dominant_commodity(stats, products=history_products)
+    scope = shadow_scope(
+        universe_by_month=products_by_month,
+        market_days=sorted(set(stats["trade_date"])),
+    )
+    choices = tuple(
+        choice for choice in choices if choice.trade_date >= scope[choice.product]
+    )
     by_month = required_session_keys_by_month(choices=choices, months=months)
     return frozenset(key for keys in by_month.values() for key in keys)
 

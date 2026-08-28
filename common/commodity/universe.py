@@ -19,6 +19,8 @@
 
 from __future__ import annotations
 
+import bisect
+from collections.abc import Mapping, Sequence
 from datetime import date
 
 import pandas as pd
@@ -32,6 +34,7 @@ __all__ = [
     "TURNOVER_THRESHOLD",
     "canonical_contract",
     "product_daily_turnover",
+    "shadow_scope",
     "universe_for_month",
 ]
 
@@ -101,6 +104,38 @@ def product_daily_turnover(daily: pd.DataFrame) -> pd.DataFrame:
     return grouped.sort_values(["product", "trade_date"], kind="mergesort").reset_index(
         drop=True
     )
+
+
+def shadow_scope(
+    *,
+    universe_by_month: Mapping[date, Sequence[str]],
+    market_days: Sequence[date],
+    warmup_observations: int = 252,
+) -> dict[str, date]:
+    """每个品种影子策略需要从哪一天开始跑。
+
+    只有**可能被选中**的品种才需要影子：`selected = pool ∩ eligible`，从没入过池的
+    品种再怎么跑也进不了组合。而入过池的品种，月度筛选最多回看
+    `warmup_observations` 个观测，所以「首次入池那一月往前数这么多个交易日」之前的
+    历史**永远读不到** —— 每个更晚的月份只会看更近的尾部。
+
+    砍掉那段不是取舍，是去掉一段可证明读不到的数据。燃料油是活例子：2012–2015 有
+    日线、`futures_minute` 里没有分钟线，而它 2018-10 才第一次入池；不砍，面板就会
+    为 937 个采不到的品种日索取时段规则。
+    """
+    if type(warmup_observations) is not int or warmup_observations < 0:
+        raise ValueError("shadow_scope_warmup: expected a nonnegative integer")
+    ordered_days = sorted(market_days)
+    first_pool: dict[str, date] = {}
+    for month in sorted(universe_by_month):
+        for product in universe_by_month[month]:
+            first_pool.setdefault(product, month)
+
+    scope: dict[str, date] = {}
+    for product, month in first_pool.items():
+        index = bisect.bisect_left(ordered_days, month)
+        scope[product] = ordered_days[max(0, index - warmup_observations)]
+    return scope
 
 
 def _shift_months(anchor: date, months: int) -> date:

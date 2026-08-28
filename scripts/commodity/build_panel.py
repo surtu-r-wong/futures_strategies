@@ -49,6 +49,7 @@ from common.commodity.panel import (
 from common.commodity.universe import (  # noqa: E402
     FINANCIAL_FUTURES,
     product_daily_turnover,
+    shadow_scope,
     universe_for_month,
 )
 from common.config import load_config, resolve_settings_path  # noqa: E402
@@ -1971,6 +1972,23 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     choices = choose_dominant_commodity(daily, products=history_products)
+    # 砍掉每个品种「首次入池前 252 个交易日」之前的历史 —— 月度筛选最多回看 252 个
+    # 观测，更早的影子历史永远读不到，留着只会索取采不到的时段规则。
+    scope = shadow_scope(
+        universe_by_month=products_by_month,
+        market_days=sorted(set(daily["trade_date"])),
+    )
+    before = len(choices)
+    choices = tuple(
+        choice
+        for choice in choices
+        if choice.trade_date >= scope[choice.product]
+    )
+    print(
+        f"dominant choices: {len(choices):,} "
+        f"({before - len(choices):,} dropped as unreadable pre-warmup history)",
+        flush=True,
+    )
     closes = {
         (trade_date, str(symbol)): float(close)
         for trade_date, symbol, close in daily.loc[

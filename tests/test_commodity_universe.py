@@ -3,7 +3,7 @@
 研报口径：过去半年中日均成交额超过 50 亿元的商品期货全品种。
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import pytest
@@ -114,3 +114,60 @@ def test_financial_exclusion_does_not_drift_from_the_other_commodity_path():
     from cta_gtja.pg_source import FINANCIAL_FUTURES as gtja_set
 
     assert FINANCIAL_FUTURES == gtja_set
+
+
+def test_shadow_scope_starts_a_warmup_before_a_products_first_pool_month():
+    """月度筛选最多回看 252 个观测，更早的影子历史永远读不到。
+
+    燃料油是活例子：2012–2015 有日线、没有分钟线，而它 2018-10 才第一次入池 ——
+    那三年的品种日不可能被任何一次筛选读到，却会让面板索取根本采不到的时段规则。
+    """
+    from common.commodity.universe import shadow_scope
+
+    market_days = [date(2024, 1, 1) + timedelta(days=index) for index in range(400)]
+    universe_by_month = {
+        date(2024, 1, 1): (),
+        date(2024, 2, 1): (),
+        date(2024, 12, 1): ("RB",),
+    }
+
+    scope = shadow_scope(
+        universe_by_month=universe_by_month,
+        market_days=market_days,
+        warmup_observations=10,
+    )
+
+    first_pool_index = market_days.index(date(2024, 12, 1))
+    assert scope == {"RB": market_days[first_pool_index - 10]}
+
+
+def test_shadow_scope_omits_a_product_that_never_qualifies():
+    from common.commodity.universe import shadow_scope
+
+    scope = shadow_scope(
+        universe_by_month={date(2024, 1, 1): ("RB",)},
+        market_days=[date(2024, 1, 1)],
+        warmup_observations=10,
+    )
+
+    assert "WR" not in scope
+
+
+def test_shadow_scope_keeps_everything_after_the_first_pool_month():
+    """入池后又掉出去的那段必须留着 —— 再次入池时筛选要读连续的 252 天。"""
+    from common.commodity.universe import shadow_scope
+
+    market_days = [date(2024, 1, 1) + timedelta(days=index) for index in range(400)]
+    scope = shadow_scope(
+        universe_by_month={
+            date(2024, 3, 1): ("RB",),
+            date(2024, 6, 1): (),
+            date(2024, 9, 1): ("RB",),
+        },
+        market_days=market_days,
+        warmup_observations=10,
+    )
+
+    # 起点由**首次**入池决定，之后不再抬高。
+    first_pool_index = market_days.index(date(2024, 3, 1))
+    assert scope["RB"] == market_days[first_pool_index - 10]
