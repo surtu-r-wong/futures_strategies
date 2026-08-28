@@ -16,6 +16,8 @@
 - `cta_carry/` — 国信 Carry 商品期货日线研究版（分合约期限结构 + 动量缩量缩仓过滤 + 吊灯止损）
 - `cta_bollinger/` — 国信 Bollinger 通道商品期货 15 分钟复刻（指标 / 状态机 / 影子筛选 /
   组合回测 / 报告 / CLI 已实现；全历史验收待面板 bundle）
+- `cta_dow/` — 国信道氏理论商品期货 15 分钟复刻（累计 MACD 趋势段 / 拐点修正 /
+  道氏共振入场 / 当前持仓等权 / 报告 / CLI 已实现；全历史验收待面板 bundle）
 - `index_open_momentum/` — 国信开盘动量股指期货日内复刻（**48/48 checkbox、端到端跑通，
   但未做全历史真跑**；计划见
   `docs/superpowers/plans/2026-07-09-guosen-open-momentum.md`；进度以
@@ -80,7 +82,7 @@ PYTHONPATH=. .venv/bin/python scripts/commodity/build_panel.py \
 **2026-01-30**；精确命令、断点恢复、manifest 审计和硬失败边界见
 [`docs/operations/commodity-panel-bundle.md`](docs/operations/commodity-panel-bundle.md)。
 
-共享层与报告原语已落地；**Bollinger 策略与其报告导出器已实现**（下节），道氏尚未实现。
+共享层与报告原语已落地；**Bollinger 与道氏两个策略及其报告导出器均已实现**（见下两节）。
 
 ## Carry 日线研究版
 
@@ -152,3 +154,28 @@ runbook（含全部 11 条复刻假设与取数边界）：`docs/operations/guos
 通道长度、beta、止盈系数、OI 窗口、目标波动与样本截止都是常量而非开关；只有研报
 未披露的标准差自由度可调，且必须成对出敏感性产物。固定参数表、硬失败边界与产物
 清单见 [`docs/operations/guosen-bollinger-runbook.md`](docs/operations/guosen-bollinger-runbook.md)。
+
+## 商品期货：国信道氏理论
+
+`cta_dow/` 复刻国信《CTA 系列专题之四：基于道氏理论的商品期货交易策略》（研报日期
+2022-08-09）。累计 MACD 距离越过 ±ATR 切换初步趋势并划段，段内维护最高/最低价；
+多头需要初步趋势向上、本段回撤未跌破前低、低点在抬高、且收盘突破**本 bar 纳入极值
+之前**的临时极值。入场后锁存，持有到趋势切换或拐点失效；拐点失效只平仓不反手。
+资金只在当前实际持仓品种间等分，组合按月调到 15% 年化波动。
+
+```bash
+.venv/bin/python -m cta_dow \
+  --panel-dir output/commodity-panel-v1 \
+  --start 2012-01-04 \
+  --end 2026-01-30 \
+  --output-prefix output/guosen_dow \
+  --require-paper-faithful \
+  --run-literal-sensitivity
+```
+
+EMA 周期、ATR 窗口、目标波动、筛选阈值与样本截止都是常量；只有研报未披露的"入场
+后是否锁存"可切换，且必须成对出敏感性产物。见
+[`docs/operations/guosen-dow-runbook.md`](docs/operations/guosen-dow-runbook.md)。
+
+两条线共用 `common/commodity/` 的执行账本、组合回测、报告层与命令行闸 —— 影子层
+成交、换月两腿、日切与逐事件记账只有一份实现。

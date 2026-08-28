@@ -85,6 +85,22 @@ CU 库存只覆盖上海保税区、AL/CU/RB 现货是周频而其余六个是�
   任何夜盘品种一旦在夜盘成交就会撞 `timestamp must be strictly increasing`。
   判定交易日的规则已抽到 `common/commodity/panel.SessionCalendar`，影子与组合共用。
 
+## 商品期货：国信道氏理论（Task 1–7 已交付，Task 8 待面板 bundle）
+
+- `cta_dow/`：`indicators` / `state` / `signals` / `shadow` / `selection` /
+  `backtest` / `report` / `__main__` 全部实现；CLI 在临时 bundle 上真跑出两份完整
+  产物三件套（latched + literal 敏感性）。
+- 与 Bollinger 共用 `common/commodity/` 的 `execution`（影子成交账本）、`backtest`
+  （组合事件循环 + 两本平行账）、`report`（十一张表 + 审计）与 `cli`（窗口/覆盖闸）。
+  搬迁均以 sha256 逐帧证明**逐点不变**：影子 18 个摘要、组合 24 个中 20 个不变
+  （另 4 个是 `data_quality` 新增一行 F9）、报告 22 个不变。
+- 道氏独有的机制是**分母会动**：资金只在当前持仓品种间等分，任一品种进出都改变其余
+  品种目标。它们不按别人的成交价调仓，而是各自在下一个可成交窗口 `allocation_resize`。
+- 保真度台账 15 条，其中 D8（ATR 不可用的 bar 不判趋势）与 F9（波动窗口全零视为预热）
+  是实现期新增的裁决，已入册。
+- ⚠️ **Task 8 全历史验收未做**，与 Bollinger 同一硬阻塞：`output/commodity-panel-v1`
+  尚未构建。
+
 ## 外部阻塞
 
 - `futures_daily` 与 `continuous_contract_ohlc` 的 EOD 日更仍止于 2026-04-29。

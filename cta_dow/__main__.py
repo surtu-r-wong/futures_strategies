@@ -1,12 +1,12 @@
-"""Run the Guosen Bollinger replication over a cached commodity panel bundle.
+"""Run the Guosen Dow replication over a cached commodity panel bundle.
 
-Only two things are adjustable here, and neither is a parameter of the strategy:
-the standard-deviation convention the paper never disclosed (``--ddof``, with
-its sensitivity twin) and the cost assumption. Length, beta, the take-profit
-coefficient, the open-interest windows, the target volatility, and the sample
-cutoff are constants -- exposing them as flags would turn an undisclosed
-parameter into a dial, and the only surface left to fit is the gap against the
-paper's own headline.
+Two things are adjustable, and neither is a parameter of the strategy: which
+reading of the entry gates to run (``--signal-mode``, with its sensitivity
+twin) and the cost assumption. The EMA spans, the ATR window, the extreme
+history depth, the target volatility, the selection thresholds, and the sample
+cutoff are constants -- with the gap against the paper's headline printed in
+the metrics sheet, any of them exposed as a flag becomes the dial that closes
+it, and closing it that way is fitting rather than replicating.
 """
 
 from __future__ import annotations
@@ -15,8 +15,6 @@ import argparse
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-
-import pandas as pd
 
 from common.commodity.bundle import PanelBundle, read_bundle
 from common.commodity.cli import (
@@ -29,9 +27,9 @@ from common.commodity.cli import (
     restrict_result,
     slice_bundle,
 )
-from cta_bollinger.backtest import run_backtest
-from cta_bollinger.report import IN_SAMPLE_END, write_outputs
-from cta_bollinger.shadow import run_shadow_product
+from cta_dow.backtest import run_backtest
+from cta_dow.report import IN_SAMPLE_END, write_outputs
+from cta_dow.shadow import run_shadow_product
 
 __all__ = [
     "SESSION_RULES_LAST",
@@ -45,13 +43,12 @@ __all__ = [
 
 
 #: 研报口径固定值 —— 不做命令行开关。
-BAND_LENGTH = 300
-BAND_BETA = 1.5
+EMA_SPANS = (12, 26, 9)
 ATR_WINDOW = 20
-OI_SHORT = 150
-OI_LONG = 300
-TARGET_ANNUAL_VOL = 0.10
+TARGET_ANNUAL_VOL = 0.15
 DEFAULT_COST_BPS = 1.3
+
+_PROG = "cta_dow"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,39 +57,35 @@ class Options:
     start: date
     end: date
     output_prefix: str
-    ddof: int
+    signal_mode: str
     cost_bps: float
     require_paper_faithful: bool
-    run_ddof_sensitivity: bool
-    length: int = BAND_LENGTH
-    beta: float = BAND_BETA
+    run_literal_sensitivity: bool
+    ema_spans: tuple[int, int, int] = EMA_SPANS
     atr_window: int = ATR_WINDOW
-    oi_short: int = OI_SHORT
-    oi_long: int = OI_LONG
     target_vol: float = TARGET_ANNUAL_VOL
     in_sample_end: date = IN_SAMPLE_END
 
     @property
     def sensitivity_prefix(self) -> str:
         prefix = Path(self.output_prefix)
-        return str(prefix.with_name(f"{prefix.name}_ddof1"))
+        return str(prefix.with_name(f"{prefix.name}_literal"))
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m cta_bollinger",
-        description="国信《基于 Bollinger 通道的商品期货交易策略》复刻",
+        prog="python -m cta_dow",
+        description="国信《基于道氏理论的商品期货交易策略》复刻",
     )
     parser.add_argument("--panel-dir", required=True, type=Path)
     parser.add_argument("--start", required=True, type=date.fromisoformat)
     parser.add_argument("--end", required=True, type=date.fromisoformat)
     parser.add_argument("--output-prefix", required=True)
     parser.add_argument(
-        "--ddof",
-        type=int,
-        choices=(0, 1),
-        default=0,
-        help="布林标准差自由度；研报未披露，忠实默认 0",
+        "--signal-mode",
+        choices=("latched", "literal"),
+        default="latched",
+        help="入场后锁存（忠实默认）或逐 bar 重验全部三道闸",
     )
     parser.add_argument("--cost-bps", type=float, default=DEFAULT_COST_BPS)
     parser.add_argument(
@@ -101,14 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="区间内存在无法定价的应成交窗口时直接拒绝运行",
     )
     parser.add_argument(
-        "--run-ddof-sensitivity",
+        "--run-literal-sensitivity",
         action="store_true",
-        help="另出一份 ddof=1 的敏感性产物，仅用于解释差异",
+        help="另出一份逐 bar 重验的敏感性产物，仅用于解释差异",
     )
     return parser
-
-
-_PROG = "cta_bollinger"
 
 
 def _fail(message: str) -> None:
@@ -119,8 +109,8 @@ def resolve_options(namespace: argparse.Namespace) -> Options:
     start: date = namespace.start
     end: date = namespace.end
     check_window(_PROG, start, end)
-    if namespace.ddof == 1 and namespace.run_ddof_sensitivity:
-        _fail("--ddof 1 与 --run-ddof-sensitivity 会产出同一份结果，请二选一")
+    if namespace.signal_mode == "literal" and namespace.run_literal_sensitivity:
+        _fail("--signal-mode literal 与 --run-literal-sensitivity 会产出同一份结果，请二选一")
     if not (namespace.cost_bps >= 0.0):
         _fail(f"--cost-bps {namespace.cost_bps} 必须非负")
 
@@ -129,10 +119,10 @@ def resolve_options(namespace: argparse.Namespace) -> Options:
         start=start,
         end=end,
         output_prefix=str(namespace.output_prefix),
-        ddof=int(namespace.ddof),
+        signal_mode=str(namespace.signal_mode),
         cost_bps=float(namespace.cost_bps),
         require_paper_faithful=bool(namespace.require_paper_faithful),
-        run_ddof_sensitivity=bool(namespace.run_ddof_sensitivity),
+        run_literal_sensitivity=bool(namespace.run_literal_sensitivity),
     )
 
 
@@ -140,7 +130,7 @@ def _run_one(
     bundle: PanelBundle,
     options: Options,
     *,
-    ddof: int,
+    signal_mode: str,
     output_prefix: str,
     sensitivity_only: bool,
 ) -> None:
@@ -151,12 +141,8 @@ def _run_one(
             sliced.bars,
             product=product,
             roll_fills=sliced.roll_fills,
-            band_length=options.length,
+            signal_mode=signal_mode,
             atr_window=options.atr_window,
-            oi_short=options.oi_short,
-            oi_long=options.oi_long,
-            beta=options.beta,
-            ddof=ddof,
             cost_bps=options.cost_bps,
         )
         for product in products
@@ -171,13 +157,12 @@ def _run_one(
         "start": options.start.isoformat(),
         "end": options.end.isoformat(),
         "panel_dir": str(options.panel_dir),
-        "ddof": ddof,
+        "signal_mode": signal_mode,
         "cost_bps": options.cost_bps,
-        "band_length": options.length,
-        "band_beta": options.beta,
+        "ema_fast": options.ema_spans[0],
+        "ema_slow": options.ema_spans[1],
+        "ema_signal": options.ema_spans[2],
         "atr_window": options.atr_window,
-        "oi_short": options.oi_short,
-        "oi_long": options.oi_long,
         "target_annual_vol": options.target_vol,
         "in_sample_end": options.in_sample_end.isoformat(),
         "products": products,
@@ -207,15 +192,15 @@ def main(argv: list[str] | None = None) -> int:
     _run_one(
         bundle,
         options,
-        ddof=options.ddof,
+        signal_mode=options.signal_mode,
         output_prefix=options.output_prefix,
-        sensitivity_only=False,
+        sensitivity_only=options.signal_mode == "literal",
     )
-    if options.run_ddof_sensitivity:
+    if options.run_literal_sensitivity:
         _run_one(
             bundle,
             options,
-            ddof=1,
+            signal_mode="literal",
             output_prefix=options.sensitivity_prefix,
             sensitivity_only=True,
         )
