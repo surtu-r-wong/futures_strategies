@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import sys
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -156,16 +157,22 @@ class BlockedCandidate:
     reason: str
 
 
-def survey_boundaries(candidates, *, capture):
-    """采集边界观测；批内有品种日缺分钟数据时二分定位，记账后继续采其余。
+def survey_boundaries(candidates, *, capture, on_month=None):
+    """逐月采集边界观测；月内有品种日缺分钟数据时二分定位，记账后继续采其余。
 
-    权威采集撞上第一个缺数据的候选就抛，而它是**按月批量**查的，于是一个坏候选会让
-    整个月中止、每轮只能知道一个。普查要的是一次拿到完整清单再统一裁决，所以失败的
-    批做二分：正常批零额外开销，只有失败批付大约 O(k·log n) 次查询。
+    权威采集撞上第一个缺数据的候选就抛，而它**按月批量**查，于是一个坏候选会让整月
+    中止、每轮只能知道一个。普查要一次拿到完整清单再统一裁决，所以失败的批做二分。
+
+    ⚠️ **二分必须限制在月内。** `capture_session_boundaries` 内部本来就按月分组，
+    若在全量候选上二分，一个坏候选会把整份列表对半重查 —— 每层重读约 n 行、深度约
+    log2(n)，单个失败就是十几倍的基础成本。按月切开之后，重查代价被限制在那一个月，
+    完好的月份一次查完、零额外开销。
 
     ⚠️ **不使用 `tolerate_empty`。** 它的文档串明写 "must never be set for the
     audited representative" —— 打开后缺数据的行会被当成「已授权的缺席」保留下来送进
     分类器，那是在把缺陷伪装成授权，比不做还危险。
+
+    `on_month(month, captured, blocked)` 是心跳钩子：3 小时的长跑没有它就判不了活体。
 
     返回 `(拿到的观测, 缺数据的品种日)`。
     """
@@ -196,7 +203,17 @@ def survey_boundaries(candidates, *, capture):
         walk(batch[:middle])
         walk(batch[middle:])
 
-    walk(list(candidates))
+    by_month: dict[tuple[int, int], list] = {}
+    for item in candidates:
+        trade_date = item.candidate.trade_date
+        by_month.setdefault((trade_date.year, trade_date.month), []).append(item)
+
+    for month in sorted(by_month):
+        before = len(blocked)
+        walk(by_month[month])
+        if on_month is not None:
+            on_month(month, len(by_month[month]), len(blocked) - before)
+
     frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     return frame, tuple(blocked)
 
@@ -348,7 +365,19 @@ def run_survey(*, keys, start, end, settings, use_test, manifest, cache):
     def capture(batch):
         return capture_session_boundaries(source, batch, absent_identities=absent)
 
-    frame, blocked = survey_boundaries(audit.candidates, capture=capture)
+    started = time.monotonic()
+
+    def heartbeat(month, size, newly_blocked):
+        # 判活体靠这行；没有它，3 小时的长跑与卡死无法区分。
+        print(
+            f"{month[0]}-{month[1]:02d} 候选 {size} 阻塞 {newly_blocked} "
+            f"累计 {time.monotonic() - started:.0f}s",
+            flush=True,
+        )
+
+    frame, blocked = survey_boundaries(
+        audit.candidates, capture=capture, on_month=heartbeat
+    )
     write_blocked_manifest(blocked, manifest)
     if cache is not None and not blocked:
         write_boundary_cache(

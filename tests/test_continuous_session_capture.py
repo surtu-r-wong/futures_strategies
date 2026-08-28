@@ -315,3 +315,43 @@ def test_boundary_cache_refuses_a_parquet_with_no_digest(tmp_path):
 
     with pytest.raises(SessionCaptureError, match="boundary_cache_stale"):
         read_boundary_cache(path, keys=_KEYS_A)
+
+
+def test_survey_never_bisects_across_month_boundaries():
+    """二分必须限制在月内。
+
+    `capture_session_boundaries` 本来就按月分批查询；若在全量候选上二分，一个坏候选
+    会把整份列表对半重查，每层重读约 n 行、深度约 log2(n) —— 单个失败就是十几倍的
+    基础成本。月内二分把重查代价限制在那一个月。
+    """
+    january = [_candidate(date(2024, 1, day)) for day in (2, 3, 4, 5)]
+    february = [_candidate(date(2024, 2, day)) for day in (1, 2, 3, 4)]
+    capture, _calls = _capture_missing({date(2024, 1, 3)})
+    seen_batches = []
+
+    def recording_capture(batch):
+        seen_batches.append(
+            {(item.candidate.trade_date.year, item.candidate.trade_date.month)
+             for item in batch}
+        )
+        return capture(batch)
+
+    _frame, blocked = survey_boundaries(january + february, capture=recording_capture)
+
+    assert [item.trade_date for item in blocked] == [date(2024, 1, 3)]
+    assert all(len(months) == 1 for months in seen_batches), (
+        "任何一批都不能跨月，否则二分会把别的月份也拖进重查"
+    )
+    # 二月完好，必须一次查完，不能因为一月失败而被拆
+    assert seen_batches.count({(2024, 2)}) == 1
+
+
+def test_survey_reports_progress_per_month():
+    """3 小时的长跑没有心跳就无法判活体（[[long-jobs-need-setsid]] 的教训）。"""
+    items = [_candidate(date(2024, 1, 2)), _candidate(date(2024, 2, 1))]
+    capture, _ = _capture_missing(frozenset())
+    beats = []
+
+    survey_boundaries(items, capture=capture, on_month=lambda *args: beats.append(args))
+
+    assert [beat[0] for beat in beats] == [(2024, 1), (2024, 2)]
