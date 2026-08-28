@@ -320,6 +320,7 @@ def run_shadow_product(
     oi_long: int = 300,
     beta: float = 1.5,
     ddof: int = 0,
+    cost_bps: float = 1.3,
 ) -> ShadowResult:
     """Run one product without the portfolio-level volatility multiplier."""
     _nonempty_string(product, "product")
@@ -398,7 +399,7 @@ def run_shadow_product(
 
     calendar = SessionCalendar.from_bars(frame)
 
-    account = EventAccount(cost_bps=1.3)
+    account = EventAccount(cost_bps=cost_bps)
     first = traded.iloc[0]
     current_contract = str(first["contract"])
     account.initialize({current_contract: float(first["close"])})

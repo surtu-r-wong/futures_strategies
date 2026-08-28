@@ -14,6 +14,8 @@
 - `common/` — PG 连接 / settings 加载 / 净值指标（从 stock_selector 拷贝一次，此后独立演化，不回同步）
 - `cta_gtja/` — 国君六因子 CTA 因子组合复刻（原 `stock_selector/cta/`，复刻计划见 `docs/plans/2026-05-31-cta-strategy-replication-plan.md`）
 - `cta_carry/` — 国信 Carry 商品期货日线研究版（分合约期限结构 + 动量缩量缩仓过滤 + 吊灯止损）
+- `cta_bollinger/` — 国信 Bollinger 通道商品期货 15 分钟复刻（指标 / 状态机 / 影子筛选 /
+  组合回测 / 报告 / CLI 已实现；全历史验收待面板 bundle）
 - `index_open_momentum/` — 国信开盘动量股指期货日内复刻（**48/48 checkbox、端到端跑通，
   但未做全历史真跑**；计划见
   `docs/superpowers/plans/2026-07-09-guosen-open-momentum.md`；进度以
@@ -78,7 +80,7 @@ PYTHONPATH=. .venv/bin/python scripts/commodity/build_panel.py \
 **2026-01-30**；精确命令、断点恢复、manifest 审计和硬失败边界见
 [`docs/operations/commodity-panel-bundle.md`](docs/operations/commodity-panel-bundle.md)。
 
-共享层和报告原语已经落地，但 Bollinger/道氏策略及其报告导出器尚未实现。
+共享层与报告原语已落地；**Bollinger 策略与其报告导出器已实现**（下节），道氏尚未实现。
 
 ## Carry 日线研究版
 
@@ -127,3 +129,26 @@ CLI 走到那条会显式报错而非静默降级。
 那篇上撞过一次「研报样本恰好止于策略失效前」。
 
 runbook（含全部 11 条复刻假设与取数边界）：`docs/operations/guosen-open-momentum-runbook.md`
+
+## 商品期货：国信 Bollinger 通道
+
+`cta_bollinger/` 复刻国信《CTA 系列专题之二：基于 Bollinger 通道的商品期货交易
+策略》（研报日期 2021-10-13）。300/1.5 通道穿越入场、中轨或 8 倍标准差止盈离场、
+持仓量倍率在开仓冻结、月度品种筛选只读上月末以前的影子表现、组合层 10% 目标波动
+按月更新。
+
+策略不连库，只读共享面板 bundle：
+
+```bash
+.venv/bin/python -m cta_bollinger \
+  --panel-dir output/commodity-panel-v1 \
+  --start 2012-01-04 \
+  --end 2026-01-30 \
+  --output-prefix output/guosen_bollinger \
+  --require-paper-faithful \
+  --run-ddof-sensitivity
+```
+
+通道长度、beta、止盈系数、OI 窗口、目标波动与样本截止都是常量而非开关；只有研报
+未披露的标准差自由度可调，且必须成对出敏感性产物。固定参数表、硬失败边界与产物
+清单见 [`docs/operations/guosen-bollinger-runbook.md`](docs/operations/guosen-bollinger-runbook.md)。

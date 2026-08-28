@@ -71,6 +71,20 @@ CU 库存只覆盖上海保税区、AL/CU/RB 现货是周频而其余六个是�
 
 替换后需重跑上面三组对照并与本页数字比较。
 
+## 商品期货：国信 Bollinger 通道（Task 1–6 已交付，Task 7 待面板 bundle）
+
+- `cta_bollinger/`：`indicators` / `signals` / `shadow` / `selection` / `backtest` /
+  `report` / `__main__` 全部实现，单元 + 因果 + 端到端接线测试通过（CLI 在临时
+  bundle 上真跑出两份完整产物三件套）。
+- 组合层是**两本账**：真实账户带月度波动乘数，另一本 pre-volatility 平行账不带。
+  乘数只能读后者——读真实账等于让乘数吃自己的输出，读影子等于无视当月选了谁。
+- ⚠️ **Task 7 全历史验收未做**，硬阻塞在 `output/commodity-panel-v1` 尚未构建
+  （需要一次 PG 长跑，按仓库惯例投 WSL2）。
+- ⚠️ 已修复一处会打死全历史的缺陷：夜盘挂在**前一自然日**晚上，而影子层原先按
+  日历日决定「日切」和「这笔成交属于哪个交易日」。2694/5292 条时段规则含夜盘，
+  任何夜盘品种一旦在夜盘成交就会撞 `timestamp must be strictly increasing`。
+  判定交易日的规则已抽到 `common/commodity/panel.SessionCalendar`，影子与组合共用。
+
 ## 外部阻塞
 
 - `futures_daily` 与 `continuous_contract_ohlc` 的 EOD 日更仍止于 2026-04-29。
