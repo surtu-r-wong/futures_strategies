@@ -22,6 +22,7 @@ def _panel(
     open_interest: list[float] | None = None,
     contracts: list[str] | None = None,
     no_trade: list[bool] | None = None,
+    segments: list[int] | None = None,
 ) -> pd.DataFrame:
     count = len(closes)
     days = pd.bdate_range("2023-01-02", periods=count)
@@ -46,7 +47,9 @@ def _panel(
             "open_interest": np.asarray(oi, dtype="float64"),
             "no_trade": np.asarray(no_trade_values, dtype="bool"),
             "adj_factor": np.full(count, adj_factor, dtype="float64"),
-            "continuity_segment": np.zeros(count, dtype="int64"),
+            "continuity_segment": np.asarray(
+                segments if segments is not None else [0] * count, dtype="int64"
+            ),
             "fill_time": fill_time,
             "fill_price": np.asarray(closes, dtype="float64"),
             "fill_pending": np.zeros(count, dtype="bool"),
@@ -492,3 +495,65 @@ def test_a_fill_in_the_next_session_belongs_to_the_next_trade_date() -> None:
     daily = result.daily.set_index("trade_date")
     assert daily.loc[date(2024, 3, 7), "turnover"] == 0.0
     assert daily.loc[date(2024, 3, 8), "turnover"] > 0.0
+
+
+_SEGMENT_SIGNAL_COLUMNS = [
+    "signal_close", "middle", "std", "upper", "lower",
+    "atr_adjusted", "atr_raw", "oi_short", "oi_long",
+    "action", "state_position", "target_weight",
+]
+
+_SMALL = {"band_length": 5, "atr_window": 2, "oi_short": 2, "oi_long": 3}
+
+
+def _second_segment_closes() -> list[float]:
+    return [200.0] * 10 + [208.0] * 8
+
+
+def _broken_panel() -> pd.DataFrame:
+    """One product whose contract is delisted and relaunched: two segments."""
+    first = [100.0] * 10 + [104.0] * 8
+    second = _second_segment_closes()
+    closes = first + second
+    count = len(closes)
+    oi = [100.0] * len(first) + [100.0] * len(second)
+    frame = _panel(
+        closes,
+        open_interest=oi,
+        contracts=["RB1804.SHF"] * len(first) + ["RB1901.SHF"] * len(second),
+        segments=[0] * len(first) + [1] * len(second),
+    )
+    return frame
+
+
+def test_no_price_state_crosses_a_continuity_break() -> None:
+    whole = run_shadow_product(_broken_panel(), product="RB", **_SMALL)
+    alone = run_shadow_product(
+        _panel(_second_segment_closes(), open_interest=[100.0] * 18),
+        product="RB",
+        **_SMALL,
+    )
+
+    tail = whole.signals.tail(len(alone.signals)).reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        tail[_SEGMENT_SIGNAL_COLUMNS], alone.signals[_SEGMENT_SIGNAL_COLUMNS]
+    )
+
+
+def test_a_position_is_closed_at_the_last_bar_before_a_continuity_break() -> None:
+    result = run_shadow_product(_broken_panel(), product="RB", **_SMALL)
+
+    closed = result.trades.loc[result.trades["exit_reason"] == "continuity_break"]
+    assert len(closed) == 1
+    # The break is a delisting: it is closed on the old contract, at the last
+    # bar that contract ever traded.
+    assert closed.iloc[0]["exit_contract"] == "RB1804.SHF"
+    assert closed.iloc[0]["exit_date"] == result.signals.iloc[17]["trade_date"]
+
+
+def test_a_continuity_break_needs_no_roll_fill() -> None:
+    # The contracts never traded together, so no roll fill can exist. Demanding
+    # one would make every relaunched product unbacktestable.
+    result = run_shadow_product(_broken_panel(), product="RB", **_SMALL)
+
+    assert result.signals["roll_new_contract"].isna().all()

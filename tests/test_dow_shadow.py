@@ -190,3 +190,109 @@ def test_the_warmup_prefix_cannot_trade() -> None:
 def test_an_unknown_signal_mode_is_rejected() -> None:
     with pytest.raises(ValueError, match="dow_shadow_signal_mode"):
         _run(signal_mode="whatever")
+
+
+_DOW_SEGMENT_COLUMNS = [
+    "signal_close", "macd", "signal_line", "macd_diff", "cumulative",
+    "atr_adjusted", "trend", "trend_changed", "turning_valid",
+    "dow_resonance", "close_breakout", "enough_history",
+    "segment_high", "segment_low", "last_up_high_1", "last_down_low_1",
+    "action", "target_weight",
+]
+
+
+def _zigzag(count: int, base: float) -> np.ndarray:
+    return np.array(
+        [base + 0.35 * i + 7.0 * math.sin(2 * math.pi * i / 25.0) for i in range(count)]
+    )
+
+
+def _dow_bars(closes: np.ndarray, contract: str, segment: int, start) -> pd.DataFrame:
+    count = len(closes)
+    days = pd.bdate_range(start, periods=count)
+    slot_end = pd.DatetimeIndex(
+        [pd.Timestamp(datetime.combine(d.date(), time(14, 45), tzinfo=TZ)) for d in days]
+    )
+    return pd.DataFrame(
+        {
+            "product": pd.Series(["RB"] * count, dtype="string"),
+            "contract": pd.Series([contract] * count, dtype="string"),
+            "trade_date": [d.date() for d in days],
+            "slot_end": slot_end,
+            "open": closes,
+            "high": closes + BAND,
+            "low": closes - BAND,
+            "close": closes,
+            "volume": np.full(count, 100.0),
+            "open_interest": np.arange(count, dtype="float64") + 1000.0,
+            "no_trade": np.zeros(count, dtype="bool"),
+            "adj_factor": np.ones(count),
+            "continuity_segment": np.full(count, segment, dtype="int64"),
+            "fill_time": slot_end + pd.Timedelta(minutes=5),
+            "fill_price": closes,
+            "fill_pending": np.zeros(count, dtype="bool"),
+            "fill_unpriceable": np.zeros(count, dtype="bool"),
+            "pricing_basis": pd.Series(["amount_vwap"] * count, dtype="string"),
+            "multiplier": np.full(count, 10, dtype="int64"),
+        }
+    )
+
+
+def _empty_rolls() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "trade_date", "product", "old_contract", "new_contract", "fill_time",
+            "old_price", "new_price", "old_pricing_basis", "new_pricing_basis",
+        ]
+    )
+
+
+def test_no_dow_state_crosses_a_continuity_break() -> None:
+    first = _dow_bars(_zigzag(200, 100.0), "RB1804.SHF", 0, "2017-06-01")
+    second_closes = _zigzag(200, 300.0)
+    second = _dow_bars(second_closes, "RB1901.SHF", 1, "2018-07-16")
+    whole = run_shadow_product(
+        pd.concat([first, second], ignore_index=True),
+        product="RB",
+        roll_fills=_empty_rolls(),
+    )
+    alone = run_shadow_product(
+        _dow_bars(second_closes, "RB1901.SHF", 0, "2018-07-16"),
+        product="RB",
+        roll_fills=_empty_rolls(),
+    )
+
+    tail = whole.signals.tail(len(alone.signals)).reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        tail[_DOW_SEGMENT_COLUMNS], alone.signals[_DOW_SEGMENT_COLUMNS]
+    )
+
+
+def test_a_dow_position_is_closed_at_the_last_bar_before_a_break() -> None:
+    # 60 bars ends the first segment mid-hold, which is the case that matters:
+    # a delisted contract cannot be carried into the relaunched one.
+    first = _dow_bars(_zigzag(60, 100.0), "RB1804.SHF", 0, "2017-06-01")
+    second = _dow_bars(_zigzag(200, 300.0), "RB1901.SHF", 1, "2018-07-16")
+    result = run_shadow_product(
+        pd.concat([first, second], ignore_index=True),
+        product="RB",
+        roll_fills=_empty_rolls(),
+    )
+
+    closed = result.trades.loc[result.trades["exit_reason"] == "continuity_break"]
+    assert len(closed) == 1
+    assert closed.iloc[0]["exit_contract"] == "RB1804.SHF"
+    assert closed.iloc[0]["exit_date"] == first["trade_date"].iloc[-1]
+
+
+def test_a_dow_continuity_break_needs_no_roll_fill() -> None:
+    first = _dow_bars(_zigzag(200, 100.0), "RB1804.SHF", 0, "2017-06-01")
+    second = _dow_bars(_zigzag(200, 300.0), "RB1901.SHF", 1, "2018-07-16")
+
+    result = run_shadow_product(
+        pd.concat([first, second], ignore_index=True),
+        product="RB",
+        roll_fills=_empty_rolls(),
+    )
+
+    assert not result.signals["roll_event"].any()

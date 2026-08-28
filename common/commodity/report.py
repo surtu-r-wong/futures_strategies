@@ -104,6 +104,21 @@ SHARED_FIDELITY_ROWS: tuple[dict[str, str], ...] = (
         "impact": "郑商所品种成交价不是精确 VWAP，data_quality 逐笔可查",
     },
     {
+        "rule_id": "F10",
+        "paper_text": "主力连续价格序列",
+        "implementation": (
+            "新旧主力有效收盘区间严格不相交且旧合约让出主力即停牌时，开启新连续段："
+            "复权因子重置 1.0，指标与状态机按段重新预热，段末最后一根强制平仓"
+        ),
+        "basis": (
+            "燃料油 2018 年摘牌重挂（FU1804 末日 03-30、FU1901 首日 07-16）没有共同"
+            "收盘日，不存在可观察的复权比率；全历史仅此一处"
+        ),
+        "status": "preregistered_default",
+        "variant": "none",
+        "impact": "断代两侧不共享任何价格状态；退市合约不会被带过断层",
+    },
+    {
         "rule_id": "F9",
         "paper_text": "过去一年策略已实现波动率",
         "implementation": "窗口内收益全为零时视为预热未完成：本月不建仓，并计入 data_quality",

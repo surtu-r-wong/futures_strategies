@@ -144,22 +144,12 @@ def result() -> BacktestResult:
 
 
 def test_fidelity_contains_every_registered_rule() -> None:
-    # F9 is shared with the Dow replication: a flat volatility window is
-    # warmup, not a zero volatility.
+    # F9 and F10 are shared with the Dow replication: a flat volatility window
+    # is warmup, and a market break opens a new continuity segment. The ledger
+    # sorts case-insensitively, so "F10" lands between "F1" and "F2".
     assert FIDELITY_RULE_IDS == (
-        "B1",
-        "B2",
-        "B3",
-        "B4",
-        "F1",
-        "F2",
-        "F3",
-        "F4",
-        "F5",
-        "F6",
-        "F7",
-        "F8",
-        "F9",
+        "B1", "B2", "B3", "B4",
+        "F1", "F10", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9",
     )
 
 

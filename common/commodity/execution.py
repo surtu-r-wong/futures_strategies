@@ -30,6 +30,7 @@ __all__ = [
     "ShadowLedger",
     "prepare_bars",
     "prepare_rolls",
+    "segment_slices",
 ]
 
 
@@ -46,6 +47,7 @@ BAR_COLUMNS = (
     "open_interest",
     "no_trade",
     "adj_factor",
+    "continuity_segment",
     "fill_time",
     "fill_price",
     "fill_pending",
@@ -78,6 +80,20 @@ DAILY_COLUMNS = (
     "equity",
     "gross_leverage",
 )
+
+
+def segment_slices(segments: np.ndarray) -> list[slice]:
+    """把一列连续分段编号切成若干段连续区间。
+
+    指标、状态机与持仓都必须按段重来 —— 一次市场断代两侧的价格根本不可比，
+    跨段算出来的均线只是把两段不相干的价格拼在一起。
+    """
+    values = np.asarray(segments)
+    if values.size == 0:
+        return []
+    boundaries = np.flatnonzero(values[1:] != values[:-1]) + 1
+    edges = [0, *boundaries.tolist(), values.size]
+    return [slice(edges[i], edges[i + 1]) for i in range(len(edges) - 1)]
 
 
 def required_columns(
@@ -166,6 +182,23 @@ def prepare_bars(value: object, product: str) -> tuple[pd.DataFrame, object | No
         if not frame[column].map(lambda item: isinstance(item, (bool, np.bool_))).all():
             raise ValueError(f"shadow_{column}: expected boolean values")
         frame[column] = frame[column].astype(bool)
+    segments = frame["continuity_segment"]
+    if not pd.api.types.is_integer_dtype(segments.dtype):
+        try:
+            segments = segments.astype("int64")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "shadow_continuity_segment: expected integer segment ids"
+            ) from exc
+        frame["continuity_segment"] = segments
+    values = segments.to_numpy()
+    if values.size and (values < 0).any():
+        raise ValueError("shadow_continuity_segment: expected nonnegative segment ids")
+    if values.size > 1 and (values[1:] < values[:-1]).any():
+        raise ValueError(
+            "shadow_continuity_segment: segments must not decrease over time"
+        )
+
     for row in frame.itertuples(index=False):
         finite(row.multiplier, "multiplier", positive=True)
         finite(row.adj_factor, "adj_factor", positive=True)

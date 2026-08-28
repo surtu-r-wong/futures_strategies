@@ -142,7 +142,7 @@ def test_fidelity_contains_every_registered_rule() -> None:
     # fidelity_frame orders case-insensitively, so D comes before F.
     assert FIDELITY_RULE_IDS == (
         "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8",
-        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9",
+        "F1", "F10", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9",
     )
 
 

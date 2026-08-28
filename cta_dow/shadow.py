@@ -26,6 +26,7 @@ from common.commodity.execution import (
     nonempty_string,
     prepare_bars,
     prepare_rolls,
+    segment_slices,
 )
 from common.commodity.indicators import atr_series
 from common.commodity.panel import SessionCalendar
@@ -232,12 +233,28 @@ def run_shadow_product(
     adjusted_high = traded["high"].to_numpy(dtype="float64") * factors
     adjusted_low = traded["low"].to_numpy(dtype="float64") * factors
     adjusted_close = traded["close"].to_numpy(dtype="float64") * factors
-    path = macd_path(adjusted_close)
-    adjusted_atr = atr_series(
-        adjusted_high, adjusted_low, adjusted_close, window=atr_window
-    )
-    adjusted_atr[: min(atr_window - 1, len(adjusted_atr))] = np.nan
-    trends = _trend_path(path.cumulative, adjusted_atr)
+    # 每个连续段各自算指标、各自预热、各自判趋势。断代两侧价格不可比，跨段的
+    # EMA 与累计距离只是把两段不相干的价格拼在一起（保真度 F10）。
+    segments = traded["continuity_segment"].to_numpy()
+    slices = segment_slices(segments)
+    blank = lambda: np.full(len(adjusted_close), np.nan)
+    macd, signal_line, macd_diff, cumulative = blank(), blank(), blank(), blank()
+    adjusted_atr = blank()
+    trends: list[Trend] = [Trend.NEUTRAL] * len(adjusted_close)
+    for span in slices:
+        path = macd_path(adjusted_close[span])
+        macd[span] = path.macd
+        signal_line[span] = path.signal_line
+        macd_diff[span] = path.diff
+        cumulative[span] = path.cumulative
+        atr = atr_series(
+            adjusted_high[span], adjusted_low[span], adjusted_close[span],
+            window=atr_window,
+        )
+        atr[: min(atr_window - 1, len(atr))] = np.nan
+        adjusted_atr[span] = atr
+        trends[span] = list(_trend_path(path.cumulative, atr))
+    trends = tuple(trends)
 
     traded_positions = list(traded.index)
     for position, frame_index in enumerate(traded_positions):
@@ -248,10 +265,10 @@ def run_shadow_product(
             signal_high=adjusted_high[position],
             signal_low=adjusted_low[position],
             signal_close=adjusted_close[position],
-            macd=path.macd[position],
-            signal_line=path.signal_line[position],
-            macd_diff=path.diff[position],
-            cumulative=path.cumulative[position],
+            macd=macd[position],
+            signal_line=signal_line[position],
+            macd_diff=macd_diff[position],
+            cumulative=cumulative[position],
             atr_adjusted=adjusted_atr[position],
             atr_raw=adjusted_atr[position] / factor,
         )
@@ -275,6 +292,14 @@ def run_shadow_product(
     number_by_index = {
         frame_index: number for number, frame_index in enumerate(traded_positions)
     }
+    segment_by_index = {
+        frame_index: int(segments[number])
+        for number, frame_index in enumerate(traded_positions)
+    }
+    # 只在**还有下一段**的段末强制平仓；面板最后一根不是断代。
+    segment_last_bars = {traded_positions[span.stop - 1] for span in slices[:-1]}
+    segment_first_bars = {traded_positions[span.start] for span in slices}
+    previous_segment: int | None = None
 
     def carry(output: dict[str, object]) -> None:
         output.update(
@@ -319,6 +344,15 @@ def run_shadow_product(
                 continue
 
             contract = str(row["contract"])
+            current_segment = segment_by_index[frame_index]
+            if previous_segment is not None and current_segment != previous_segment:
+                # 新的一段：趋势段、极值历史与持仓状态全部重来，且不向换月要成交
+                # —— 两张合约从没同日交易过，换月单不可能存在。
+                segment = SegmentState.empty()
+                trade_state = TradeState(Position.FLAT)
+                previous_contract = None
+                previous_pricing_basis = None
+            previous_segment = current_segment
             if previous_contract is not None and contract != previous_contract:
                 matches = rolls.loc[
                     (rolls["trade_date"] == trade_date)
@@ -373,9 +407,37 @@ def run_shadow_product(
             ledger.note_price(contract, row["slot_end"], float(row["close"]))
 
             position = number_by_index[frame_index]
+            if frame_index in segment_last_bars:
+                output["action"] = "continuity_break"
+                if ledger.current_target != 0.0:
+                    fill_price = finite(
+                        row["fill_price"], "continuity break fill", positive=True
+                    )
+                    assert ledger.current_contract is not None
+                    ledger.request_target(
+                        trade_date=trade_date,
+                        fill_time=row["fill_time"],
+                        contract=ledger.current_contract,
+                        fill_price=fill_price,
+                        next_target=0.0,
+                        direction=0,
+                        reason="continuity_break",
+                        exit_fields={
+                            "exit_signal_close": float(adjusted_close[position])
+                        },
+                        on_execute=lambda output=output: output.__setitem__(
+                            "action_changed", True
+                        ),
+                    )
+                    trade_state = TradeState(Position.FLAT)
+                carry(output)
+                continue
+
             atr_adjusted = adjusted_atr[position]
             if not math.isfinite(atr_adjusted) or atr_adjusted <= 0.0:
-                output["action"] = "atr_unavailable" if position else "warmup"
+                output["action"] = (
+                    "warmup" if frame_index in segment_first_bars else "atr_unavailable"
+                )
                 carry(output)
                 continue
 

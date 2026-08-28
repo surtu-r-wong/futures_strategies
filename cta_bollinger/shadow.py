@@ -22,6 +22,7 @@ from common.commodity.execution import (
     nonempty_string,
     prepare_bars,
     prepare_rolls,
+    segment_slices,
 )
 from common.commodity.indicators import atr_series
 from common.commodity.panel import SessionCalendar
@@ -179,16 +180,31 @@ def run_shadow_product(
     adjusted_high = traded["high"].to_numpy(dtype="float64") * factors
     adjusted_low = traded["low"].to_numpy(dtype="float64") * factors
     adjusted_close = traded["close"].to_numpy(dtype="float64") * factors
-    band_path = bands(adjusted_close, length=band_length, beta=beta, ddof=ddof)
-    oi_path = rolling_oi(
-        traded["open_interest"].to_numpy(dtype="float64"),
-        short=oi_short,
-        long=oi_long,
-    )
-    adjusted_atr = atr_series(
-        adjusted_high, adjusted_low, adjusted_close, window=atr_window
-    )
-    adjusted_atr[: min(atr_window - 1, len(adjusted_atr))] = np.nan
+    # 每个连续段各自算指标并各自预热。断代两侧的价格不可比，跨段的均线只是把
+    # 两段不相干的价格拼在一起（保真度 F10）。
+    open_interest = traded["open_interest"].to_numpy(dtype="float64")
+    segments = traded["continuity_segment"].to_numpy()
+    slices = segment_slices(segments)
+    blank = lambda: np.full(len(adjusted_close), np.nan)
+    middle, std_path, upper, lower = blank(), blank(), blank(), blank()
+    oi_short_path, oi_long_path, adjusted_atr = blank(), blank(), blank()
+    for span in slices:
+        band = bands(
+            adjusted_close[span], length=band_length, beta=beta, ddof=ddof
+        )
+        middle[span] = band.middle
+        std_path[span] = band.std
+        upper[span] = band.upper
+        lower[span] = band.lower
+        oi = rolling_oi(open_interest[span], short=oi_short, long=oi_long)
+        oi_short_path[span] = oi.short
+        oi_long_path[span] = oi.long
+        atr = atr_series(
+            adjusted_high[span], adjusted_low[span], adjusted_close[span],
+            window=atr_window,
+        )
+        atr[: min(atr_window - 1, len(atr))] = np.nan
+        adjusted_atr[span] = atr
 
     traded_positions = list(traded.index)
     for position, frame_index in enumerate(traded_positions):
@@ -199,14 +215,14 @@ def run_shadow_product(
             signal_high=adjusted_high[position],
             signal_low=adjusted_low[position],
             signal_close=adjusted_close[position],
-            middle=band_path.middle[position],
-            std=band_path.std[position],
-            upper=band_path.upper[position],
-            lower=band_path.lower[position],
+            middle=middle[position],
+            std=std_path[position],
+            upper=upper[position],
+            lower=lower[position],
             atr_adjusted=adjusted_atr[position],
             atr_raw=adjusted_atr[position] / factor,
-            oi_short=oi_path.short[position],
-            oi_long=oi_path.long[position],
+            oi_short=oi_short_path[position],
+            oi_long=oi_long_path[position],
         )
 
     ledger = ShadowLedger(
@@ -227,6 +243,13 @@ def run_shadow_product(
     traded_number_by_index = {
         frame_index: number for number, frame_index in enumerate(traded_positions)
     }
+    segment_by_index = {
+        frame_index: int(segments[number])
+        for number, frame_index in enumerate(traded_positions)
+    }
+    # 只在**还有下一段**的段末强制平仓；面板最后一根不是断代，仓位照常留着。
+    segment_last_bars = {traded_positions[span.stop - 1] for span in slices[:-1]}
+    previous_segment: int | None = None
 
     def carry_state(output: dict[str, object]) -> None:
         output.update(
@@ -269,6 +292,14 @@ def run_shadow_product(
                 continue
 
             contract = str(row["contract"])
+            current_segment = segment_by_index[frame_index]
+            if previous_segment is not None and current_segment != previous_segment:
+                # 新的一段：状态在上一段末尾已经平掉，这里把状态机也清干净，并且
+                # 不再向换月要成交 —— 两张合约从没同日交易过，换月单不可能存在。
+                state = State(Position.FLAT, take_profit=None, oi_scale=0.0)
+                previous_contract = None
+                previous_pricing_basis = None
+            previous_segment = current_segment
             if previous_contract is not None and contract != previous_contract:
                 matches = rolls.loc[
                     (rolls["trade_date"] == trade_date)
@@ -341,6 +372,32 @@ def run_shadow_product(
             previous_pricing_basis = str(row["pricing_basis"])
             ledger.drain_until(row["slot_end"])
             ledger.note_price(contract, row["slot_end"], float(row["close"]))
+
+            if frame_index in segment_last_bars:
+                output["action"] = "continuity_break"
+                if ledger.current_target != 0.0:
+                    fill_price = finite(
+                        row["fill_price"], "continuity break fill", positive=True
+                    )
+                    assert ledger.current_contract is not None
+                    ledger.request_target(
+                        trade_date=trade_date,
+                        fill_time=row["fill_time"],
+                        contract=ledger.current_contract,
+                        fill_price=fill_price,
+                        next_target=0.0,
+                        direction=0,
+                        reason="continuity_break",
+                        exit_fields={
+                            "exit_signal_close": float(output["signal_close"])
+                        },
+                        on_execute=lambda output=output: output.__setitem__(
+                            "action_changed", True
+                        ),
+                    )
+                    state = State(Position.FLAT, take_profit=None, oi_scale=0.0)
+                carry_state(output)
+                continue
 
             number = traded_number_by_index[frame_index]
             ready_values = (
