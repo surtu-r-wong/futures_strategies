@@ -34,7 +34,7 @@ from cta_continuous.panel import (  # noqa: E402
 )
 from cta_continuous.scope import load_scope_daily, panel_scope  # noqa: E402
 
-SESSION_RULES = Path("config/carry_minute_sessions.csv")
+SESSION_RULES = Path("config/continuous_minute_sessions.csv")
 PRICING_BASES = Path("config/carry_minute_pricing_basis.csv")
 
 
