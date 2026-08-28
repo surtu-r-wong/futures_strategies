@@ -779,8 +779,14 @@ def test_repository_uses_only_the_session_exception_authority_contract():
     )
     # Batches A/C/D/E (149) plus F (74), G (304), G-3 (11), the two 2017
     # option-launch evenings, and H (15), all reviewed on 2026-08-25.
-    assert len(authority.session_exceptions) == 555
-    assert len(authority.day_only_regimes) == 37
+    #
+    # Batch I, reviewed 2026-08-28, comes from the first capture over the
+    # continuous strategy's universe, which audits product-days Carry's pool
+    # never reached: the two 2018 INE post-holiday evenings (INE's SC only
+    # entered Carry's pool that September, so nobody had written them), and
+    # DCE EG's day-only span before it joined night trading on 2019-04-01.
+    assert len(authority.session_exceptions) == 555 + 2
+    assert len(authority.day_only_regimes) == 37 + 1
     assert authority.liquidity_history_exceptions == ()
     # Only the evening of 2019-12-25 needs product-scoped rows: Shanghai wrote
     # three closes and the energy centre two, so an exchange-wide row cannot

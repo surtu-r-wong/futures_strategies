@@ -4033,3 +4033,90 @@ def test_capture_reuses_supplied_boundaries_instead_of_requerying(
         use_test=True,
         boundaries=captured,
     )
+
+
+def _unconsumed(ambiguities):
+    return [
+        (item.exchange, item.product, item.trade_date)
+        for item in ambiguities
+        if item.check == "session_exception_unconsumed"
+    ]
+
+
+def test_unconsumed_exception_outside_the_audit_scope_is_forgiven_when_declared():
+    """另一个宇宙合法用不上的授权行，不该把它的采集永久卡死。
+
+    真实来由：2019-12-26 全市场夜盘延后至 22:30，上期所按品种写了 14 条例外。连续
+    策略那天黄金换月双最大拉锯、没有主力，于是从不审计 AU，那条 AU 例外便永远无人
+    消费 —— 而它对 Carry 是对的。
+    """
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    declared = SessionException(
+        exchange="SHFE",
+        version=SESSION_RULES_VERSION,
+        trade_date=monday,
+        product="AU",
+        night_start="none",
+        night_end="none",
+        reason="notice_evening=2024-01-05 holiday halt",
+        source_url="https://www.shfe.com.cn/example",
+    )
+
+    _rows, ambiguities, notes = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([_observation(monday, friday, night_end="23:00", product="RB")]),
+        _authority(session_exceptions=(declared,)),
+        global_calendar=(friday, monday),
+        audit_keys=frozenset({("SHFE", "RB", monday)}),
+    )
+
+    assert _unconsumed(ambiguities) == []
+    assert any("session_exception_unaudited" in note for note in notes), (
+        "赦免必须留痕，否则就是静默放过"
+    )
+
+
+def test_unconsumed_exception_inside_the_audit_scope_stays_fatal():
+    """该审计却没消费，是真异常 —— 一条也不放过。"""
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    declared = SessionException(
+        exchange="SHFE",
+        version=SESSION_RULES_VERSION,
+        trade_date=monday,
+        product="AU",
+        night_start="none",
+        night_end="none",
+        reason="notice_evening=2024-01-05 holiday halt",
+        source_url="https://www.shfe.com.cn/example",
+    )
+
+    _rows, ambiguities, _notes = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([_observation(monday, friday, night_end="23:00", product="RB")]),
+        _authority(session_exceptions=(declared,)),
+        global_calendar=(friday, monday),
+        audit_keys=frozenset({("SHFE", "AU", monday), ("SHFE", "RB", monday)}),
+    )
+
+    assert _unconsumed(ambiguities) == [("SHFE", "AU", monday)]
+
+
+def test_unconsumed_exception_still_blocks_when_no_audit_scope_is_declared():
+    """不声明审计范围时，行为与拆分前一字不差。"""
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    declared = SessionException(
+        exchange="SHFE",
+        version=SESSION_RULES_VERSION,
+        trade_date=monday,
+        product="AU",
+        night_start="none",
+        night_end="none",
+        reason="notice_evening=2024-01-05 holiday halt",
+        source_url="https://www.shfe.com.cn/example",
+    )
+
+    _rows, ambiguities, _notes = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([_observation(monday, friday, night_end="23:00", product="RB")]),
+        _authority(session_exceptions=(declared,)),
+        global_calendar=(friday, monday),
+    )
+
+    assert _unconsumed(ambiguities) == [("SHFE", "AU", monday)]

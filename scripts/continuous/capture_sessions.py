@@ -472,6 +472,10 @@ def main(argv: "list[str] | None" = None) -> int:
         audit_builder=audit_builder_for(keys),
         coverage_check=continuous_capture_coverage,
         boundaries=boundaries,
+        # 例外表是跨消费者共享的。本策略的宇宙合法覆盖不到的品种日（如 2019-12-26
+        # 黄金换月双最大拉锯、当天没有主力，因而永远消费不掉 SHFE/AU 那条例外），
+        # 声明审计范围后予以赦免并留痕；范围之内却未被消费的，仍然致命。
+        forgive_unaudited_exceptions=True,
     )
     print(
         "products={} rules={} checked_days={} ambiguous={}".format(*outcome.counts),

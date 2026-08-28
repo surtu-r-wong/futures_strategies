@@ -982,13 +982,35 @@ def classify_session_boundary(
     return NightObservation(labels[0], labels[1], note)
 
 
+def _audited_exception_scope(audit_keys):
+    """Index the audit keys once: exact product-days, and exchange-days."""
+    if audit_keys is None:
+        return None
+    keys = frozenset(audit_keys)
+    return keys, frozenset((key[0], key[2]) for key in keys)
+
+
 def classify_authorized_boundaries(
     boundaries: pd.DataFrame,
     authority: SessionAuthority,
     *,
     global_calendar: Sequence[date],
+    audit_keys=None,
 ) -> tuple[pd.DataFrame, tuple[AmbiguityRecord, ...], tuple[str, ...]]:
-    """Classify every boundary and reconcile each result with authority."""
+    """Classify every boundary and reconcile each result with authority.
+
+    ``audit_keys`` declares which product-days this capture audits. Given it, an
+    authority exception nobody consumed is forgiven **only** when its product-day
+    lies outside that scope, and the skip is recorded in the notes. Left as
+    ``None`` every unconsumed exception is an ambiguity, as before.
+
+    The distinction matters because the exceptions are shared across consumers
+    whose universes differ. 2019-12-26 delayed the night open market-wide and
+    SHFE wrote one exception per product; the continuous strategy has no dominant
+    gold contract that day, so it never audits AU and can never consume AU\'s row
+    -- while the row is entirely correct for Carry. An exception inside the
+    audited scope that still went unconsumed is a real anomaly and stays fatal.
+    """
     identity_columns = {"exchange", "product", "trade_date"}
     missing = sorted(identity_columns.difference(boundaries.columns))
     if missing:
@@ -1076,9 +1098,24 @@ def classify_authorized_boundaries(
             if row.trade_date in loaded_dates
         }
     )
+    audited_scope = _audited_exception_scope(audit_keys)
     for exchange, product, trade_date in relevant_keys:
         if (exchange, product, trade_date) in consumed_exception_keys:
             continue
+        if audited_scope is not None:
+            exact, exchange_days = audited_scope
+            audited = (
+                (exchange, product, trade_date) in exact
+                if product
+                else (exchange, trade_date) in exchange_days
+            )
+            if not audited:
+                notes.append(
+                    "session_exception_unaudited "
+                    f"exchange={exchange} product={product or '*'} "
+                    f"trade_date={trade_date.isoformat()}"
+                )
+                continue
         ambiguous.append(
             AmbiguityRecord(
                 trade_date=trade_date,
@@ -1941,6 +1978,7 @@ def _capture_and_publish_outcome(
     audit_builder=None,
     coverage_check=None,
     boundaries=None,
+    forgive_unaudited_exceptions: bool = False,
 ) -> _CaptureOutcome:
     """Capture, authority-check, and atomically publish session rules.
 
@@ -2091,7 +2129,12 @@ def _capture_and_publish_outcome(
             "checked_days_mismatch: boundary and yearly audited totals differ"
         )
     classified, ambiguities, attribution_notes = classify_authorized_boundaries(
-        boundaries, authority, global_calendar=audit.global_calendar
+        boundaries,
+        authority,
+        global_calendar=audit.global_calendar,
+        audit_keys=(
+            audit.key_sets.audit_keys if forgive_unaudited_exceptions else None
+        ),
     )
     # Second look: a session is a fact about the product, so a product-day the
     # first pass could not settle gets to hear from the product's other
