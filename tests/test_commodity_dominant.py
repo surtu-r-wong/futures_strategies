@@ -132,3 +132,57 @@ def test_czce_three_digit_codes_compare_as_the_same_delivery_month():
     )
     choices = choose_dominant_commodity(frame, products=("TA",))
     assert [c.contract for c in choices] == ["TA701.CZC"]
+
+
+def test_a_contract_that_never_traded_is_not_the_volume_maximum():
+    """挂牌但零成交的合约不能当主力 —— 「成交量最大」以成交为前提。
+
+    真实数据里有：`OI1307.CZC` 2012 年 7 月逐日 `oi=0 volume=0`、收盘冻在 10052，
+    却因为是当日唯一一张菜籽油合约而被选成主力，于是面板为一个没有交易的品种日
+    索取时段规则。
+    """
+    frame = _pool(
+        [
+            (D[0], "OI1307.CZC", 0, 0),
+            (D[1], "OI1307.CZC", 0, 0),
+            (D[2], "OI1307.CZC", 0, 0),
+        ]
+    )
+
+    assert choose_dominant_commodity(frame, products=("OI",)) == ()
+
+
+def test_a_held_dominant_that_stops_trading_is_not_carried_onto_a_dead_day():
+    """沿用只在旧主力**当日仍在交易**时成立。
+
+    D11 的注释本来就是这个意思（「不能被伪造成 oi=volume=0 的可交易主力」），但它
+    只拦了合约整行缺席，没拦行在、量为零。
+    """
+    frame = _pool(
+        [
+            (D[0], "RB2405.SHF", 100, 300),
+            (D[1], "RB2405.SHF", 100, 300),
+            (D[2], "RB2405.SHF", 100, 0),
+            (D[3], "RB2405.SHF", 100, 0),
+        ]
+    )
+
+    chosen = choose_dominant_commodity(frame, products=("RB",))
+
+    assert [c.trade_date for c in chosen] == [D[1], D[2]]
+    assert all(c.volume > 0 for c in chosen)
+
+
+def test_a_traded_day_still_selects_normally():
+    frame = _pool(
+        [
+            (D[0], "RB2405.SHF", 100, 300),
+            (D[0], "RB2410.SHF", 90, 100),
+            (D[1], "RB2405.SHF", 100, 300),
+            (D[1], "RB2410.SHF", 90, 100),
+        ]
+    )
+
+    chosen = choose_dominant_commodity(frame, products=("RB",))
+
+    assert [c.contract for c in chosen] == ["RB2405.SHF"]

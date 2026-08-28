@@ -99,9 +99,11 @@ def choose_dominant_commodity(
                 continue
 
             row = pool.loc[pool["contract_key"] == held_key]
-            # D11 的「沿用」只适用于旧主力仍在当日合约池的情形。已经退市/缺档的
-            # 合约不能被伪造成 oi=volume=0 的可交易主力；等下一张双最大出现再恢复。
-            if row.empty:
+            # D11 的「沿用」只适用于旧主力仍在当日合约池**且当日确实在交易**的情形。
+            # 已经退市/缺档的合约不能被伪造成 oi=volume=0 的可交易主力；等下一张双
+            # 最大出现再恢复。零成交的行与整行缺席是同一回事：真实数据里
+            # `OI1307.CZC` 2012 年 7 月逐日 oi=volume=0、收盘冻住，行是在的。
+            if row.empty or int(row["volume"].iloc[0]) <= 0:
                 continue
             chosen.append(
                 DominantChoice(
@@ -117,9 +119,15 @@ def choose_dominant_commodity(
 
 
 def _both_max(pool: pd.DataFrame, source_date: date) -> str | None:
-    """成交量与持仓量**同时**最大的那张合约；没有则 ``None``（研报未写，见 D11）。"""
+    """成交量与持仓量**同时**最大的那张合约；没有则 ``None``（研报未写，见 D11）。
+
+    整个品种当日零成交时没有「成交量最大」可言 —— 挂牌未交易的合约会因为是唯一
+    一张而白捡主力身份，把一个根本没有交易的品种日送进面板。
+    """
     top_oi = pool["oi"].max()
     top_volume = pool["volume"].max()
+    if top_volume <= 0:
+        return None
     winners = pool.loc[(pool["oi"] == top_oi) & (pool["volume"] == top_volume)]
     if len(winners) != 1:
         return None
