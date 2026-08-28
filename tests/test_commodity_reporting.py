@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from common.metrics import summarize
+from common.commodity import reporting as commodity_reporting
 from common.commodity.reporting import fidelity_frame, split_metrics
 
 
@@ -372,3 +373,27 @@ def test_fidelity_accepts_nonblank_statuses_without_inventing_an_enum() -> None:
     )
 
     assert list(result["status"]) == ["assumption", "sensitivity_only", "known_gap"]
+
+
+def test_excel_safe_frame_defuses_a_formula_cell() -> None:
+    frame = pd.DataFrame({"note": ["=1+1", "+SUM(A1)", "-2+3", "@cmd", "plain"]})
+
+    out = commodity_reporting.excel_safe_frame(frame)
+
+    assert out["note"].tolist() == ["'=1+1", "'+SUM(A1)", "'-2+3", "'@cmd", "plain"]
+
+
+def test_excel_safe_frame_strips_control_characters_openpyxl_rejects() -> None:
+    frame = pd.DataFrame({"note": ["ok\x01bad"]})
+
+    assert commodity_reporting.excel_safe_frame(frame)["note"].tolist() == ["okbad"]
+
+
+def test_excel_safe_frame_makes_an_instant_a_wall_clock() -> None:
+    stamp = pd.Timestamp("2024-03-05 21:15", tz="Asia/Shanghai")
+    frame = pd.DataFrame({"slot_end": [stamp]})
+
+    out = commodity_reporting.excel_safe_frame(frame)
+
+    assert out["slot_end"].tolist() == [pd.Timestamp("2024-03-05 21:15")]
+    assert not isinstance(out["slot_end"].dtype, pd.DatetimeTZDtype)

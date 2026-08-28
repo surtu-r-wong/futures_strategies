@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime
+import json
 import math
 from numbers import Real
 import unicodedata
@@ -191,4 +192,64 @@ def fidelity_frame(rows: Iterable[Mapping[str, object]]) -> pd.DataFrame:
     return pd.DataFrame(ordered, columns=FIDELITY_COLUMNS).reset_index(drop=True)
 
 
-__all__ = ["fidelity_frame", "split_metrics"]
+#: 工作簿里所有 tz-aware 瞬时都按这个时区落成墙钟。
+EXCEL_TIMEZONE = "Asia/Shanghai"
+
+#: Excel 会把这些开头的文本当公式执行。
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _excel_cell(value: object) -> object:
+    if isinstance(value, (list, tuple, dict, set)):
+        return json.dumps(
+            sorted(value) if isinstance(value, set) else value,
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+    if isinstance(value, pd.Timestamp) and value.tzinfo is not None:
+        return value.tz_convert(EXCEL_TIMEZONE).tz_localize(None)
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return pd.Timestamp(value).tz_convert(EXCEL_TIMEZONE).tz_localize(None)
+    if not isinstance(value, str):
+        return value
+    cleaned = "".join(
+        character
+        for character in value
+        if character in "\n\t" or unicodedata.category(character) != "Cc"
+    )
+    if cleaned.startswith(_FORMULA_LEAD):
+        return f"'{cleaned}"
+    return cleaned
+
+
+def excel_safe_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Make a frame writable by openpyxl without changing what it says.
+
+    Three shapes reach the serialization boundary that a spreadsheet gets
+    wrong. Containers become canonical JSON. Timezone-aware instants become
+    wall-clock times, because Excel has no notion of an offset. And text that
+    opens with ``= + - @`` is quoted, because otherwise the reader executes the
+    fidelity ledger instead of displaying it -- the ledger is deliberately
+    free-form prose quoted from a paper, so it is exactly the sheet an attacker
+    or a careless copy-paste would land in.
+    """
+    if not isinstance(frame, pd.DataFrame):
+        raise ValueError("excel_safe_frame: expected a DataFrame")
+    out = frame.copy()
+    for column in out.columns:
+        dtype = out[column].dtype
+        if isinstance(dtype, pd.DatetimeTZDtype):
+            out[column] = out[column].dt.tz_convert(EXCEL_TIMEZONE).dt.tz_localize(None)
+            continue
+        if pd.api.types.is_object_dtype(dtype) or isinstance(dtype, pd.StringDtype):
+            out[column] = out[column].map(_excel_cell)
+    return out
+
+
+__all__ = [
+    "EXCEL_TIMEZONE",
+    "excel_safe_frame",
+    "fidelity_frame",
+    "split_metrics",
+]
