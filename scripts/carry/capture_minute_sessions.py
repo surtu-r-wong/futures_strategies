@@ -1925,8 +1925,15 @@ def _capture_and_publish_outcome(
     audit_report: Path,
     settings: Path | None,
     use_test: bool,
+    audit_builder=None,
 ) -> _CaptureOutcome:
-    """Capture, authority-check, and atomically publish session rules."""
+    """Capture, authority-check, and atomically publish session rules.
+
+    ``audit_builder`` decides which product-days the capture audits. It is
+    called exactly as ``_build_default_liquidity_audit`` is, and defaults to it,
+    so the Carry path is unchanged. The continuous strategy injects its own so
+    the same publish path can serve a different universe.
+    """
     validate_capture_output_paths(
         output=output,
         inventory_output=inventory_output,
@@ -1981,7 +1988,10 @@ def _capture_and_publish_outcome(
         config_path=settings,
         use_test=use_test,
     )
-    audit = _build_default_liquidity_audit(
+    build = (
+        _build_default_liquidity_audit if audit_builder is None else audit_builder
+    )
+    audit = build(
         data.prices,
         history_starts=history_starts,
         history_exceptions=authority.liquidity_history_exceptions,
@@ -2189,6 +2199,7 @@ def capture_and_publish(
     audit_report: Path,
     settings: Path | None,
     use_test: bool,
+    audit_builder=None,
 ) -> tuple[int, int, int, int]:
     """Capture and publish while retaining the established four-count API."""
     return _capture_and_publish_outcome(
@@ -2200,6 +2211,7 @@ def capture_and_publish(
         audit_report=audit_report,
         settings=settings,
         use_test=use_test,
+        audit_builder=audit_builder,
     ).counts
 
 

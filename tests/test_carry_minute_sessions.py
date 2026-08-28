@@ -3876,3 +3876,77 @@ def test_capture_rejects_colliding_output_paths_before_any_write_or_load(
         )
 
     assert output.read_bytes() == b"old\n"
+
+
+def test_capture_uses_an_injected_audit_builder_instead_of_the_carry_pool(
+    monkeypatch, tmp_path
+):
+    """连续策略要按自己的宇宙采集，所以发布路径必须能被注入 audit builder。
+
+    只断言「注入的被调了」不够 —— 两个都被调也能通过。这里让 Carry 的池子一旦被
+    调用就直接 fail，注入才算真的取代了它。
+    """
+    _install_capture_flow(monkeypatch, night_ends=("none", "none"))
+    # 上一行装的替身忽略入参，所以可以就地取回它要返回的 audit。
+    audit = capture_module._build_default_liquidity_audit()
+    monkeypatch.setattr(
+        capture_module,
+        "_build_default_liquidity_audit",
+        lambda *args, **kwargs: pytest.fail(
+            "Carry pool was used despite an injected audit builder"
+        ),
+    )
+    seen = []
+
+    def _builder(prices, **kwargs):
+        seen.append((prices, kwargs))
+        return audit
+
+    capture_module.capture_and_publish(
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 9),
+        backtest_start=date(2026, 1, 9),
+        output=tmp_path / "sessions.csv",
+        inventory_output=tmp_path / "inventory.csv",
+        audit_report=tmp_path / "audit.txt",
+        settings=None,
+        use_test=True,
+        audit_builder=_builder,
+    )
+
+    assert len(seen) == 1
+    _prices, kwargs = seen[0]
+    assert set(kwargs) == {
+        "history_starts",
+        "history_exceptions",
+        "start",
+        "end",
+        "config",
+    }
+
+
+def test_capture_falls_back_to_the_carry_pool_when_no_builder_is_injected(
+    monkeypatch, tmp_path
+):
+    """不注入时必须仍走 Carry 的池子 —— 默认行为一个字节都不能变。"""
+    _install_capture_flow(monkeypatch, night_ends=("none", "none"))
+    audit = capture_module._build_default_liquidity_audit()
+    calls = []
+    monkeypatch.setattr(
+        capture_module,
+        "_build_default_liquidity_audit",
+        lambda *args, **kwargs: calls.append(kwargs) or audit,
+    )
+
+    capture_module.capture_and_publish(
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 9),
+        backtest_start=date(2026, 1, 9),
+        output=tmp_path / "sessions.csv",
+        inventory_output=tmp_path / "inventory.csv",
+        audit_report=tmp_path / "audit.txt",
+        settings=None,
+        use_test=True,
+    )
+
+    assert len(calls) == 1
