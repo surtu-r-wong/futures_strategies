@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+import heapq
 import math
 from numbers import Real
 from typing import Any
@@ -400,7 +401,6 @@ def run_shadow_product(
     account.initialize({current_contract: float(first["close"])})
     state = State(Position.FLAT, take_profit=None, oi_scale=0.0)
     current_target = 0.0
-    current_event_price = float(first["close"])
     previous_contract: str | None = None
     previous_pricing_basis: str | None = None
     used_rolls: set[int] = set()
@@ -411,12 +411,147 @@ def run_shadow_product(
     traded_number_by_index = {
         frame_index: number for number, frame_index in enumerate(traded_positions)
     }
+    pending_fills: list[tuple[pd.Timestamp, int, dict[str, object]]] = []
+    fill_sequence = 0
+    latest_prices: dict[str, tuple[pd.Timestamp, float]] = {}
+    closed_dates: set[date] = set()
+
+    def execute_pending_fill(payload: dict[str, object]) -> None:
+        nonlocal current_contract
+        nonlocal current_target
+        nonlocal open_trade
+        nonlocal trade_number
+
+        fill_time = pd.Timestamp(payload["fill_time"])
+        fill_contract = str(payload["contract"])
+        if fill_contract != current_contract:
+            raise ValueError(
+                "bollinger_shadow_fill_contract: pending fill must match active contract"
+            )
+        fill_price = float(payload["fill_price"])
+        next_target = float(payload["next_target"])
+        reason = str(payload["reason"])
+        output = payload["output"]
+        assert isinstance(output, dict)
+        equity_before = account.equity
+        gross_before = account.gross_equity
+        execution_start = len(account.executions)
+        account.rebalance(
+            fill_time,
+            {current_contract: fill_price},
+            {current_contract: next_target} if next_target else {},
+            {current_contract: reason},
+        )
+        output["action_changed"] = True
+        current_target = next_target
+        latest_prices[current_contract] = (fill_time, fill_price)
+
+        previous_position = payload["previous_position"]
+        desired_state = payload["desired_state"]
+        assert isinstance(previous_position, Position)
+        assert isinstance(desired_state, State)
+        if previous_position is Position.FLAT:
+            trade_number += 1
+            open_trade = {
+                "product": product,
+                "trade_id": f"{product}-{trade_number:06d}",
+                "entry_date": fill_time.date(),
+                "entry_time": fill_time,
+                "entry_contract": current_contract,
+                "entry_price": fill_price,
+                "direction": int(payload["direction"]),
+                "oi_scale": desired_state.oi_scale,
+                "target_magnitude": abs(next_target),
+                "entry_signal_close": float(payload["signal_close"]),
+                "roll_count": 0,
+                "equity_before": equity_before,
+                "gross_before": gross_before,
+                "execution_start": execution_start,
+            }
+            return
+
+        assert open_trade is not None
+        costs = math.fsum(
+            record.cost
+            for record in account.executions[int(open_trade["execution_start"]) :]
+        )
+        logical_trades.append(
+            {
+                **{key: open_trade[key] for key in _TRADE_COLUMNS if key in open_trade},
+                "exit_date": fill_time.date(),
+                "exit_time": fill_time,
+                "exit_contract": current_contract,
+                "exit_price": fill_price,
+                "exit_signal_close": float(payload["signal_close"]),
+                "exit_reason": reason,
+                "gross_return": account.gross_equity / float(open_trade["gross_before"])
+                - 1.0,
+                "cost": costs,
+                "net_return": account.equity / float(open_trade["equity_before"]) - 1.0,
+            }
+        )
+        open_trade = None
+
+    def drain_pending(until: pd.Timestamp) -> None:
+        while pending_fills and pending_fills[0][0] <= until:
+            _, _, payload = heapq.heappop(pending_fills)
+            execute_pending_fill(payload)
+
+    def close_account_day(trade_day: date, close_timestamp: pd.Timestamp) -> None:
+        if trade_day in closed_dates:
+            raise ValueError(f"bollinger_shadow_daily_duplicate: {trade_day}")
+        drain_pending(close_timestamp)
+        if account.events and account.events[-1].timestamp >= close_timestamp:
+            last_timestamp = pd.Timestamp(account.events[-1].timestamp)
+            if last_timestamp.date() != trade_day:
+                raise ValueError(
+                    "bollinger_shadow_daily_time: future event crossed daily boundary"
+                )
+            close_timestamp = last_timestamp + timedelta(microseconds=1)
+
+        prices: dict[str, float] = {}
+        if current_target:
+            latest = latest_prices.get(current_contract)
+            if latest is None or latest[0] > close_timestamp:
+                raise ValueError(
+                    "bollinger_shadow_daily_price: held contract needs a causal price"
+                )
+            prices[current_contract] = latest[1]
+        account.mark_close(trade_day, close_timestamp, prices)
+        daily = account.drain_daily_row(trade_day, "close")
+        daily_rows.append(
+            {
+                "product": product,
+                "trade_date": trade_day,
+                "gross_return": daily.gross_return,
+                "turnover": daily.turnover,
+                "cost": daily.cost,
+                "direct_cost": daily.direct_cost,
+                "net_return": daily.net_return,
+                "gross_equity": daily.gross_equity,
+                "equity": daily.equity,
+                "gross_leverage": daily.gross_leverage,
+            }
+        )
+        closed_dates.add(trade_day)
+
+    def close_pending_dates_before(next_day: date | None) -> None:
+        timezone = frame["slot_end"].dt.tz
+        while pending_fills:
+            pending_day = pending_fills[0][0].date()
+            if next_day is not None and pending_day >= next_day:
+                return
+            close_timestamp = pd.Timestamp(
+                datetime.combine(pending_day, time.max, tzinfo=timezone)
+            )
+            close_account_day(pending_day, close_timestamp)
 
     for trade_date, day_frame in frame.groupby("trade_date", sort=True):
-        day_traded = day_frame.loc[~day_frame["no_trade"]]
+        close_pending_dates_before(trade_date)
         for frame_index, row in day_frame.iterrows():
             output = signal_rows[frame_index]
             if bool(row["no_trade"]):
+                drain_pending(row["slot_end"])
                 output.update(
                     state_position=state.position.value,
                     state_take_profit=state.take_profit
@@ -456,6 +591,7 @@ def run_shadow_product(
                         "bollinger_shadow_roll_pricing_basis: both legs must match panel provenance"
                     )
                 used_rolls.add(roll_index)
+                drain_pending(roll["fill_time"])
                 output.update(
                     roll_fill_time=roll["fill_time"],
                     roll_old_contract=previous_contract,
@@ -480,14 +616,73 @@ def run_shadow_product(
                         roll_turnover=event.turnover,
                         roll_cost=event.cost,
                     )
-                    current_event_price = float(roll["new_price"])
                     if open_trade is not None:
                         open_trade["roll_count"] = int(open_trade["roll_count"]) + 1
                 current_contract = contract
+                latest_prices[contract] = (roll["fill_time"], float(roll["new_price"]))
             elif previous_contract is None:
+                boundary = rolls.loc[
+                    (rolls["trade_date"] == trade_date)
+                    & (rolls["new_contract"] == contract)
+                    & ~rolls.index.isin(used_rolls)
+                ]
+                if len(boundary) > 1:
+                    raise ValueError(
+                        "bollinger_shadow_roll_boundary: duplicate boundary fills"
+                    )
+                if len(boundary) == 1:
+                    roll_index = int(boundary.index[0])
+                    roll = boundary.iloc[0]
+                    if roll["fill_time"] >= row["slot_end"]:
+                        raise ValueError(
+                            "bollinger_shadow_roll_time: boundary roll must precede bar signal"
+                        )
+                    if roll["new_pricing_basis"] != row["pricing_basis"]:
+                        raise ValueError(
+                            "bollinger_shadow_roll_pricing_basis: boundary new leg must match panel provenance"
+                        )
+                    drain_pending(roll["fill_time"])
+                    old_contract = str(roll["old_contract"])
+                    output.update(
+                        roll_fill_time=roll["fill_time"],
+                        roll_old_contract=old_contract,
+                        roll_new_contract=contract,
+                        roll_old_price=float(roll["old_price"]),
+                        roll_new_price=float(roll["new_price"]),
+                        roll_old_pricing_basis=roll["old_pricing_basis"],
+                        roll_new_pricing_basis=roll["new_pricing_basis"],
+                    )
+                    if current_target != 0.0:
+                        if current_contract != old_contract:
+                            raise ValueError(
+                                "bollinger_shadow_roll_boundary: held old leg mismatches boundary"
+                            )
+                        event = account.rebalance(
+                            roll["fill_time"],
+                            {
+                                old_contract: roll["old_price"],
+                                contract: roll["new_price"],
+                            },
+                            {contract: current_target},
+                            {old_contract: "roll_old", contract: "roll_new"},
+                        )
+                        output.update(
+                            roll_execution_count=len(event.executions),
+                            roll_turnover=event.turnover,
+                            roll_cost=event.cost,
+                        )
+                        if open_trade is not None:
+                            open_trade["roll_count"] = int(open_trade["roll_count"]) + 1
+                    used_rolls.add(roll_index)
+                    latest_prices[contract] = (
+                        roll["fill_time"],
+                        float(roll["new_price"]),
+                    )
                 current_contract = contract
             previous_contract = contract
             previous_pricing_basis = str(row["pricing_basis"])
+            drain_pending(row["slot_end"])
+            latest_prices[contract] = (row["slot_end"], float(row["close"]))
 
             number = traded_number_by_index[frame_index]
             ready_values = (
@@ -552,6 +747,40 @@ def run_shadow_product(
                                 * desired.state.oi_scale
                                 * atr_leverage(close=float(row["close"]), atr=raw_atr)
                             )
+                        if pd.Timestamp(fill_time).date() > trade_date:
+                            previous_state = state
+                            state = desired.state
+                            fill_sequence += 1
+                            heapq.heappush(
+                                pending_fills,
+                                (
+                                    pd.Timestamp(fill_time),
+                                    fill_sequence,
+                                    {
+                                        "fill_time": fill_time,
+                                        "fill_price": fill_price,
+                                        "contract": current_contract,
+                                        "next_target": next_target,
+                                        "reason": desired.reason,
+                                        "output": output,
+                                        "previous_position": previous_state.position,
+                                        "desired_state": desired.state,
+                                        "direction": desired.target_direction,
+                                        "signal_close": float(output["signal_close"]),
+                                    },
+                                ),
+                            )
+                            output.update(
+                                state_position=state.position.value,
+                                state_take_profit=state.take_profit
+                                if state.take_profit is not None
+                                else np.nan,
+                                state_oi_scale=state.oi_scale,
+                                target_direction=desired.target_direction,
+                                target_magnitude=abs(next_target),
+                                target_weight=next_target,
+                            )
+                            continue
                         equity_before = account.equity
                         gross_before = account.gross_equity
                         execution_start = len(account.executions)
@@ -562,7 +791,7 @@ def run_shadow_product(
                             {current_contract: desired.reason},
                         )
                         output["action_changed"] = True
-                        current_event_price = fill_price
+                        latest_prices[current_contract] = (fill_time, fill_price)
                         previous_state = state
                         state = desired.state
                         current_target = next_target
@@ -571,7 +800,7 @@ def run_shadow_product(
                             open_trade = {
                                 "product": product,
                                 "trade_id": f"{product}-{trade_number:06d}",
-                                "entry_date": trade_date,
+                                "entry_date": pd.Timestamp(fill_time).date(),
                                 "entry_time": fill_time,
                                 "entry_contract": current_contract,
                                 "entry_price": fill_price,
@@ -599,7 +828,7 @@ def run_shadow_product(
                                         for key in _TRADE_COLUMNS
                                         if key in open_trade
                                     },
-                                    "exit_date": trade_date,
+                                    "exit_date": pd.Timestamp(fill_time).date(),
                                     "exit_time": fill_time,
                                     "exit_contract": current_contract,
                                     "exit_price": fill_price,
@@ -630,37 +859,12 @@ def run_shadow_product(
             )
 
         timezone = frame["slot_end"].dt.tz
-        if not day_traded.empty:
-            final_row = day_traded.iloc[-1]
-            close_timestamp = final_row["slot_end"]
-            mark_price = float(final_row["close"])
-        else:
-            close_timestamp = pd.Timestamp(
-                datetime.combine(trade_date, time(23, 59), tzinfo=timezone)
-            )
-            mark_price = current_event_price
-        if account.events and account.events[-1].timestamp >= close_timestamp:
-            close_timestamp = pd.Timestamp(account.events[-1].timestamp) + timedelta(
-                microseconds=1
-            )
-            mark_price = current_event_price
-        prices = {current_contract: mark_price} if current_target else {}
-        account.mark_close(trade_date, close_timestamp, prices)
-        daily = account.drain_daily_row(trade_date, "close")
-        daily_rows.append(
-            {
-                "product": product,
-                "trade_date": trade_date,
-                "gross_return": daily.gross_return,
-                "turnover": daily.turnover,
-                "cost": daily.cost,
-                "direct_cost": daily.direct_cost,
-                "net_return": daily.net_return,
-                "gross_equity": daily.gross_equity,
-                "equity": daily.equity,
-                "gross_leverage": daily.gross_leverage,
-            }
+        close_timestamp = pd.Timestamp(
+            datetime.combine(trade_date, time.max, tzinfo=timezone)
         )
+        close_account_day(trade_date, close_timestamp)
+
+    close_pending_dates_before(None)
 
     if len(used_rolls) != len(rolls):
         raise ValueError(

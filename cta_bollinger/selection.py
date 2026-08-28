@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import math
 
 from common.commodity.selection import ProductScore
 
@@ -34,10 +33,6 @@ def eligible_products(scores: Mapping[str, ProductScore]) -> tuple[str, ...]:
             raise ValueError(
                 "bollinger_selection_trade_count: expected nonnegative int"
             )
-        if not math.isfinite(score.sharpe):
-            raise ValueError("bollinger_selection_sharpe: expected finite value")
-        if math.isinf(score.calmar):
-            raise ValueError("bollinger_selection_calmar: infinity is invalid")
 
         if score.trade_count < 5:
             continue

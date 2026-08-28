@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 
-import math
-
 import pytest
 
 from common.commodity.selection import ProductScore
@@ -50,12 +48,17 @@ def test_selector_preserves_nan_calmar_comparison_semantics() -> None:
     assert eligible_products(scores) == ("RB",)
 
 
-def test_selector_requires_score_identity_and_finite_policy_inputs() -> None:
+def test_selector_keeps_nan_metrics_under_the_literal_joint_negative_rule() -> None:
+    scores = {
+        "RB": score_factory("RB", sharpe=float("nan"), calmar=float("nan")),
+        "CU": score_factory("CU", sharpe=float("nan"), calmar=-1.0),
+    }
+
+    assert eligible_products(scores) == ("CU", "RB")
+
+
+def test_selector_requires_score_identity_and_structure() -> None:
     with pytest.raises(ValueError, match="identity"):
         eligible_products({"CU": score_factory("RB")})
-    with pytest.raises(ValueError, match="sharpe.*finite"):
-        eligible_products({"RB": score_factory("RB", sharpe=float("nan"))})
-    with pytest.raises(ValueError, match="calmar"):
-        eligible_products({"RB": score_factory("RB", calmar=math.inf)})
     with pytest.raises(ValueError, match="ProductScore"):
         eligible_products({"RB": object()})

@@ -220,6 +220,82 @@ def test_flat_roll_has_no_turnover() -> None:
     assert result.trades.empty
 
 
+def test_first_retained_date_boundary_roll_is_consumed_while_flat() -> None:
+    frame = _panel([100.0] * 302)
+    frame["contract"] = "RB2410.SHF"
+    roll = pd.DataFrame(
+        {
+            "trade_date": [frame.loc[0, "trade_date"]],
+            "product": ["RB"],
+            "old_contract": ["RB2405.SHF"],
+            "new_contract": ["RB2410.SHF"],
+            "fill_time": [frame.loc[0, "slot_end"] - pd.Timedelta(hours=1)],
+            "old_price": [99.0],
+            "new_price": [100.0],
+            "old_pricing_basis": ["amount_vwap"],
+            "new_pricing_basis": ["amount_vwap"],
+        }
+    )
+
+    result = run_shadow_product(frame, product="RB", roll_fills=roll)
+
+    first = result.signals.iloc[0]
+    assert first["roll_old_contract"] == "RB2405.SHF"
+    assert first["roll_new_contract"] == "RB2410.SHF"
+    assert first["roll_execution_count"] == 0
+    assert first["roll_turnover"] == 0.0
+    mismatched = roll.copy()
+    mismatched.loc[0, "new_contract"] = "RB2501.SHF"
+    with pytest.raises(ValueError, match="roll_mismatch"):
+        run_shadow_product(frame, product="RB", roll_fills=mismatched)
+
+
+def test_future_session_entry_and_exit_fill_on_actual_dates() -> None:
+    frame = _panel(
+        [99.0, 101.0, 100.0, 105.0, 99.0],
+        open_interest=[100.0, 100.0, 100.0, 200.0, 200.0],
+    )
+    days = pd.to_datetime(
+        ["2024-02-21", "2024-02-22", "2024-02-23", "2024-02-26", "2024-02-27"]
+    )
+    frame["trade_date"] = days
+    frame["slot_end"] = (days + pd.Timedelta(hours=14, minutes=45)).tz_localize(TZ)
+    frame["fill_time"] = frame["slot_end"] + pd.Timedelta(minutes=5)
+    frame.loc[3, "fill_time"] = pd.Timestamp("2024-02-27 09:05", tz=TZ)
+    frame.loc[3, "fill_price"] = 100.0
+    frame.loc[4, "fill_time"] = pd.Timestamp("2024-02-28 09:05", tz=TZ)
+    frame.loc[4, "fill_price"] = 110.0
+
+    result = run_shadow_product(
+        frame,
+        product="RB",
+        band_length=3,
+        atr_window=1,
+        oi_short=1,
+        oi_long=3,
+        beta=1.0,
+    )
+
+    trade = result.trades.iloc[0]
+    assert trade["entry_date"] == pd.Timestamp("2024-02-27").date()
+    assert trade["exit_date"] == pd.Timestamp("2024-02-28").date()
+    daily = result.daily.set_index("trade_date")
+    assert daily.loc[pd.Timestamp("2024-02-26").date(), "net_return"] == 0.0
+    target = trade["target_magnitude"]
+    one_way_cost = target * 1.3 / 10_000.0
+    entry_day = pd.Timestamp("2024-02-27").date()
+    exit_day = pd.Timestamp("2024-02-28").date()
+    assert daily.loc[entry_day, "turnover"] == pytest.approx(target)
+    assert daily.loc[exit_day, "turnover"] == pytest.approx(target)
+    assert daily.loc[entry_day, "net_return"] == pytest.approx(
+        (1.0 - one_way_cost) * (1.0 + target * (99.0 / 100.0 - 1.0)) - 1.0
+    )
+    assert daily.loc[exit_day, "net_return"] == pytest.approx(
+        target * (110.0 / 99.0 - 1.0) - one_way_cost
+    )
+    assert daily.index.is_monotonic_increasing
+
+
 def test_daily_output_has_every_day_in_unique_chronological_order() -> None:
     frame = _long_panel().iloc[::-1].reset_index(drop=True)
 
