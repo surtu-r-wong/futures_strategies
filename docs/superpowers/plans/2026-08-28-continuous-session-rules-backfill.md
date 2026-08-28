@@ -402,3 +402,40 @@ git worktree add /tmp/carry-baseline b95a74f
 - 不延长样本窗口（设计 D7：保持 2026-01-30）。
 - 不把采集核心搬进 `common/`。
 - 不自动裁决交叉验证分歧，不自动登记 `absent_product_days`。
+
+---
+
+## 实施记录（2026-08-28，Task 1–6 完成）
+
+Task 1–6 已实现并提交，全量 **1378 passed**（基线 1349）。两处偏离原计划，都是接线时才暴露的：
+
+**偏离一：Task 3 多做了一件事 —— 覆盖不变量改为消费者声明。**
+`_capture_and_publish_outcome` 会校验「资产必须早于消费者首日 730 天」（Carry 的分钟状态机预热）。
+连续面板从资产首日开始逐月造 bar，`capture_start == panel_start`，**无论参数怎么调都过不了**。
+于是把 `validate_capture_request` 的两件事拆开：`repository_capture_start`（保护 Carry 资产）永远生效；
+覆盖规则由调用方声明，默认仍是 Carry 那条。连续侧的规则是
+`continuous_capture_coverage`：资产首日不得晚于面板首月（分段采集从 2018 起、面板从 2011 起，
+仍会被正确拦下）。用户 2026-08-28 裁决走这条。
+
+**偏离二：Task 5 的机制变了，范围缩小。**
+原计划以为「分类失败会整跑中止」。实际上 `classify_authorized_boundaries` **本来就**逐行
+catch `SessionCaptureError` 并记成 `AmbiguityRecord`，跑完一次报全并阻止发布 —— 这一类不需要写代码。
+真正 fail-fast 的是 `common/minute/pg_source.py:1490` 的
+`raise _missing_candidate_minutes(candidate)`（该品种日一根 K 线都没有），而采集是**按月批量**查的，
+所以一个坏候选让整月中止。因此普查只做一件事：**按月跑，失败批二分定位缺数据的品种日，记账后继续**。
+⚠️ 不能用 `tolerate_empty` —— 其文档串明写 "must never be set for the audited representative"，
+打开后缺数据会被当成已授权缺席送进分类器。
+
+**缓存的实际收益要说准**：整份缓存，普查清单非空时不写。所以省下的是「普查 → 权威采集」这一跳；
+一轮裁决之后重跑普查仍要重新观测。若裁决轮数多到难以忍受，再考虑按键集合并的部分缓存。
+
+**已验证**
+- 覆盖闸在 WSL2 真实数据上跑通：约 2–3 分钟报出 `1713 product-days ... across 39 products`
+  并落下 1,713 行清单，产出目录里**没有任何分片**（证明它挡在第一次分钟查询之前）。
+  数字与独立统计脚本逐个吻合。
+- `config/carry_minute_sessions.csv` 未被任何本分支提交触及，
+  sha256 = `e3aff444aba6b2f699a21051c1610da0c025461b81e9d649b1100b3690558c5e`。
+- 22 处变异全部被测试抓住（覆盖闸 3、审计接缝 3、口径接缝 4、普查与缓存 5，其余为回归护栏）。
+
+**Task 7 起未开工。** Task 7（Carry 逐字节不变的 sha256 证明）仍是必做项 ——
+代码层已拆分过，测试全绿**不等于**真实资产逐字节相同。
