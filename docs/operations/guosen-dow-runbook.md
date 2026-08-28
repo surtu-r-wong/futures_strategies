@@ -83,6 +83,12 @@ linked worktree 用主 checkout 的绝对解释器并在仓根加 `PYTHONPATH=.`
 其余品种的目标 —— 但它们不能按别人的成交价调仓（那是编造成交），而是各自在自己
 下一个可成交窗口调过来，`trades` 表里记为 `allocation_resize`。
 
+## 市场断代
+
+面板的 `continuity_segment` 标出品种被摘牌重挂的位置（全历史仅燃料油 2018 一处）。
+断代两侧价格不可比，所以策略在段边界**全部重来**：指标重新预热、状态机清空、段末
+最后一根强制平仓，且不向换月要成交单。保真度规则 F10，`data_quality` 里可查。
+
 ## 产物
 
 三件套与 Bollinger 同构：`<prefix>.xlsx`（十一张表）、`<prefix>.png`（净值 /

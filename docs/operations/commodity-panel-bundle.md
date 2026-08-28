@@ -54,7 +54,7 @@ end later than that fails. The legacy `--end 2026-01` spelling alone clamps to
 
 | Table | Primary key | Columns |
 |---|---|---|
-| `bars.parquet` | `trade_date, product, slot_end` | `product, contract, trade_date, slot_end, open, high, low, close, volume, open_interest, no_trade, adj_factor, fill_time, fill_price, fill_pending, fill_unpriceable, pricing_basis, multiplier` |
+| `bars.parquet` | `trade_date, product, slot_end` | `product, contract, trade_date, slot_end, open, high, low, close, volume, open_interest, no_trade, adj_factor, continuity_segment, fill_time, fill_price, fill_pending, fill_unpriceable, pricing_basis, multiplier` |
 | `universes.parquet` | `month_start, product` | `month_start, product` |
 | `dominants.parquet` | `trade_date, product` | `trade_date, product, contract, oi, volume, selected_from, adj_factor` |
 | `roll_fills.parquet` | `trade_date, product` | `trade_date, product, old_contract, new_contract, fill_time, old_price, new_price, old_pricing_basis, new_pricing_basis` |
@@ -162,13 +162,37 @@ The builder deliberately refuses to continue on, among other cases:
 - a changed checkpoint-key input, or changed inputs/provenance against an
   existing committed bundle.
 
-The small 2023-Q1 CU/RB/TA smoke avoids a known full-history blocker. The live
-daily chain rolls from `FU1804.SHF` (last valid close 2018-03-30) to
-`FU1901.SHF` (first valid close 2018-07-16); the contracts have no common valid
-close from which to calculate an adjustment ratio. Current code raises
-`roll_close_missing`. Do not insert factor 1.0, use one leg, copy a theoretical
-price, or otherwise fabricate an anchor. This requires a separately reviewed
-continuity-boundary implementation before an all-history bundle can pass.
+### Market breaks: resolved 2026-08-28
+
+The live daily chain rolls from `FU1804.SHF` (last valid close 2018-03-30) to
+`FU1901.SHF` (first valid close 2018-07-16). The contracts never traded on the
+same day, so no adjustment ratio is observable. A full scan of the whole
+history — 80 commodity products, 162,797 dominant choices — found **exactly one
+such boundary**.
+
+It is now handled as an explicit continuity segment rather than a hard failure
+(design `2026-08-27-continuity-segment-boundaries-design.md`, fidelity rule
+F10). When the two contracts' valid-close ranges are strictly disjoint **and**
+the outgoing contract stopped trading when it lost dominance, the new contract
+opens the next segment: `continuity_segment` increments and `adj_factor`
+restarts at 1.0. Nothing is fabricated — no factor of 1.0 across the gap, no
+single leg, no theoretical price.
+
+The third condition matters. Without it, an ordinary missing roll close looks
+identical to a break, and a successor whose closes are null over the overlap
+would silently open a segment. In a normal roll the retiring contract keeps
+trading for months after handing over; only a relaunched product goes quiet on
+the day it does.
+
+Still hard failures: overlapping ranges with no common valid close, and either
+contract having no valid close at all. Those are missing data, not a market
+break.
+
+`continuity_segment` is fail-closed at the builder — defaulting it to 0 is
+exactly how a break would get flattened into one continuous series. Consumers
+must not carry any price-derived state across it; both replications re-warm
+their indicators, reset their state machines, and close any open position at
+the last bar of the outgoing segment.
 
 The 2026-08-28 migration smoke passed the strict old-column compatibility gate:
 all 16 baseline columns have exact dtype/value equality after deterministic
