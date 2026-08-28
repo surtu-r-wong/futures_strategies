@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from cta_continuous.panel import required_session_keys_by_month  # noqa: E402
 from cta_continuous.scope import DAILY_FROM, panel_scope  # noqa: E402
+from common.minute.sessions import SessionClockError  # noqa: E402
 from scripts.carry.capture_minute_sessions import (  # noqa: E402
     SessionCaptureError,
     build_audit,
@@ -31,7 +32,18 @@ from scripts.carry.capture_minute_sessions import (  # noqa: E402
 #: 宇宙口径要回看半年；日线起点必须早于采集起点至少这么多。
 UNIVERSE_LOOKBACK_MONTHS = 6
 
-__all__ = ["audit_builder_for", "capture_keys"]
+__all__ = [
+    "audit_builder_for",
+    "capture_keys",
+    "continuous_capture_coverage",
+    "main",
+    "month_start",
+]
+
+
+def month_start(value: date) -> date:
+    """采集按日期给区间，宇宙按月重算 —— 折到该日期所属自然月的 1 号。"""
+    return date(value.year, value.month, 1)
 
 
 def capture_keys(
@@ -97,3 +109,84 @@ def audit_builder_for(keys: frozenset[tuple[str, str, date]]):
         )
 
     return build
+
+
+def continuous_capture_coverage(
+    *, capture_start: date, backtest_start: date, prewarm_calendar_days: int
+) -> date:
+    """连续面板的覆盖不变量：资产首日不得晚于面板首月。
+
+    Carry 的那条（资产必须早于回测首日 730 天）说的是**分钟状态机的预热**。连续面板
+    没有这回事 —— 它从资产首日开始逐月造 bar，所以那条不变量它永远满足不了，也不该
+    去满足。`prewarm_calendar_days` 只为签名统一而保留，本规则不使用它。
+    """
+    if capture_start > backtest_start:
+        raise SessionClockError(
+            exchange="*",
+            product="*",
+            trade_date=backtest_start,
+            check="session_asset_starts_after_panel",
+            reason=(
+                "session asset begins after the panel's first month; "
+                f"capture_start={capture_start.isoformat()}; "
+                f"panel_start={backtest_start.isoformat()}"
+            ),
+        )
+    return capture_start
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    import argparse
+
+    from common.config import load_config, resolve_settings_path
+    from common.db import pg_config_from
+    from cta_continuous.scope import load_scope_daily
+    from scripts.carry.capture_minute_sessions import capture_and_publish
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--start", required=True, type=date.fromisoformat)
+    parser.add_argument("--end", required=True, type=date.fromisoformat)
+    parser.add_argument("--panel-start", type=date.fromisoformat)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--inventory-output", required=True, type=Path)
+    parser.add_argument("--audit-report", required=True, type=Path)
+    parser.add_argument("--settings", type=Path)
+    parser.add_argument("--use-test", action="store_true")
+    args = parser.parse_args(argv)
+    panel_start = args.panel_start or args.start
+
+    settings_path = args.settings or resolve_settings_path()
+    pg = pg_config_from(load_config(settings_path), use_test=args.use_test)
+    stats = load_scope_daily(pg, end=args.end)
+    print(f"日线 {len(stats):,} 行", flush=True)
+
+    keys = capture_keys(
+        stats, start=month_start(args.start), end=month_start(args.end)
+    )
+    products = sorted({key[1] for key in keys})
+    print(
+        f"连续宇宙 {len(keys):,} 个品种日，{len(products)} 个品种",
+        flush=True,
+    )
+
+    counts = capture_and_publish(
+        start=args.start,
+        end=args.end,
+        backtest_start=panel_start,
+        output=args.output,
+        inventory_output=args.inventory_output,
+        audit_report=args.audit_report,
+        settings=args.settings,
+        use_test=args.use_test,
+        audit_builder=audit_builder_for(keys),
+        coverage_check=continuous_capture_coverage,
+    )
+    print(
+        "products={} rules={} checked_days={} ambiguous={}".format(*counts),
+        flush=True,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

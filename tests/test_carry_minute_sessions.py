@@ -3950,3 +3950,61 @@ def test_capture_falls_back_to_the_carry_pool_when_no_builder_is_injected(
     )
 
     assert len(calls) == 1
+
+
+def test_capture_uses_an_injected_coverage_check(monkeypatch, tmp_path):
+    """预热覆盖是 Carry 消费者的不变量，别的消费者要能声明自己的。
+
+    这里的 start == backtest_start 在默认的 730 天预热下必然被拒；注入之后必须放行，
+    才说明这条不变量真的换成了调用方声明的那条。
+    """
+    _install_capture_flow(monkeypatch, night_ends=("none", "none"))
+    seen = []
+
+    def _coverage(*, capture_start, backtest_start, prewarm_calendar_days):
+        seen.append((capture_start, backtest_start, prewarm_calendar_days))
+        return capture_start
+
+    capture_module.capture_and_publish(
+        start=date(2024, 1, 8),
+        end=date(2024, 1, 9),
+        backtest_start=date(2024, 1, 8),
+        output=tmp_path / "sessions.csv",
+        inventory_output=tmp_path / "inventory.csv",
+        audit_report=tmp_path / "audit.txt",
+        settings=None,
+        use_test=True,
+        coverage_check=_coverage,
+    )
+
+    assert seen == [(date(2024, 1, 8), date(2024, 1, 8), 730)]
+
+
+def test_capture_still_enforces_the_carry_prewarm_without_an_injected_check(
+    monkeypatch, tmp_path
+):
+    """不注入时，默认的预热覆盖一个字节不变。"""
+    _install_capture_flow(monkeypatch, night_ends=("none", "none"))
+
+    with pytest.raises(SessionClockError, match="session_asset_prewarm_coverage"):
+        capture_module.capture_and_publish(
+            start=date(2024, 1, 8),
+            end=date(2024, 1, 9),
+            backtest_start=date(2024, 1, 8),
+            output=tmp_path / "sessions.csv",
+            inventory_output=tmp_path / "inventory.csv",
+            audit_report=tmp_path / "audit.txt",
+            settings=None,
+            use_test=True,
+        )
+
+
+def test_repository_asset_still_refuses_a_partial_capture_start(tmp_path):
+    """保护 Carry 资产的那道闸与预热无关，永远生效。"""
+    with pytest.raises(SessionCaptureError, match="repository_capture_start"):
+        capture_module.validate_capture_request(
+            start=date(2018, 1, 2),
+            backtest_start=date(2026, 1, 2),
+            output=capture_module.SESSION_RULES_PATH,
+            prewarm_calendar_days=730,
+        )

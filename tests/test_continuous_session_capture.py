@@ -131,3 +131,36 @@ def test_builder_refuses_a_start_too_early_for_the_turnover_lookback():
     """宇宙口径回看半年；日线起点不够早，首月宇宙就是错的。"""
     with pytest.raises(SessionCaptureError, match="continuous_universe_prewarm"):
         _build([], start=date(2010, 3, 1), end=date(2010, 3, 1))
+
+
+from common.minute.sessions import SessionClockError  # noqa: E402
+from scripts.continuous.capture_sessions import (  # noqa: E402
+    continuous_capture_coverage,
+    month_start,
+)
+
+
+def test_continuous_coverage_accepts_a_panel_starting_at_the_asset_first_day():
+    """Carry 的 730 天预热在这里会拒掉它；连续面板本来就从资产首日开始。"""
+    first = date(2011, 1, 4)
+
+    assert (
+        continuous_capture_coverage(
+            capture_start=first, backtest_start=first, prewarm_calendar_days=730
+        )
+        == first
+    )
+
+
+def test_continuous_coverage_refuses_an_asset_that_starts_after_the_panel():
+    """分段采集若从 2018 起，就盖不住 2011 起的面板 —— 这条必须拦。"""
+    with pytest.raises(SessionClockError, match="session_asset_starts_after_panel"):
+        continuous_capture_coverage(
+            capture_start=date(2018, 1, 2),
+            backtest_start=date(2011, 1, 4),
+            prewarm_calendar_days=730,
+        )
+
+
+def test_month_start_folds_a_capture_date_onto_the_panel_month():
+    assert month_start(date(2011, 1, 4)) == date(2011, 1, 1)

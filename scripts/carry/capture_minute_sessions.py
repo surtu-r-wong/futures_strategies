@@ -1600,10 +1600,23 @@ def validate_capture_request(
     backtest_start: date,
     output: Path,
     prewarm_calendar_days: int,
+    coverage_check=None,
 ) -> date:
-    """Enforce prewarm coverage and the repository asset's fixed start."""
+    """Enforce the consumer's coverage rule and the repository asset's fixed start.
+
+    Two separate concerns live here. The repository guard protects
+    ``carry_minute_sessions.csv`` from a partial capture and always applies.
+
+    The coverage rule belongs to whoever will read the asset, and they do not
+    agree. Carry warms a minute state machine, so its asset must begin 730 days
+    before it starts trading -- that is ``validate_capture_coverage``, the
+    default. The continuous panel has no such warmup: it builds bars month by
+    month from the asset's first day, and so can never satisfy Carry's rule.
+    It passes its own instead.
+    """
     _require_capture_dates(start, start)
-    required_start = validate_capture_coverage(
+    check = validate_capture_coverage if coverage_check is None else coverage_check
+    required_start = check(
         capture_start=start,
         backtest_start=backtest_start,
         prewarm_calendar_days=prewarm_calendar_days,
@@ -1926,6 +1939,7 @@ def _capture_and_publish_outcome(
     settings: Path | None,
     use_test: bool,
     audit_builder=None,
+    coverage_check=None,
 ) -> _CaptureOutcome:
     """Capture, authority-check, and atomically publish session rules.
 
@@ -1946,6 +1960,7 @@ def _capture_and_publish_outcome(
         backtest_start=backtest_start,
         output=output,
         prewarm_calendar_days=config.prewarm_calendar_days,
+        coverage_check=coverage_check,
     )
     authority_paths = {
         "session_exception": SESSION_EXCEPTIONS_PATH,
@@ -2200,6 +2215,7 @@ def capture_and_publish(
     settings: Path | None,
     use_test: bool,
     audit_builder=None,
+    coverage_check=None,
 ) -> tuple[int, int, int, int]:
     """Capture and publish while retaining the established four-count API."""
     return _capture_and_publish_outcome(
@@ -2212,6 +2228,7 @@ def capture_and_publish(
         settings=settings,
         use_test=use_test,
         audit_builder=audit_builder,
+        coverage_check=coverage_check,
     ).counts
 
 
