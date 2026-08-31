@@ -938,12 +938,19 @@ def _metadata_multiplier_resolution(
             f"panel_multiplier_pricing_basis_missing: exchange={candidate.exchange!r}"
         )
     sample = frame if inference_frame is None else inference_frame
+    # 推断只认**这一张合约**的行（`_validated_multiplier_rows` 见到别的合约会直接报
+    # `minute_contract`）。宽样本是给兄弟合约兜底用的，先按合约切出自己的那一份。
+    own = sample
+    if not sample.empty and "symbol" in sample.columns:
+        own = sample.loc[sample["symbol"].astype(str) == candidate.minute_symbol]
+        if own.empty:
+            own = frame
     try:
         return source.resolve_metadata_multiplier(
             daily_contract=candidate.daily_contract,
             trade_date=candidate.trade_date,
             frame=frame,
-            inference_frame=sample,
+            inference_frame=own,
             pricing_basis=pricing_basis_by_exchange[candidate.exchange],
         )
     except MinuteDataError as exc:

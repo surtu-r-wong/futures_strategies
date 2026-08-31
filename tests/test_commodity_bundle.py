@@ -2134,3 +2134,39 @@ def test_one_sibling_alone_is_not_enough_to_settle_a_multiplier():
             sample.iloc[:0],
             inference_frame=sample,
         )
+
+
+def test_the_wide_sample_is_cut_to_this_contract_before_inference():
+    """宽样本是给兄弟兜底用的；推断本身只认这一张合约的行 —— 混着别的合约会直接
+    报 `minute_contract`（菜籽油 OI1307 2012-09-19 就是这样被我自己的修改打断的）。"""
+    seen: dict[str, object] = {}
+
+    class _RecordingSource:
+        def resolve_metadata_multiplier(self, **kwargs):
+            seen.update(kwargs)
+            return 15
+
+    candidate = SimpleNamespace(
+        exchange="CZCE",
+        daily_contract="OI1307.CZC",
+        minute_symbol="OI1307",
+        trade_date=date(2012, 9, 19),
+        product="OI",
+    )
+    sample = pd.concat(
+        [
+            _inferable_rows("OI1307", multiplier=10, start_day=11),
+            _inferable_rows("OI1309", multiplier=10, start_day=11),
+        ],
+        ignore_index=True,
+    )
+
+    _metadata_multiplier_resolution(
+        _RecordingSource(),
+        {"CZCE": "ohlc_typical"},
+        candidate,
+        sample.loc[sample["symbol"] == "OI1307"],
+        inference_frame=sample,
+    )
+
+    assert set(seen["inference_frame"]["symbol"]) == {"OI1307"}
