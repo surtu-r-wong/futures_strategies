@@ -2851,3 +2851,59 @@ def test_iter_session_boundaries_rejects_unclassified_candidates(
     assert exc_info.value.check != "dynamic_execution_leg_missing_minutes"
     assert connection.rollbacks >= 1
     assert connection.commits == 0
+
+
+class _PooledDailyCursor:
+    """日线乘数查询的替身：合约自己的记录不足十天，同品种合起来够。"""
+
+    def __init__(self, own_rows, pooled_rows):
+        self.own_rows = own_rows
+        self.pooled_rows = pooled_rows
+        self.queries: list[str] = []
+        self._rows: list[tuple] = []
+
+    def execute(self, query, params=None):
+        text = query if isinstance(query, str) else str(query)
+        self.queries.append(text)
+        self._rows = self.pooled_rows if "symbol ~" in text else self.own_rows
+
+    def fetchall(self):
+        return list(self._rows)
+
+
+def _daily_row(multiplier: int, price: float, volume: float) -> tuple:
+    return (volume, price * volume * multiplier, price, price)
+
+
+def test_a_new_listing_settles_its_multiplier_from_the_products_other_contracts():
+    """新上市合约头十天自己说不出话（郑商所又没有可用的分钟 amount）。
+
+    乘数是**品种级**常量，所以同品种同交易所的合约合起来看。苹果 2018-01-02 实测：
+    自己 7 行 ⇒ 无候选；池化 35 行 ⇒ 全票唯一 10。
+    """
+    from common.minute.pg_source import _daily_multiplier_candidates
+
+    own = [_daily_row(10, 8000.0 + index, 100.0) for index in range(7)]
+    pooled = [_daily_row(10, 7000.0 + index * 13, 80.0) for index in range(35)]
+    cursor = _PooledDailyCursor(own, pooled)
+
+    candidates = _daily_multiplier_candidates(
+        cursor, daily_contract="AP805.CZC", trade_date=date(2018, 1, 2)
+    )
+
+    assert candidates == (10,)
+    assert any("symbol ~" in query for query in cursor.queries)
+
+
+def test_the_pool_is_not_consulted_when_the_contract_can_speak_for_itself():
+    from common.minute.pg_source import _daily_multiplier_candidates
+
+    own = [_daily_row(5, 3000.0 + index * 7, 90.0) for index in range(30)]
+    cursor = _PooledDailyCursor(own, [])
+
+    candidates = _daily_multiplier_candidates(
+        cursor, daily_contract="PP1405.DCE", trade_date=date(2014, 3, 5)
+    )
+
+    assert candidates == (5,)
+    assert not any("symbol ~" in query for query in cursor.queries)

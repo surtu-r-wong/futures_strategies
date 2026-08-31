@@ -145,6 +145,26 @@ WHERE symbol = %s
 ORDER BY trade_date DESC
 LIMIT 60
 """
+#: 同品种同交易所的日线行，**只取该合约自己交易过的那段日期**。乘数是品种级常量，
+#: 但同一个代码可以跨世代改乘数（老燃料油 50、2018 年重挂后 10），所以窗口必须贴着
+#: 这张合约自己的生命周期，绝不回看到上一个世代。
+_DAILY_MULTIPLIER_PRODUCT_QUERY = """
+SELECT volume, turnover, high, low
+FROM public.futures_daily
+WHERE symbol ~ %s
+  AND trade_date <= %s
+  AND trade_date >= (
+    SELECT min(trade_date)
+    FROM public.futures_daily
+    WHERE symbol = %s AND trade_date <= %s AND volume > 0
+  )
+  AND volume > 0
+  AND high > 0
+  AND low > 0
+  AND turnover > 0
+ORDER BY trade_date DESC
+LIMIT 600
+"""
 _CONTRACT_SAMPLE_QUERY = """
 SELECT bar_time, symbol, open, high, low, close, volume, amount,
        bar_time::date AS trade_date
@@ -389,6 +409,43 @@ def _daily_multiplier_candidates(
     rows = cursor.fetchall()
     if lineage is not None:
         lineage.record("daily_turnover_rows", rows)
+    settled = _candidates_from_daily_rows(rows)
+    if settled:
+        return settled
+    # 这张合约自己的记录说不出话（新上市合约头十天就是这样）。乘数是**品种级**常量，
+    # 所以把同品种同交易所的合约合起来看 —— 窗口贴着这张合约自己的生命周期，不会
+    # 回看到上一个世代。苹果 2018-01-02 实测：自己 7 行 ⇒ 无候选；池化 35 行 ⇒ 全票
+    # 唯一 10。仍然说不出话就返回空，交给下一层。
+    identity = _daily_contract_pattern(daily_contract, trade_date)
+    if identity is None:
+        return ()
+    cursor.execute(
+        _DAILY_MULTIPLIER_PRODUCT_QUERY,
+        (identity, trade_date, daily_contract, trade_date),
+    )
+    pooled = cursor.fetchall()
+    if lineage is not None:
+        lineage.record("daily_turnover_product_rows", pooled)
+    return _candidates_from_daily_rows(pooled)
+
+
+def _daily_contract_pattern(daily_contract: str, trade_date: date) -> str | None:
+    r"""``^<品种><数字>\.<交易所后缀>$`` —— 同品种同交易所，别把 A 和 AP 混作一谈。"""
+    text = str(daily_contract)
+    if "." not in text:
+        return None
+    suffix = text.rsplit(".", 1)[-1]
+    try:
+        product, _symbol, _exchange = _minute_contract(text, trade_date)
+    except Exception:  # noqa: BLE001 - 解析不出品种就不池化
+        return None
+    if not product or not suffix:
+        return None
+    return rf"^{product}[0-9]+\.{suffix}$"
+
+
+def _candidates_from_daily_rows(rows) -> tuple[int, ...]:
+    """日线记录为这张（或这批）合约留下的乘数候选。"""
     lows: list[float] = []
     highs: list[float] = []
     for row in rows or ():
