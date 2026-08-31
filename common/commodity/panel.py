@@ -444,16 +444,24 @@ def build_contexts(
     choices: Sequence[object],
     *,
     rules: Sequence[SessionRule],
+    month: date | None = None,
 ) -> dict[tuple[date, str], SessionContext]:
     """把主力选择折成分钟层认的候选 + 该日的槽位与桶。
 
     夜盘属于**下一个**交易日，所以 `build_trading_slots` 需要前一交易日。第一天没有
     前一日可用，因此从第二天起才产出上下文 —— 少一天而不是猜一个前一日。
 
+    ``month`` 给定时只产出该月的上下文。前态（上个月最后一个选择）仍然参与，
+    因为当月首日要靠它拿 ``previous_trade_date``，但**它自己不再索取时段规则** ——
+    覆盖闸正是这样按月裁键的（`required_session_keys_by_month`），两边必须同一刀，
+    否则资产起点那个月必炸：商品复刻的资产从 2012-01-04 起，而它的前态在 2011-12-30。
+
     ⚠️ 时段规则资产止于 2026-01-30；越界时 `resolve_session_rule` 硬失败，不静默截断。
     """
     contexts: dict[tuple[date, str], SessionContext] = {}
     for choice, previous, product, minute_symbol, exchange in _context_plan(choices):
+        if month is not None and _month_of(choice.trade_date) != month:
+            continue
         rule = resolve_session_rule(rules, exchange, product, choice.trade_date)
         slots = build_trading_slots(choice.trade_date, previous, rule)
         contexts[(choice.trade_date, product)] = SessionContext(

@@ -879,3 +879,33 @@ def test_the_gate_and_the_capture_ask_for_the_same_keys():
         require_session_coverage(choices=choices, months=months, rules=[])
 
     assert f"{demanded} product-days" in str(excinfo.value)
+
+
+def test_contexts_stay_inside_the_month_they_are_asked_for():
+    """前态只为给当月首日提供 `previous_trade_date`，它自己不该再要一份时段规则。
+
+    覆盖闸按月裁掉了跨月的键（`required_session_keys_by_month`），构建侧却在解析
+    完规则之后才裁 —— 于是资产起点那个月一定炸：商品复刻的资产从 2012-01-04 起，
+    而 2012-01 的前态落在 2011-12-30。
+    """
+    month = date(2024, 3, 1)
+    predecessor = DominantChoice(
+        trade_date=date(2024, 2, 29),
+        product="RB",
+        contract="RB2405.SHF",
+        oi=1,
+        volume=1,
+        selected_from=date(2024, 2, 28),
+    )
+    rule = SessionRule(
+        exchange="SHFE",
+        product="RB",
+        effective_start=month,
+        effective_end=date(2024, 3, 31),
+        segments=_day_only_rule().segments,
+        version="commodity-v1",
+    )
+
+    contexts = build_contexts([predecessor, *_choices()], rules=[rule], month=month)
+
+    assert sorted(key[0] for key in contexts) == DAYS

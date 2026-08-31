@@ -1475,7 +1475,7 @@ def _target_contexts(
     contexts = {}
     for month in _months(start, end):
         selected = context_choices_for_month(choices, month_start=month)
-        monthly = build_contexts(selected, rules=rules)
+        monthly = build_contexts(selected, rules=rules, month=month)
         for key, context in monthly.items():
             if start <= key[0] <= end and _month_start(key[0]) == month:
                 contexts[key] = context
