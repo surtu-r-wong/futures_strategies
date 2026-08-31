@@ -56,6 +56,7 @@ from common.commodity.universe import (  # noqa: E402
 from common.config import load_config, resolve_settings_path  # noqa: E402
 from common.db import get_connection, pg_config_from  # noqa: E402
 from common.minute.bars import (  # noqa: E402
+    infer_contract_multiplier,
     MinuteDataError,
     _range_diagnostics,
     five_minute_vwap,
@@ -639,10 +640,10 @@ class DigestingMultiplierResolver:
         if hasattr(self._resolver, "set_phase"):
             self._resolver.set_phase(phase)
 
-    def __call__(self, candidate, frame) -> int:
+    def __call__(self, candidate, frame, *, inference_frame=None) -> int:
         if self._phase is None:
             raise ValueError("panel_multiplier_provenance_phase: phase must be set")
-        resolved = self._resolver(candidate, frame)
+        resolved = self._resolver(candidate, frame, inference_frame=inference_frame)
         if isinstance(resolved, bool):
             raise ValueError(
                 "panel_multiplier_provenance_value: multiplier must be an integer"
@@ -885,24 +886,73 @@ def _canonical_resolution_evidence(resolution: object) -> dict[str, object]:
     }
 
 
+def _sibling_multiplier(sample, candidate):
+    """同品种**兄弟合约**推出的乘数 —— 乘数是品种级常量，交易所公告改动才变。
+
+    本合约自己推不出来时（元数据缺档 + 取样跨不到足够多的交易日，白银 AG1209
+    2012-05 就是），拿同一份样本里同品种的其他合约各自推一遍：**两张以上推出同一个
+    值才采用**，不一致或不足两张仍然维持原来的硬失败。2026-08-31 用户裁决。
+    """
+    if sample is None or getattr(sample, "empty", True):
+        return None
+    if "symbol" not in sample.columns:
+        return None
+    siblings = sorted(
+        {str(symbol) for symbol in sample["symbol"]} - {candidate.minute_symbol}
+    )
+    resolutions = []
+    for symbol in siblings:
+        rows = sample.loc[sample["symbol"].astype(str) == symbol]
+        if rows.empty:
+            continue
+        try:
+            resolutions.append(infer_contract_multiplier(rows, contract=symbol))
+        except MinuteDataError:
+            continue
+    values = {int(item.multiplier) for item in resolutions}
+    if len(resolutions) < 2 or len(values) != 1:
+        return None
+    best = max(resolutions, key=lambda item: (item.sample_dates, item.sample_rows))
+    return replace(
+        best,
+        source="sibling_inference",
+        resolution_path="sibling_inference",
+    )
+
+
 def _metadata_multiplier_resolution(
     source,
     pricing_basis_by_exchange: Mapping[str, str],
     candidate,
     frame: pd.DataFrame,
+    *,
+    inference_frame: pd.DataFrame | None = None,
 ):
-    """Resolve against this consuming call's exact validation/inference frame."""
+    """Resolve against this call's validation frame and its wider inference sample.
+
+    校验用当天那一帧；**推断**（元数据缺档时才走）用调用方给的更宽样本 —— 取样要
+    跨多个交易日，一个品种日给不出来。
+    """
     if candidate.exchange not in pricing_basis_by_exchange:
         raise ValueError(
             f"panel_multiplier_pricing_basis_missing: exchange={candidate.exchange!r}"
         )
-    return source.resolve_metadata_multiplier(
-        daily_contract=candidate.daily_contract,
-        trade_date=candidate.trade_date,
-        frame=frame,
-        inference_frame=frame,
-        pricing_basis=pricing_basis_by_exchange[candidate.exchange],
-    )
+    sample = frame if inference_frame is None else inference_frame
+    try:
+        return source.resolve_metadata_multiplier(
+            daily_contract=candidate.daily_contract,
+            trade_date=candidate.trade_date,
+            frame=frame,
+            inference_frame=sample,
+            pricing_basis=pricing_basis_by_exchange[candidate.exchange],
+        )
+    except MinuteDataError as exc:
+        if getattr(exc, "check", None) not in _UNRESOLVED_MULTIPLIER:
+            raise
+        resolved = _sibling_multiplier(sample, candidate)
+        if resolved is None:
+            raise
+        return resolved
 
 
 def _checkpoint_scalar(value: object) -> object:
@@ -972,7 +1022,7 @@ class CachingMetadataMultiplierResolver:
             raise ValueError(f"panel_multiplier_cache_phase: {phase!r}")
         self._phase = phase
 
-    def __call__(self, candidate, frame: pd.DataFrame):
+    def __call__(self, candidate, frame: pd.DataFrame, *, inference_frame=None):
         if candidate.exchange not in self._pricing_basis_by_exchange:
             raise ValueError(
                 "panel_multiplier_pricing_basis_missing: "
@@ -991,6 +1041,7 @@ class CachingMetadataMultiplierResolver:
                     self._pricing_basis_by_exchange,
                     candidate,
                     frame,
+                    inference_frame=inference_frame,
                 ),
             )
             return self._cache[key][1]

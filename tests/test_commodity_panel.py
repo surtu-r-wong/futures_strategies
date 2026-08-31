@@ -324,7 +324,7 @@ def _panel(*, silent_opening_dates=()):
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange={},
-        multiplier_resolver=lambda candidate, frame: 10,
+        multiplier_resolver=lambda candidate, frame, **_: 10,
         adjustment_factor_by_key=factors,
         continuity_segment_by_key={key: 0 for key in factors},
     )
@@ -381,7 +381,7 @@ def test_panel_resolves_date_effective_multiplier_for_every_product_day():
     contexts = build_contexts(_choices(), rules=[_day_only_rule()])
     calls = []
 
-    def resolve(candidate, frame):
+    def resolve(candidate, frame, **_):
         calls.append((candidate.trade_date, candidate.daily_contract, len(frame)))
         return 10
 
@@ -441,7 +441,7 @@ def _panel_with_missing_context(days, missing_date):
         contexts=contexts,
         source=_OmittingSource(contexts, [missing_date]),
         pricing_basis_by_exchange={},
-        multiplier_resolver=lambda candidate, frame: 10,
+        multiplier_resolver=lambda candidate, frame, **_: 10,
         adjustment_factor_by_key={key: 1.0 for key in contexts},
             continuity_segment_by_key={key: 0 for key in contexts},
     )
@@ -515,7 +515,7 @@ def test_month_iterator_retains_only_pending_rows_across_boundaries():
             contexts=contexts,
             source=_MonthTrackingSource(contexts),
             pricing_basis_by_exchange={},
-            multiplier_resolver=lambda candidate, frame: 10,
+            multiplier_resolver=lambda candidate, frame, **_: 10,
             adjustment_factor_by_key={key: 1.0 for key in contexts},
             continuity_segment_by_key={key: 0 for key in contexts},
         )
@@ -541,7 +541,7 @@ def test_month_iterator_resumes_without_refetching_completed_month():
         contexts=contexts,
         source=failing_source,
         pricing_basis_by_exchange={},
-        multiplier_resolver=lambda candidate, frame: 10,
+        multiplier_resolver=lambda candidate, frame, **_: 10,
         adjustment_factor_by_key={key: 1.0 for key in contexts},
             continuity_segment_by_key={key: 0 for key in contexts},
     )
@@ -555,7 +555,7 @@ def test_month_iterator_resumes_without_refetching_completed_month():
             contexts=contexts,
             source=resumed_source,
             pricing_basis_by_exchange={},
-            multiplier_resolver=lambda candidate, frame: 10,
+            multiplier_resolver=lambda candidate, frame, **_: 10,
             adjustment_factor_by_key={key: 1.0 for key in contexts},
             continuity_segment_by_key={key: 0 for key in contexts},
             resume_after=january.month_start,
@@ -571,7 +571,7 @@ def test_month_iterator_resumes_without_refetching_completed_month():
         contexts=contexts,
         source=_MonthTrackingSource(contexts),
         pricing_basis_by_exchange={},
-        multiplier_resolver=lambda candidate, frame: 10,
+        multiplier_resolver=lambda candidate, frame, **_: 10,
         adjustment_factor_by_key={key: 1.0 for key in contexts},
             continuity_segment_by_key={key: 0 for key in contexts},
     )
@@ -601,7 +601,7 @@ def test_panel_refuses_a_missing_adjustment_factor():
             contexts=contexts,
             source=source,
             pricing_basis_by_exchange={},
-            multiplier_resolver=lambda candidate, frame: 10,
+            multiplier_resolver=lambda candidate, frame, **_: 10,
             adjustment_factor_by_key={},
             continuity_segment_by_key={},
         )
@@ -693,7 +693,7 @@ def test_empty_panel_has_the_normalised_schema():
         contexts={},
         source=object(),
         pricing_basis_by_exchange={},
-        multiplier_resolver=lambda candidate, frame: 10,
+        multiplier_resolver=lambda candidate, frame, **_: 10,
         adjustment_factor_by_key={},
             continuity_segment_by_key={},
     )

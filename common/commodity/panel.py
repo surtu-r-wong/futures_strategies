@@ -565,6 +565,7 @@ def iter_panel_months(
         frames = list(source.iter_month(candidates, batch_lower, batch_upper))
         month = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
         context_frames: dict[tuple[date, str], pd.DataFrame] = {}
+        inference_frames: dict[tuple[date, str], pd.DataFrame] = {}
         required_identity = {"trade_date", "daily_contract"}
         for key in month_keys:
             candidate = contexts[key].candidate
@@ -583,6 +584,15 @@ def iter_panel_months(
                     f"contract={candidate.daily_contract!r}"
                 )
             context_frames[key] = frame
+            # 乘数在合约元数据缺档时只能从分钟推断，而推断的取样要**跨多个交易日**
+            # （`_select_multiplier_sample` 要 2–3 个）。一个品种日只有一天，所以推断
+            # 用的样本必须放宽到这一个月里该**品种**的全部行 —— 白银 AG1209 2012-05
+            # 就是这样把整跑打断的。校验仍然只用当天那一帧。
+            inference_frames[key] = (
+                month.loc[month["product"] == candidate.product]
+                if "product" in month.columns
+                else month
+            )
 
         for key in month_keys:
             context = contexts[key]
@@ -590,7 +600,9 @@ def iter_panel_months(
             symbol = candidate.minute_symbol
             frame = context_frames[key]
             basis = pricing_basis_by_exchange.get(candidate.exchange, "amount_vwap")
-            multiplier = multiplier_resolver(candidate, frame)
+            multiplier = multiplier_resolver(
+                candidate, frame, inference_frame=inference_frames[key]
+            )
 
             product = candidate.product
             waiting = pending.pop(product, None)

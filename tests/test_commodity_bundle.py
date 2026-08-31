@@ -37,6 +37,7 @@ from common.dominant import DominantChoice  # noqa: E402
 from common.minute.sessions import SessionRule  # noqa: E402
 from common.minute.bars import MultiplierResolution  # noqa: E402
 from scripts.commodity.build_panel import (  # noqa: E402
+    _metadata_multiplier_resolution,
     DigestingMinuteSource,
     DigestingMultiplierResolver,
     _build_panel_checkpointed,
@@ -358,7 +359,7 @@ def test_roll_fill_requests_both_raw_contracts_and_records_exact_window():
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
-        multiplier_resolver=lambda candidate, frame: 10,
+        multiplier_resolver=lambda candidate, frame, **_: 10,
     )
 
     assert skipped == ()
@@ -405,7 +406,7 @@ def test_a_roll_with_no_fill_window_books_no_fill_and_is_reported():
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
-        multiplier_resolver=lambda candidate, frame: 10,
+        multiplier_resolver=lambda candidate, frame, **_: 10,
     )
 
     assert fills.empty
@@ -422,7 +423,7 @@ def test_a_roll_with_no_fill_window_books_no_fill_and_is_reported():
 
 
 def _multiplier_that_fails(check: str):
-    def resolver(candidate, frame):
+    def resolver(candidate, frame, **_):
         if candidate.daily_contract == "RB2405.SHF":
             raise MinuteDataError(
                 trade_date=candidate.trade_date,
@@ -497,7 +498,7 @@ def test_roll_fill_hard_fails_when_a_traded_leg_still_cannot_be_priced():
             contexts=contexts,
             source=source,
             pricing_basis_by_exchange={"SHFE": "amount_vwap"},
-            multiplier_resolver=lambda candidate, frame: 0,
+            multiplier_resolver=lambda candidate, frame, **_: 0,
             )
 
 
@@ -905,7 +906,7 @@ def test_month_checkpoint_resumes_after_later_failure_without_rebuilding_complet
             contexts={},
             source=object(),
             pricing_basis_by_exchange={},
-            multiplier_resolver=lambda candidate, frame: 10,
+            multiplier_resolver=lambda candidate, frame, **_: 10,
             adjustment_factor_by_key={},
             continuity_segment_by_key={},
             checkpoint_directory=checkpoint,
@@ -921,7 +922,7 @@ def test_month_checkpoint_resumes_after_later_failure_without_rebuilding_complet
         contexts={},
         source=object(),
         pricing_basis_by_exchange={},
-        multiplier_resolver=lambda candidate, frame: 10,
+        multiplier_resolver=lambda candidate, frame, **_: 10,
         adjustment_factor_by_key={},
             continuity_segment_by_key={},
         checkpoint_directory=checkpoint,
@@ -937,7 +938,7 @@ def test_month_checkpoint_resumes_after_later_failure_without_rebuilding_complet
             contexts={},
             source=object(),
             pricing_basis_by_exchange={},
-            multiplier_resolver=lambda candidate, frame: 10,
+            multiplier_resolver=lambda candidate, frame, **_: 10,
             adjustment_factor_by_key={},
             continuity_segment_by_key={},
             checkpoint_directory=checkpoint,
@@ -965,7 +966,7 @@ def _crash_checkpoint_after_first_month_file(directory, chunk):
         contexts={},
         source=object(),
         pricing_basis_by_exchange={},
-        multiplier_resolver=lambda candidate, frame: 10,
+        multiplier_resolver=lambda candidate, frame, **_: 10,
         adjustment_factor_by_key={},
             continuity_segment_by_key={},
         checkpoint_directory=directory,
@@ -1000,7 +1001,7 @@ def test_checkpoint_recovers_after_child_exit_during_first_month_file(
         contexts={},
         source=object(),
         pricing_basis_by_exchange={},
-        multiplier_resolver=lambda candidate, frame: 10,
+        multiplier_resolver=lambda candidate, frame, **_: 10,
         adjustment_factor_by_key={},
             continuity_segment_by_key={},
         checkpoint_directory=checkpoint,
@@ -1497,7 +1498,7 @@ def _bar_multiplier_digest(multiplier):
     context = contexts[(choice.trade_date, choice.product)]
     source = _RollSource(context.slots, {choice.contract: 200.0})
     resolver = DigestingMultiplierResolver(
-        lambda candidate, frame: multiplier,
+        lambda candidate, frame, **_: multiplier,
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
     )
     resolver.set_phase("bars")
@@ -1545,7 +1546,7 @@ def _roll_multiplier_digest(old_multiplier, new_multiplier):
         "RB2410.SHF": new_multiplier,
     }
     resolver = DigestingMultiplierResolver(
-        lambda candidate, frame: multipliers[candidate.daily_contract],
+        lambda candidate, frame, **_: multipliers[candidate.daily_contract],
         pricing_basis_by_exchange={"SHFE": "ohlc_typical"},
     )
     resolver.set_phase("roll_fills")
@@ -1591,7 +1592,7 @@ def _audited_multiplier_digest(*, source_name, price):
         max_range_error=0.0,
     )
     resolver = DigestingMultiplierResolver(
-        lambda candidate, frame: resolution,
+        lambda candidate, frame, **_: resolution,
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
     )
     resolver.set_phase("bars")
@@ -1864,7 +1865,7 @@ def test_multiplier_provenance_fails_when_a_used_contract_was_not_recorded(
     bundle_frames,
 ):
     resolver = DigestingMultiplierResolver(
-        lambda candidate, frame: 10,
+        lambda candidate, frame, **_: 10,
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
     )
     resolver.set_phase("bars")
@@ -1890,7 +1891,7 @@ def test_multiplier_completeness_requires_each_used_contract_date():
         )
     )
     resolver = DigestingMultiplierResolver(
-        lambda candidate, frame: 10,
+        lambda candidate, frame, **_: 10,
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
     )
     resolver.set_phase("bars")
@@ -2039,3 +2040,97 @@ def test_a_transition_without_a_fill_is_refused_when_the_bundle_declares_none(
 
     with pytest.raises(ValueError, match="bundle_relationship.*roll_dominants"):
         write_bundle(tmp_path, **frames)
+
+
+def _inferable_rows(symbol: str, *, multiplier: int, start_day: int) -> pd.DataFrame:
+    """一张合约三天各 20 根、amount 与乘数自洽的分钟行 —— 推断要的就是这个形状。"""
+    records = []
+    for offset in range(3):
+        base = pd.Timestamp(
+            f"2012-05-{start_day + offset:02d} 09:00", tz="Asia/Shanghai"
+        )
+        for index in range(20):
+            price = 100.0 + index
+            volume = 1.0 + index
+            records.append(
+                {
+                    "bar_time": base + pd.Timedelta(minutes=index),
+                    "symbol": symbol,
+                    "trade_date": (base + pd.Timedelta(minutes=index)).date(),
+                    "low": price,
+                    "high": price,
+                    "volume": volume,
+                    "amount": price * volume * multiplier,
+                }
+            )
+    return pd.DataFrame(records)
+
+
+def test_a_contract_that_cannot_infer_its_own_multiplier_asks_its_siblings():
+    """乘数是品种级常量：本合约取样跨不到足够多的交易日时，同品种两张以上兄弟合约
+    推出同一个值就采用（2026-08-31 用户裁决），provenance 记 `sibling_inference`。"""
+
+    class _NoMetadata:
+        def resolve_metadata_multiplier(self, **_):
+            raise MinuteDataError(
+                trade_date=date(2012, 5, 11),
+                contract="AG1209.SHF",
+                check="contract_multiplier_sample",
+                reason="multiplier sample spans too few trade dates",
+            )
+
+    candidate = SimpleNamespace(
+        exchange="SHFE",
+        daily_contract="AG1209.SHF",
+        minute_symbol="AG1209",
+        trade_date=date(2012, 5, 11),
+        product="AG",
+    )
+    sample = pd.concat(
+        [
+            _inferable_rows("AG1209", multiplier=15, start_day=11).iloc[:5],
+            _inferable_rows("AG1212", multiplier=15, start_day=11),
+            _inferable_rows("AG1306", multiplier=15, start_day=11),
+        ],
+        ignore_index=True,
+    )
+
+    resolution = _metadata_multiplier_resolution(
+        _NoMetadata(),
+        {"SHFE": "amount_vwap"},
+        candidate,
+        sample.loc[sample["symbol"] == "AG1209"],
+        inference_frame=sample,
+    )
+
+    assert resolution.multiplier == 15
+    assert resolution.source == "sibling_inference"
+
+
+def test_one_sibling_alone_is_not_enough_to_settle_a_multiplier():
+    class _NoMetadata:
+        def resolve_metadata_multiplier(self, **_):
+            raise MinuteDataError(
+                trade_date=date(2012, 5, 11),
+                contract="AG1209.SHF",
+                check="contract_multiplier_sample",
+                reason="multiplier sample spans too few trade dates",
+            )
+
+    candidate = SimpleNamespace(
+        exchange="SHFE",
+        daily_contract="AG1209.SHF",
+        minute_symbol="AG1209",
+        trade_date=date(2012, 5, 11),
+        product="AG",
+    )
+    sample = _inferable_rows("AG1212", multiplier=15, start_day=11)
+
+    with pytest.raises(MinuteDataError, match="contract_multiplier_sample"):
+        _metadata_multiplier_resolution(
+            _NoMetadata(),
+            {"SHFE": "amount_vwap"},
+            candidate,
+            sample.iloc[:0],
+            inference_frame=sample,
+        )
