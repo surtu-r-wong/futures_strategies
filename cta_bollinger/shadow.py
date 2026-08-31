@@ -22,6 +22,7 @@ from common.commodity.execution import (
     nonempty_string,
     prepare_bars,
     prepare_rolls,
+    unexecutable_transitions,
     segment_slices,
 )
 from common.commodity.indicators import atr_series
@@ -248,7 +249,12 @@ def run_shadow_product(
         for number, frame_index in enumerate(traded_positions)
     }
     # 只在**还有下一段**的段末强制平仓；面板最后一根不是断代，仓位照常留着。
-    segment_last_bars = {traded_positions[span.stop - 1] for span in slices[:-1]}
+    # 换了合约却没有换月成交单 —— 没人能执行的转移，与断代同样处理（判据与理由见
+    # `unexecutable_transitions`）：切换前那一根强制平仓，切换那一根清空状态机。
+    unexecutable_breaks, unexecutable_switches = unexecutable_transitions(traded, rolls)
+    segment_last_bars = {
+        traded_positions[span.stop - 1] for span in slices[:-1]
+    } | unexecutable_breaks
     previous_segment: int | None = None
 
     def carry_state(output: dict[str, object]) -> None:
@@ -293,9 +299,12 @@ def run_shadow_product(
 
             contract = str(row["contract"])
             current_segment = segment_by_index[frame_index]
-            if previous_segment is not None and current_segment != previous_segment:
-                # 新的一段：状态在上一段末尾已经平掉，这里把状态机也清干净，并且
-                # 不再向换月要成交 —— 两张合约从没同日交易过，换月单不可能存在。
+            if (
+                previous_segment is not None and current_segment != previous_segment
+            ) or frame_index in unexecutable_switches:
+                # 新的一段（或一次没人能执行的换月）：状态在上一根已经平掉，这里把
+                # 状态机也清干净，并且不再向换月要成交 —— 断代处两张合约从没同日
+                # 交易过，不可执行的换月则是那五分钟根本没有成交。
                 state = State(Position.FLAT, take_profit=None, oi_scale=0.0)
                 previous_contract = None
                 previous_pricing_basis = None

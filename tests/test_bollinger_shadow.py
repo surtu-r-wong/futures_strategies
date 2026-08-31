@@ -172,12 +172,33 @@ def test_roll_is_atomic_execution_but_one_continuous_logical_trade() -> None:
     )
 
 
-def test_missing_roll_fill_fails_when_open_contract_changes() -> None:
-    frame = _long_panel()
-    frame.loc[301:, "contract"] = "RB2410.SHF"
+def _unexecutable_switch_panel() -> pd.DataFrame:
+    """同一个连续段里换了合约，但那次换月定不出价，所以没有换月成交单。"""
+    first = [100.0] * 10 + [104.0] * 8
+    second = _second_segment_closes()
+    return _panel(
+        first + second,
+        open_interest=[100.0] * (len(first) + len(second)),
+        contracts=["RB2405.SHF"] * len(first) + ["RB2410.SHF"] * len(second),
+        segments=[0] * (len(first) + len(second)),
+    )
 
-    with pytest.raises(ValueError, match="roll.*missing"):
-        run_shadow_product(frame, product="RB", roll_fills=pd.DataFrame())
+
+def test_a_switch_without_a_fill_closes_on_the_old_contract() -> None:
+    """面板对「成交窗口零成交」的换月不发成交单，所以这里不能再要求必有成交单。
+
+    没人能执行的转移与断代同样处理：切换前那一根强制平仓，新合约上重新开始 ——
+    仓位不会自己搬家，两张合约的原始价不可比，只有复权因子让**价格**连续。
+    """
+    result = run_shadow_product(
+        _unexecutable_switch_panel(), product="RB", roll_fills=pd.DataFrame(), **_SMALL
+    )
+
+    closed = result.trades.loc[result.trades["exit_reason"] == "continuity_break"]
+    assert len(closed) == 1
+    assert closed.iloc[0]["exit_contract"] == "RB2405.SHF"
+    assert closed.iloc[0]["exit_date"] == result.signals.iloc[17]["trade_date"]
+    assert result.signals["roll_new_contract"].isna().all()
 
 
 def test_roll_fill_pricing_bases_must_match_both_panel_legs() -> None:

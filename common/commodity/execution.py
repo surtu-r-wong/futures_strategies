@@ -24,6 +24,7 @@ from common.commodity.panel import SessionCalendar
 from common.minute.account import EventAccount
 
 __all__ = [
+    "unexecutable_transitions",
     "BAR_COLUMNS",
     "DAILY_COLUMNS",
     "ROLL_COLUMNS",
@@ -80,6 +81,45 @@ DAILY_COLUMNS = (
     "equity",
     "gross_leverage",
 )
+
+
+def unexecutable_transitions(
+    traded: pd.DataFrame, rolls: pd.DataFrame
+) -> tuple[frozenset[int], frozenset[int]]:
+    """有成交的 bar 序列里，**换了合约却没有换月成交单**的那些切换。
+
+    返回 ``(break_bars, switch_bars)``：前者是切换**之前**的最后一根有成交 bar
+    （在那里强制平仓），后者是切换那一根（状态机清空、不再向换月要成交）。
+
+    面板对成交窗口零成交的换月不发成交单（`build_roll_fills`），所以这种切换是
+    「没人能执行的转移」：既不能按建模时点把旧腿卖掉，也不能假装仓位平移过去 ——
+    两张合约的原始价不可比，只有复权因子让**价格**连续，仓位不会自己搬家。因此
+    与断代同样处理：上一根强制平仓，新合约上重新开始。
+
+    bundle 层保证「没有成交单」只可能是面板按规则跳过的（数量须与 manifest 申报
+    一致），所以这里不必再分辨「按规则跳过」和「悄悄丢了一笔」。
+    """
+    if traded.empty:
+        return frozenset(), frozenset()
+    keys = set()
+    if not rolls.empty:
+        keys = {
+            (row.trade_date, str(row.old_contract), str(row.new_contract))
+            for row in rolls.itertuples(index=False)
+        }
+    break_bars: set[int] = set()
+    switch_bars: set[int] = set()
+    previous_index: int | None = None
+    previous_contract: str | None = None
+    for frame_index, row in traded.iterrows():
+        contract = str(row["contract"])
+        if previous_contract is not None and contract != previous_contract:
+            if (row["trade_date"], previous_contract, contract) not in keys:
+                break_bars.add(int(previous_index))
+                switch_bars.add(int(frame_index))
+        previous_index = frame_index
+        previous_contract = contract
+    return frozenset(break_bars), frozenset(switch_bars)
 
 
 def segment_slices(segments: np.ndarray) -> list[slice]:

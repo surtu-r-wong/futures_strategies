@@ -296,3 +296,25 @@ def test_a_dow_continuity_break_needs_no_roll_fill() -> None:
     )
 
     assert not result.signals["roll_event"].any()
+
+
+def test_a_dow_switch_without_a_fill_closes_on_the_old_contract() -> None:
+    """同一个连续段里换了合约，但那次换月定不出价 —— 没人能执行的转移。
+
+    面板对「成交窗口零成交」的换月不发成交单，所以这里不能再要求必有成交单；
+    与断代同样处理：切换前那一根强制平仓，新合约上重新开始。
+    """
+    first = _dow_bars(_zigzag(60, 100.0), "RB2405.SHF", 0, "2017-06-01")
+    second = _dow_bars(_zigzag(200, 300.0), "RB2410.SHF", 0, "2017-09-01")
+
+    result = run_shadow_product(
+        pd.concat([first, second], ignore_index=True),
+        product="RB",
+        roll_fills=_empty_rolls(),
+    )
+
+    closed = result.trades.loc[result.trades["exit_reason"] == "continuity_break"]
+    assert len(closed) == 1
+    assert closed.iloc[0]["exit_contract"] == "RB2405.SHF"
+    assert closed.iloc[0]["exit_date"] == first["trade_date"].iloc[-1]
+    assert result.signals["roll_new_contract"].isna().all()

@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from common.commodity.execution import prepare_bars, segment_slices
+from common.commodity.execution import (
+    prepare_bars,
+    segment_slices,
+    unexecutable_transitions,
+)
 
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -83,3 +87,38 @@ def test_a_well_ordered_segment_column_survives_preparation() -> None:
     frame, _ = prepare_bars(_bars([0, 0, 1]), "RB")
 
     assert frame["continuity_segment"].tolist() == [0, 0, 1]
+
+
+def test_a_switch_without_a_fill_marks_the_bar_before_it_as_a_break():
+    """换了合约却没有换月成交单 —— 与断代同样处理：上一根平仓，新合约重新开始。"""
+    traded = pd.DataFrame(
+        {
+            "trade_date": [date(2024, 3, 4), date(2024, 3, 5), date(2024, 3, 6)],
+            "contract": ["RB2405.SHF", "RB2405.SHF", "RB2410.SHF"],
+        },
+        index=[10, 11, 12],
+    )
+
+    break_bars, switch_bars = unexecutable_transitions(traded, pd.DataFrame())
+
+    assert break_bars == frozenset({11})
+    assert switch_bars == frozenset({12})
+
+
+def test_a_switch_with_its_fill_is_not_a_break():
+    traded = pd.DataFrame(
+        {
+            "trade_date": [date(2024, 3, 5), date(2024, 3, 6)],
+            "contract": ["RB2405.SHF", "RB2410.SHF"],
+        },
+        index=[11, 12],
+    )
+    rolls = pd.DataFrame(
+        {
+            "trade_date": [date(2024, 3, 6)],
+            "old_contract": ["RB2405.SHF"],
+            "new_contract": ["RB2410.SHF"],
+        }
+    )
+
+    assert unexecutable_transitions(traded, rolls) == (frozenset(), frozenset())
