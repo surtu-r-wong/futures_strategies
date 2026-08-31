@@ -942,9 +942,11 @@ def _metadata_multiplier_resolution(
     # `minute_contract`）。宽样本是给兄弟合约兜底用的，先按合约切出自己的那一份。
     own = sample
     if not sample.empty and "symbol" in sample.columns:
-        own = sample.loc[sample["symbol"].astype(str) == candidate.minute_symbol]
-        if own.empty:
-            own = frame
+        symbols = {str(symbol) for symbol in sample["symbol"]}
+        if symbols - {candidate.minute_symbol}:
+            own = sample.loc[sample["symbol"].astype(str) == candidate.minute_symbol]
+            if own.empty:
+                own = frame
     try:
         return source.resolve_metadata_multiplier(
             daily_contract=candidate.daily_contract,
