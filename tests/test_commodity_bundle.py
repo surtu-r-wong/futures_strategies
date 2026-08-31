@@ -567,6 +567,20 @@ def test_shared_builder_cli_accepts_exact_smoke_arguments(tmp_path):
     assert args.settings == Path("/safe/settings.yaml")
 
 
+def test_shared_builder_takes_the_session_asset_as_an_argument(tmp_path):
+    """同一个 main 服务两个消费者：连续信号读自己的资产，商品复刻读自己的那份。
+    把资产写死在模块常量里，就等于让其中一个消费者悄悄读错时段规则。"""
+    required = ["--start", "2023-01-03", "--end", "2023-01-31", "--output-dir", str(tmp_path)]
+
+    default = build_parser().parse_args(required)
+    chosen = build_parser().parse_args(
+        [*required, "--session-rules", "/safe/commodity_minute_sessions.csv"]
+    )
+
+    assert default.session_rules.name == "continuous_minute_sessions.csv"
+    assert chosen.session_rules == Path("/safe/commodity_minute_sessions.csv")
+
+
 def test_legacy_continuous_builder_delegates_to_shared_entry_point():
     import scripts.commodity.build_panel as shared_builder
     import scripts.continuous.build_panel as legacy_builder

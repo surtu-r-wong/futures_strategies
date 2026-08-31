@@ -71,6 +71,10 @@ from cta_carry.session_authority import (  # noqa: E402
     pricing_basis_for,
 )
 
+#: 默认的时段规则资产 = 连续信号那一份。**这个 main 有两个消费者**：连续信号
+#: （`scripts/continuous/build_panel.py` 直接委派过来）和商品复刻，后者的宇宙更宽、
+#: 有自己的第三份资产。两份不可互换 —— 连续信号要 2011 年的规则，商品复刻的采集
+#: 从 2012-01-04 起 —— 所以资产走参数，落进 manifest 的 provenance 里可查。
 SESSION_RULES = _REPO_ROOT / "config" / "continuous_minute_sessions.csv"
 PRICING_BASES = _REPO_ROOT / "config" / "carry_minute_pricing_basis.csv"
 DAILY_HISTORY_START = date(2010, 1, 1)
@@ -146,8 +150,26 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="settings YAML; defaults to the repository settings convention",
     )
+    parser.add_argument(
+        "--session-rules",
+        dest="session_rules",
+        type=Path,
+        default=SESSION_RULES,
+        help=(
+            "versioned session-rule asset; defaults to the continuous-signal "
+            "asset, the commodity replication passes its own"
+        ),
+    )
     parser.add_argument("--use-test", action="store_true")
     return parser
+
+
+def _asset_label(path: Path) -> str:
+    """Name an asset for provenance: repo-relative when it lives here."""
+    try:
+        return path.resolve().relative_to(_REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def _month_start(value: date) -> date:
@@ -1922,7 +1944,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.end < args.start:
         parser.error("--end must not precede --start")
 
-    rules = load_session_rules(SESSION_RULES)
+    session_rules_path = args.session_rules
+    rules = load_session_rules(session_rules_path)
     reliable_end = _reliable_end(rules)
     try:
         args.end = _resolve_end(
@@ -2051,7 +2074,7 @@ def main(argv: list[str] | None = None) -> int:
     source_revision = _source_revision()
     effective_config_sha256, _ = _effective_config_sha256(
         cfg,
-        SESSION_RULES,
+        session_rules_path,
         PRICING_BASES,
         source_revision=source_revision,
     )
@@ -2135,8 +2158,8 @@ def main(argv: list[str] | None = None) -> int:
         },
         provenance={
             **source_revision,
-            "session_rules_file": SESSION_RULES.relative_to(_REPO_ROOT).as_posix(),
-            "session_rules_sha256": _file_sha256(SESSION_RULES),
+            "session_rules_file": _asset_label(session_rules_path),
+            "session_rules_sha256": _file_sha256(session_rules_path),
             "session_rules_reliable_end": reliable_end.isoformat(),
             "pricing_basis_file": PRICING_BASES.relative_to(_REPO_ROOT).as_posix(),
             "pricing_basis_sha256": _file_sha256(PRICING_BASES),
