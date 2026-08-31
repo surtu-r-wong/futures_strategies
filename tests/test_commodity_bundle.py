@@ -36,7 +36,6 @@ from common.dominant import DominantChoice  # noqa: E402
 from common.minute.sessions import SessionRule  # noqa: E402
 from common.minute.bars import MultiplierResolution  # noqa: E402
 from scripts.commodity.build_panel import (  # noqa: E402
-    unpriceable_rolls,
     DigestingMinuteSource,
     DigestingMultiplierResolver,
     _build_panel_checkpointed,
@@ -353,15 +352,15 @@ def test_roll_fill_requests_both_raw_contracts_and_records_exact_window():
         {"RB2405.SHF": 100.0, "RB2410.SHF": 200.0},
     )
 
-    fills = build_roll_fills(
+    fills, skipped = build_roll_fills(
         choices=choices,
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
         multiplier_resolver=lambda candidate, frame: 10,
-        traded_contract_days=_traded("RB2405.SHF", "RB2410.SHF"),
     )
 
+    assert skipped == ()
     assert len(source.requests) == 1
     request = source.requests[0]
     assert {candidate.daily_contract for candidate in request} == {
@@ -384,16 +383,12 @@ def test_roll_fill_requests_both_raw_contracts_and_records_exact_window():
     assert fills.loc[0, "new_pricing_basis"] == "amount_vwap"
 
 
-def _traded(*contracts):
-    """哪些 (换月日, 合约) 当天真的成交过 —— 日线量 > 0。"""
-    return frozenset((ROLL_DATES[1], contract) for contract in contracts)
+def test_a_roll_with_no_fill_window_books_no_fill_and_is_reported():
+    """成交窗口零成交（旧腿已退市，或那五分钟没人交易）—— 没有可执行的转移。
 
-
-def test_a_roll_whose_leg_did_not_trade_produces_no_fill():
-    """旧腿当天零成交（或已退市连日线行都没有）——没有可执行的转移，就不发单。
-
-    全历史 3,406 次换月里有 96 次是这样，形态两种：链断（AU1912 到期十天后才换到
-    AU2006）与薄成交（WR/B/SF/SM）。连续价仍由日线收盘算出的复权因子缝合。
+    全历史 3,406 次换月里 96 次如此：链断（AU1912 到期十天后主力才换到 AU2006）与
+    薄成交（WR/B/SF/SM，以及 PP1405 2014-03-05 那种当天有成交但不在开盘五分钟里的）。
+    连续价仍由日线收盘算出的复权因子缝合；跳过的清单一次报全，不是一次炸一条。
     """
     choices = _roll_choices()
     contexts = build_contexts(
@@ -403,47 +398,36 @@ def test_a_roll_whose_leg_did_not_trade_produces_no_fill():
     context = contexts[(ROLL_DATES[1], "RB")]
     source = _RollSource(context.slots, {"RB2410.SHF": 200.0})
 
-    fills = build_roll_fills(
+    fills, skipped = build_roll_fills(
         choices=choices,
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
         multiplier_resolver=lambda candidate, frame: 10,
-        traded_contract_days=_traded("RB2410.SHF"),
     )
 
     assert fills.empty
-    assert source.requests == []
-
-
-def test_the_unpriceable_rolls_are_listed_before_any_minute_query():
-    """闸与构建侧读同一个判据：报出来的那条，正是构建侧会跳过的那条。"""
-    choices = _roll_choices()
-    contexts = build_contexts(
-        choices,
-        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
-    )
-
-    listed = unpriceable_rolls(
-        choices=choices,
-        contexts=contexts,
-        traded_contract_days=_traded("RB2410.SHF"),
-    )
-
     assert [
-        (row["trade_date"], row["product"], row["old_contract"], row["new_contract"], row["untraded"])
-        for row in listed
-    ] == [(ROLL_DATES[1], "RB", "RB2405.SHF", "RB2410.SHF", ("RB2405.SHF",))]
+        (
+            row["trade_date"],
+            row["product"],
+            row["old_contract"],
+            row["new_contract"],
+            row["unpriceable_leg"],
+        )
+        for row in skipped
+    ] == [(ROLL_DATES[1], "RB", "RB2405.SHF", "RB2410.SHF", "RB2405.SHF")]
 
 
-def test_roll_fill_hard_fails_when_either_raw_leg_is_unavailable():
+def test_roll_fill_hard_fails_when_a_traded_leg_still_cannot_be_priced():
+    """两条腿都有成交却定不出价 —— 那是缺数据或口径错误，不是「没有市场」。"""
     choices = _roll_choices()
     contexts = build_contexts(
         choices,
         rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
     )
     context = contexts[(ROLL_DATES[1], "RB")]
-    source = _RollSource(context.slots, {"RB2410.SHF": 200.0})
+    source = _RollSource(context.slots, {"RB2405.SHF": 100.0, "RB2410.SHF": 200.0})
 
     with pytest.raises(ValueError, match="roll_fill_unpriceable"):
         build_roll_fills(
@@ -451,9 +435,8 @@ def test_roll_fill_hard_fails_when_either_raw_leg_is_unavailable():
             contexts=contexts,
             source=source,
             pricing_basis_by_exchange={"SHFE": "amount_vwap"},
-            multiplier_resolver=lambda candidate, frame: 10,
-            traded_contract_days=_traded("RB2405.SHF", "RB2410.SHF"),
-        )
+            multiplier_resolver=lambda candidate, frame: 0,
+            )
 
 
 def test_builder_caches_raw_ohlc_and_only_carries_the_adjustment_factor(
@@ -1504,13 +1487,12 @@ def _roll_multiplier_digest(old_multiplier, new_multiplier):
         pricing_basis_by_exchange={"SHFE": "ohlc_typical"},
     )
     resolver.set_phase("roll_fills")
-    fills = build_roll_fills(
+    fills, _skipped = build_roll_fills(
         choices=choices,
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange={"SHFE": "ohlc_typical"},
         multiplier_resolver=resolver,
-        traded_contract_days=_traded("RB2405.SHF", "RB2410.SHF"),
     )
     resolver.assert_complete(bars=pd.DataFrame(), roll_fills=fills)
     return resolver.multiplier_resolutions_sha256

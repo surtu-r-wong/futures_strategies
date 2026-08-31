@@ -1161,40 +1161,6 @@ def _roll_events(
     return events
 
 
-def unpriceable_rolls(
-    *,
-    choices: Sequence[object],
-    contexts: Mapping[tuple[date, str], object],
-    traded_contract_days,
-) -> tuple[dict[str, object], ...]:
-    """换月日某一条腿根本没成交的那些换月 —— 没有可执行的转移可以定价。
-
-    两种形态都落在这里：**链断**（旧合约在换月日之前就到期/停挂，当天连日线行都
-    没有，AU1912 到期十天后才换到 AU2006）与**薄成交**（两张都还挂着，但当天有一腿
-    零成交，WR/B/SF/SM）。全历史 3,406 次换月里 96 次如此，每年都有。
-
-    先行闸与构建侧共用这一个判据：**报出来的那条，正是构建侧会跳过的那条**。
-    """
-    listed = []
-    for previous, current, _context in _roll_events(choices, contexts):
-        untraded = tuple(
-            contract
-            for contract in (previous.contract, current.contract)
-            if (current.trade_date, contract) not in traded_contract_days
-        )
-        if untraded:
-            listed.append(
-                {
-                    "trade_date": current.trade_date,
-                    "product": current.product,
-                    "old_contract": previous.contract,
-                    "new_contract": current.contract,
-                    "untraded": untraded,
-                }
-            )
-    return tuple(listed)
-
-
 def _roll_candidate(choice, context, *, role: str) -> MinuteCandidate:
     product, minute_symbol, exchange = minute_contract_identity(
         choice.contract, choice.trade_date
@@ -1226,31 +1192,26 @@ def build_roll_fills(
     source,
     pricing_basis_by_exchange: Mapping[str, str],
     multiplier_resolver,
-    traded_contract_days,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, tuple[dict[str, object], ...]]:
     """Price both concrete legs of every in-scope roll in one bounded batch/month.
 
-    一条腿当天没成交就没有可执行的转移 —— 这样的换月**不发成交单**（判据见
-    :func:`unpriceable_rolls`），连续价仍由日线收盘算出的复权因子缝合。两条腿都
-    在交易却定不出价，仍然硬失败：那是缺数据，不是没得交易。
+    返回 ``(fills, skipped)``。**成交窗口里零成交的那条腿定不出价，这样的换月不发
+    成交单** —— 没有人能在建模的时点上完成这次转移。两种形态都真实存在：链断（旧
+    合约在换月日之前就到期，AU1912 到期十天后主力才换到 AU2006）与薄成交（那一腿
+    当天零成交，或成交都不落在开盘五分钟里，PP1405 2014-03-05）。连续价仍由日线
+    收盘算出的复权因子缝合，与断代处「不要求换月成交单」同一条口径。
+
+    其余任何定价失败仍然硬失败（乘数、定价基准、分钟行结构）—— 那是缺数据或口径
+    错误，不是「没有市场」。
     """
-    skipped = {
-        (row["trade_date"], row["product"])
-        for row in unpriceable_rolls(
-            choices=choices,
-            contexts=contexts,
-            traded_contract_days=traded_contract_days,
-        )
-    }
-    events = [
-        event
-        for event in _roll_events(choices, contexts)
-        if (event[1].trade_date, event[1].product) not in skipped
-    ]
+    events = _roll_events(choices, contexts)
     if not events:
-        return normalise_bundle_table(
-            "roll_fills",
-            pd.DataFrame(columns=list(TABLE_SCHEMAS["roll_fills"])),
+        return (
+            normalise_bundle_table(
+                "roll_fills",
+                pd.DataFrame(columns=list(TABLE_SCHEMAS["roll_fills"])),
+            ),
+            (),
         )
 
     by_month: dict[tuple[int, int], list[tuple[object, object, object]]] = {}
@@ -1261,6 +1222,7 @@ def build_roll_fills(
         ).append(event)
 
     records: list[dict[str, object]] = []
+    skipped: list[dict[str, object]] = []
     for month_events in by_month.values():
         candidates: list[MinuteCandidate] = []
         legs_by_event = []
@@ -1284,6 +1246,7 @@ def build_roll_fills(
         for previous, current, context, old_candidate, new_candidate in legs_by_event:
             prices = []
             bases = []
+            unpriceable: dict[str, object] | None = None
             for candidate in (old_candidate, new_candidate):
                 if candidate.exchange not in pricing_basis_by_exchange:
                     raise ValueError(
@@ -1307,7 +1270,24 @@ def build_roll_fills(
                         multiplier=multiplier,
                         pricing_basis=basis,
                     )
-                except (MinuteDataError, KeyError, TypeError, ValueError) as exc:
+                except MinuteDataError as exc:
+                    if getattr(exc, "check", None) != "execution_vwap":
+                        raise ValueError(
+                            "roll_fill_unpriceable: both raw dominant legs are "
+                            f"required; {current.trade_date} {current.product} "
+                            f"{previous.contract!r} -> {current.contract!r}; "
+                            f"failed={candidate.daily_contract!r}"
+                        ) from exc
+                    # 成交窗口零成交 —— 这次转移没人能执行，不发单。
+                    unpriceable = {
+                        "trade_date": current.trade_date,
+                        "product": current.product,
+                        "old_contract": previous.contract,
+                        "new_contract": current.contract,
+                        "unpriceable_leg": candidate.daily_contract,
+                    }
+                    break
+                except (KeyError, TypeError, ValueError) as exc:
                     raise ValueError(
                         "roll_fill_unpriceable: both raw dominant legs are required; "
                         f"{current.trade_date} {current.product} "
@@ -1317,6 +1297,9 @@ def build_roll_fills(
                 prices.append(fill.price)
                 bases.append(basis)
 
+            if unpriceable is not None:
+                skipped.append(unpriceable)
+                continue
             records.append(
                 {
                     "trade_date": current.trade_date,
@@ -1330,9 +1313,14 @@ def build_roll_fills(
                     "new_pricing_basis": bases[1],
                 }
             )
-    return normalise_bundle_table(
-        "roll_fills",
-        pd.DataFrame.from_records(records, columns=list(TABLE_SCHEMAS["roll_fills"])),
+    return (
+        normalise_bundle_table(
+            "roll_fills",
+            pd.DataFrame.from_records(
+                records, columns=list(TABLE_SCHEMAS["roll_fills"])
+            ),
+        ),
+        tuple(sorted(skipped, key=lambda row: (row["trade_date"], row["product"]))),
     )
 
 
@@ -2104,44 +2092,6 @@ def main(argv: list[str] | None = None) -> int:
         end=args.end,
     )
 
-    # 换月日某一条腿没成交 ⇒ 没有可执行的转移，不发成交单。**在第一次分钟查询之前
-    # 一次报全**：否则真实全历史会一次炸一条（96 次换月分散在 14 个品种、每一年）。
-    traded_contract_days = frozenset(
-        (trade_date, str(symbol))
-        for trade_date, symbol, volume in daily.loc[
-            :, ["trade_date", "symbol", "volume"]
-        ].itertuples(index=False, name=None)
-        if float(volume or 0.0) > 0.0
-    )
-    unpriced_rolls = unpriceable_rolls(
-        choices=choices,
-        contexts=contexts,
-        traded_contract_days=traded_contract_days,
-    )
-    if unpriced_rolls:
-        manifest = Path(args.output_dir) / "roll-fill-unpriceable.csv"
-        manifest.parent.mkdir(parents=True, exist_ok=True)
-        with manifest.open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(
-                ["trade_date", "product", "old_contract", "new_contract", "untraded"]
-            )
-            for row in unpriced_rolls:
-                writer.writerow(
-                    [
-                        row["trade_date"].isoformat(),
-                        row["product"],
-                        row["old_contract"],
-                        row["new_contract"],
-                        " ".join(row["untraded"]),
-                    ]
-                )
-        products = sorted({row["product"] for row in unpriced_rolls})
-        print(
-            f"unpriceable rolls: {len(unpriced_rolls)} across {len(products)} products "
-            f"({' '.join(products)}); manifest={manifest}",
-            flush=True,
-        )
     if not contexts:
         raise ValueError("panel_contexts_empty: no reliable dominant sessions in range")
 
@@ -2196,14 +2146,46 @@ def main(argv: list[str] | None = None) -> int:
 
     source.set_phase("roll_fills")
     multiplier_resolver.set_phase("roll_fills")
-    roll_fills = build_roll_fills(
+    roll_fills, unpriced_rolls = build_roll_fills(
         choices=choices,
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange=basis_by_exchange,
         multiplier_resolver=multiplier_resolver,
-        traded_contract_days=traded_contract_days,
     )
+    # 换月阶段一次跑完全部换月，所以跳过的那些在长跑的分钟阶段之前就报全了 ——
+    # 不再一次炸一条。清单落 CSV，计数进 manifest。
+    if unpriced_rolls:
+        roll_manifest = Path(args.output_dir) / "roll-fill-unpriceable.csv"
+        roll_manifest.parent.mkdir(parents=True, exist_ok=True)
+        with roll_manifest.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(
+                [
+                    "trade_date",
+                    "product",
+                    "old_contract",
+                    "new_contract",
+                    "unpriceable_leg",
+                ]
+            )
+            for row in unpriced_rolls:
+                writer.writerow(
+                    [
+                        row["trade_date"].isoformat(),
+                        row["product"],
+                        row["old_contract"],
+                        row["new_contract"],
+                        row["unpriceable_leg"],
+                    ]
+                )
+        rolled_products = sorted({row["product"] for row in unpriced_rolls})
+        print(
+            f"unpriceable rolls: {len(unpriced_rolls)} across "
+            f"{len(rolled_products)} products ({' '.join(rolled_products)}); "
+            f"manifest={roll_manifest}",
+            flush=True,
+        )
     source.set_phase("bars")
     multiplier_resolver.set_phase("bars")
     raw_bars = _build_panel_checkpointed(

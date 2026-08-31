@@ -83,9 +83,15 @@ artifacts fail closed.
 - `fill_price`, `roll_fills.old_price`, and `roll_fills.new_price` are raw
   executable-contract prices and are never multiplied by `adj_factor`.
 - A roll request fetches both old and new concrete contracts over the next
-  session's first five authoritative minute slots. Either leg missing or
-  unpriceable aborts the build; the builder does not synthesize a spread or a
-  replacement price.
+  session's first five authoritative minute slots. A leg whose window has **zero
+  traded volume** books no fill at all: nobody could have executed that transfer
+  at the modeled time, and the builder does not synthesize a spread or a
+  replacement price. The skipped rolls are written to
+  `roll-fill-unpriceable.csv` in the bundle directory and counted in the
+  manifest (`inputs.unpriceable_rolls`); over the full history 96 of 3,406 rolls
+  skip this way, in two shapes -- the chain broke (the outgoing contract had
+  already expired) or the day was thin. Any other pricing failure -- multiplier,
+  pricing basis, malformed minute rows -- still aborts the build.
 - Exchanges without an override use `amount_vwap`. CZCE is explicitly
   overridden to `ohlc_typical` because its stored `amount` is synthesized from
   an integer price and cannot recover an exact VWAP. The chosen basis is stored
