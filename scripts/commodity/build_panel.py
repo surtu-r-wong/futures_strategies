@@ -1261,6 +1261,25 @@ def build_roll_fills(
                         (minute["trade_date"] == candidate.trade_date)
                         & (minute["daily_contract"] == candidate.daily_contract)
                     ].copy()
+                # 成交窗口零成交 ⇒ 这次转移没人能执行，不发单。**先看证据再定价**：
+                # 一张当天没有任何分钟行的合约，连乘数都解析不出来（乘数校验要读价），
+                # 那时抛出的错与「缺数据」长得一模一样。
+                traded_volume = (
+                    0.0
+                    if frame.empty
+                    else float(
+                        pd.to_numeric(frame["volume"], errors="coerce").fillna(0.0).sum()
+                    )
+                )
+                if traded_volume <= 0.0:
+                    unpriceable = {
+                        "trade_date": current.trade_date,
+                        "product": current.product,
+                        "old_contract": previous.contract,
+                        "new_contract": current.contract,
+                        "unpriceable_leg": candidate.daily_contract,
+                    }
+                    break
                 try:
                     multiplier = multiplier_resolver(candidate, frame)
                     fill = five_minute_vwap(
@@ -1270,24 +1289,7 @@ def build_roll_fills(
                         multiplier=multiplier,
                         pricing_basis=basis,
                     )
-                except MinuteDataError as exc:
-                    if getattr(exc, "check", None) != "execution_vwap":
-                        raise ValueError(
-                            "roll_fill_unpriceable: both raw dominant legs are "
-                            f"required; {current.trade_date} {current.product} "
-                            f"{previous.contract!r} -> {current.contract!r}; "
-                            f"failed={candidate.daily_contract!r}"
-                        ) from exc
-                    # 成交窗口零成交 —— 这次转移没人能执行，不发单。
-                    unpriceable = {
-                        "trade_date": current.trade_date,
-                        "product": current.product,
-                        "old_contract": previous.contract,
-                        "new_contract": current.contract,
-                        "unpriceable_leg": candidate.daily_contract,
-                    }
-                    break
-                except (KeyError, TypeError, ValueError) as exc:
+                except (MinuteDataError, KeyError, TypeError, ValueError) as exc:
                     raise ValueError(
                         "roll_fill_unpriceable: both raw dominant legs are required; "
                         f"{current.trade_date} {current.product} "
