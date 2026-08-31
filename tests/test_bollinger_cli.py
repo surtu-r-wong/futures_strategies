@@ -102,7 +102,7 @@ def test_the_sensitivity_run_gets_its_own_prefix(tmp_path) -> None:
     assert Path(options.sensitivity_prefix).name == "bollinger_ddof1"
 
 
-def _tiny_bundle(directory: Path) -> None:
+def _tiny_bundle(directory: Path, *, unpriceable_days: int = 0) -> None:
     days = [stamp.date() for stamp in pd.bdate_range("2024-01-02", "2024-02-29")]
     rows = []
     for index, day in enumerate(days):
@@ -129,9 +129,11 @@ def _tiny_bundle(directory: Path) -> None:
                 "continuity_segment": 0,
                     "continuity_segment": 0,
                     "fill_time": slot_end + pd.Timedelta(minutes=5),
-                    "fill_price": close,
+                    "fill_price": (
+                        float("nan") if index < unpriceable_days else close
+                    ),
                     "fill_pending": False,
-                    "fill_unpriceable": False,
+                    "fill_unpriceable": index < unpriceable_days,
                     "pricing_basis": "amount_vwap",
                     "multiplier": multiplier,
                 }
@@ -236,3 +238,32 @@ def test_main_refuses_a_window_the_bundle_does_not_cover(tmp_path) -> None:
                 str(tmp_path / "out" / "bollinger"),
             ]
         )
+
+
+def test_an_unpriceable_window_is_counted_not_refused(tmp_path) -> None:
+    """闸的含义收到「策略真正要成交的那一笔」上。
+
+    安静时段里没人成交的成交窗口在全历史上必然存在（三个月十四个品种的探针就有
+    20 根、占 0.16%，还都落在 AL/P/Y/A 这类流动品种），按「区间内任何一根不可定价
+    即拒」这条判据，注册的验收命令永远跑不了。真正该硬失败的是**策略确实要换仓、
+    而那一笔定不出价** —— 那条在影子里逐 bar 生效，与本开关无关。
+    """
+    _tiny_bundle(tmp_path, unpriceable_days=2)
+
+    exit_code = main(
+        [
+            "--panel-dir",
+            str(tmp_path),
+            "--start",
+            "2024-01-02",
+            "--end",
+            "2024-02-29",
+            "--output-prefix",
+            str(tmp_path / "bollinger"),
+            "--require-paper-faithful",
+        ]
+    )
+
+    assert exit_code == 0
+    audit = json.loads((tmp_path / "bollinger.audit.json").read_text(encoding="utf-8"))
+    assert audit["run_config"]["unpriceable_fill_windows"] == 4

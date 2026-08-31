@@ -87,7 +87,7 @@ def test_the_sensitivity_run_gets_its_own_prefix(tmp_path) -> None:
     assert Path(options.sensitivity_prefix).name == "dow_literal"
 
 
-def _tiny_bundle(directory: Path) -> None:
+def _tiny_bundle(directory: Path, *, unpriceable_days: int = 0) -> None:
     days = [stamp.date() for stamp in pd.bdate_range("2024-01-02", "2024-04-30")]
     rows = []
     for index, day in enumerate(days):
@@ -116,9 +116,11 @@ def _tiny_bundle(directory: Path) -> None:
                 "continuity_segment": 0,
                     "continuity_segment": 0,
                     "fill_time": slot_end + pd.Timedelta(minutes=5),
-                    "fill_price": close,
+                    "fill_price": (
+                        float("nan") if index < unpriceable_days else close
+                    ),
                     "fill_pending": False,
-                    "fill_unpriceable": False,
+                    "fill_unpriceable": index < unpriceable_days,
                     "pricing_basis": "amount_vwap",
                     "multiplier": multiplier,
                 }
@@ -217,3 +219,26 @@ def test_main_refuses_a_window_the_bundle_does_not_cover(tmp_path) -> None:
                 str(tmp_path / "out" / "dow"),
             ]
         )
+
+
+def test_an_unpriceable_window_is_counted_not_refused(tmp_path) -> None:
+    """与 Bollinger 同一条口径：不可定价的成交窗口计数入账，不再拦下整跑。"""
+    _tiny_bundle(tmp_path, unpriceable_days=2)
+
+    exit_code = main(
+        [
+            "--panel-dir",
+            str(tmp_path),
+            "--start",
+            "2024-01-02",
+            "--end",
+            "2024-02-29",
+            "--output-prefix",
+            str(tmp_path / "dow"),
+            "--require-paper-faithful",
+        ]
+    )
+
+    assert exit_code == 0
+    audit = json.loads((tmp_path / "dow.audit.json").read_text(encoding="utf-8"))
+    assert audit["run_config"]["unpriceable_fill_windows"] == 4

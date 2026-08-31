@@ -143,6 +143,7 @@ def _run_one(
     ddof: int,
     output_prefix: str,
     sensitivity_only: bool,
+    unpriceable_fill_windows: int,
 ) -> None:
     sliced = slice_bundle(bundle, options.end)
     products = sorted({str(value) for value in sliced.bars["product"]})
@@ -182,6 +183,9 @@ def _run_one(
         "in_sample_end": options.in_sample_end.isoformat(),
         "products": products,
         "require_paper_faithful": options.require_paper_faithful,
+        # 区间内不可定价的成交窗口数：这条只入账，不拦跑；策略真正需要的那一笔
+        # 若定不出价，回测会在那一根上硬失败。
+        "unpriceable_fill_windows": unpriceable_fill_windows,
     }
     write_outputs(
         restrict_result(result, options.start),
@@ -197,7 +201,7 @@ def _run_one(
 def main(argv: list[str] | None = None) -> int:
     options = resolve_options(build_parser().parse_args(argv))
     bundle = read_bundle(options.panel_dir)
-    check_coverage(
+    unpriceable_fill_windows = check_coverage(
         _PROG,
         bundle,
         start=options.start,
@@ -207,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     _run_one(
         bundle,
         options,
+        unpriceable_fill_windows=unpriceable_fill_windows,
         ddof=options.ddof,
         output_prefix=options.output_prefix,
         sensitivity_only=False,
@@ -218,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             ddof=1,
             output_prefix=options.sensitivity_prefix,
             sensitivity_only=True,
+            unpriceable_fill_windows=unpriceable_fill_windows,
         )
     return 0
 

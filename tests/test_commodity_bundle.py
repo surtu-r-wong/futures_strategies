@@ -18,6 +18,7 @@ import pytest
 
 pytest_plugins = ("tests.commodity_fixtures",)
 
+from common.minute.bars import MinuteDataError
 from common.commodity.bundle import (  # noqa: E402
     BUNDLE_VERSION,
     TABLE_FILES,
@@ -418,6 +419,66 @@ def test_a_roll_with_no_fill_window_books_no_fill_and_is_reported():
         )
         for row in skipped
     ] == [(ROLL_DATES[1], "RB", "RB2405.SHF", "RB2410.SHF", "RB2405.SHF")]
+
+
+def _multiplier_that_fails(check: str):
+    def resolver(candidate, frame):
+        if candidate.daily_contract == "RB2405.SHF":
+            raise MinuteDataError(
+                trade_date=candidate.trade_date,
+                contract=candidate.daily_contract,
+                check=check,
+                reason="synthetic",
+            )
+        return 10
+
+    return resolver
+
+
+def test_a_leg_whose_multiplier_cannot_be_resolved_books_no_fill():
+    """乘数定不出来 ⇒ 这条腿定不出价，与窗口零成交同一个结果。
+
+    元数据缺档时乘数只能从分钟推断，推断要跨多个交易日取样，而换月只请求换月当天
+    ——聚丙烯上市第二周的换月（PP1405 2014-03-05）就卡在这里。真正的把关在 bars
+    阶段：同一张合约在它当主力的那些天必须解析出乘数。
+    """
+    choices = _roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(ROLL_DATES[1], "RB")]
+    source = _RollSource(context.slots, {"RB2405.SHF": 100.0, "RB2410.SHF": 200.0})
+
+    fills, skipped = build_roll_fills(
+        choices=choices,
+        contexts=contexts,
+        source=source,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+        multiplier_resolver=_multiplier_that_fails("contract_multiplier_sample"),
+    )
+
+    assert fills.empty
+    assert [row["unpriceable_leg"] for row in skipped] == ["RB2405.SHF"]
+
+
+def test_a_multiplier_failure_of_another_kind_is_still_fatal():
+    choices = _roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(ROLL_DATES[1], "RB")]
+    source = _RollSource(context.slots, {"RB2405.SHF": 100.0, "RB2410.SHF": 200.0})
+
+    with pytest.raises(ValueError, match="roll_fill_unpriceable"):
+        build_roll_fills(
+            choices=choices,
+            contexts=contexts,
+            source=source,
+            pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+            multiplier_resolver=_multiplier_that_fails("minute_schema"),
+        )
 
 
 def test_roll_fill_hard_fails_when_a_traded_leg_still_cannot_be_priced():

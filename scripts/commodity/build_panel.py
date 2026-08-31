@@ -1161,6 +1161,18 @@ def _roll_events(
     return events
 
 
+#: 换月阶段解析不出乘数的三种结局。元数据缺档时只能靠分钟推断，而推断要跨多个交易日
+#: 取样；换月只请求换月当天，因此这里注定推不出来 —— 与「窗口零成交」一样，结果是这条
+#: 腿定不出价。bars 阶段用整月的行做同样的解析，那里仍然硬失败。
+_UNRESOLVED_MULTIPLIER = frozenset(
+    {
+        "contract_multiplier_sample",
+        "metadata_multiplier",
+        "daily_turnover_multiplier",
+    }
+)
+
+
 def _roll_candidate(choice, context, *, role: str) -> MinuteCandidate:
     product, minute_symbol, exchange = minute_contract_identity(
         choice.contract, choice.trade_date
@@ -1296,6 +1308,28 @@ def build_roll_fills(
                     break
                 try:
                     multiplier = multiplier_resolver(candidate, frame)
+                except MinuteDataError as exc:
+                    if getattr(exc, "check", None) not in _UNRESOLVED_MULTIPLIER:
+                        raise ValueError(
+                            "roll_fill_unpriceable: both raw dominant legs are "
+                            f"required; {current.trade_date} {current.product} "
+                            f"{previous.contract!r} -> {current.contract!r}; "
+                            f"failed={candidate.daily_contract!r}"
+                        ) from exc
+                    # 乘数定不出来 ⇒ 这条腿定不出价，与「窗口零成交」同一个结果：
+                    # 不发单。元数据缺档时乘数只能从分钟推断，而推断要跨**多个交易日**
+                    # 取样（`_select_multiplier_sample`），换月却只请求当天一段 ——
+                    # 聚丙烯上市第二周的换月就卡在这里。真正的把关在 bars 阶段：
+                    # 同一张合约在它当主力的那些天必须解析出乘数，否则整跑照样失败。
+                    unpriceable = {
+                        "trade_date": current.trade_date,
+                        "product": current.product,
+                        "old_contract": previous.contract,
+                        "new_contract": current.contract,
+                        "unpriceable_leg": candidate.daily_contract,
+                    }
+                    break
+                try:
                     fill = five_minute_vwap(
                         window,
                         slots=context.slots[:FILL_MINUTES],

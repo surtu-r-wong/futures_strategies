@@ -85,19 +85,33 @@ def check_coverage(
     start: date,
     end: date,
     require_paper_faithful: bool,
-) -> None:
-    """Refuse a bundle that does not cover the request, before any work starts."""
+) -> int:
+    """Refuse a bundle that does not cover the request, and count what it cannot price.
+
+    返回区间内不可定价的成交窗口数。**这个数不再拦跑**：安静时段里没人成交的窗口
+    在全历史上必然存在（2026-08-31 实测：三个月十四个品种的探针 20 根、占 0.16%，
+    还都落在 AL/P/Y/A 这类流动品种），按「任何一根不可定价即拒」这条判据，注册的
+    忠实口径全历史运行永远起不来。
+
+    真正该硬失败的是**策略确实要换仓、而那一笔定不出价** —— 那条在影子里逐 bar
+    生效（`required fill is unavailable`），与本开关无关，也更严格：它问的是"这一笔
+    我需要吗"，而不是"这一段里有没有这样一根"。
+    """
     days = pd.to_datetime(bundle.bars["trade_date"])
     if days.empty:
         fail(prog, "面板 coverage 为空")
     first, last = days.min().date(), days.max().date()
     if last < end or first > start:
         fail(prog, f"面板 coverage {first}..{last} 不含请求区间 {start}..{end}")
-    if require_paper_faithful:
-        window = bundle.bars.loc[(days.dt.date >= start) & (days.dt.date <= end)]
-        unpriceable = int(window["fill_unpriceable"].sum())
-        if unpriceable:
-            fail(prog, f"忠实模式：区间内有 {unpriceable} 根应成交窗口无法定价")
+    window = bundle.bars.loc[(days.dt.date >= start) & (days.dt.date <= end)]
+    unpriceable = int(window["fill_unpriceable"].sum())
+    if require_paper_faithful and unpriceable:
+        print(
+            f"{prog}: 忠实模式：区间内有 {unpriceable} 根成交窗口不可定价；"
+            "策略真正需要的那一笔若定不出价，回测会在那一根上硬失败",
+            flush=True,
+        )
+    return unpriceable
 
 
 def slice_bundle(bundle: PanelBundle, end: date) -> PanelBundle:

@@ -57,7 +57,10 @@ linked worktree 没有自己的 `.venv`，用主 checkout 的绝对解释器
 - `--end` 超出交易时段规则资产上界 **2026-01-30**，或 `--start` 早于起点
   **2011-01-04**（`config/carry_minute_sessions.csv`）；
 - bundle 覆盖不含请求区间；
-- `--require-paper-faithful` 下区间内存在无法定价的应成交窗口；
+- 策略**确实要换仓**、而那一根的成交窗口不可定价（逐 bar 生效，与开关无关）；
+  `--require-paper-faithful` 本身**不再**因为区间内存在不可定价窗口而拒跑 ——
+  安静时段没人成交的窗口在全历史必然存在（探针三个月十四品种 20 根、0.16%），
+  数量记进 `run_config.unpriceable_fill_windows` 与审计 JSON；
 - 应成交 bar 缺 `fill_time` / `fill_price` / 乘数 / 复权因子；
 - 影子与 bundle 的逐 bar 结构不一致（说明影子不是这份 bundle 产出的）；
 - 月度已实现波动率应存在却为零、负或非有限。
