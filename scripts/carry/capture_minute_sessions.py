@@ -1042,17 +1042,21 @@ def classify_session_boundary(
             start.minute % 15
             and traded_flat is True
             and not _missing_boundary(traded_second)
+            and (
+                not isinstance(traded_second, datetime) or traded_second.tzinfo is None
+            )
         ):
-            if not isinstance(traded_second, datetime) or traded_second.tzinfo is None:
-                _night_boundary_error(
-                    row, "night_traded_second", "requires an aware datetime"
-                )
-            shifted = traded_second.astimezone(SHANGHAI)
-            if shifted == start + timedelta(minutes=1) and shifted.minute % 15 == 0:
-                # The auction match printed one minute before the session it
-                # opened.
-                start = shifted
-                note = "night_auction_attributed"
+            _night_boundary_error(
+                row, "night_traded_second", "requires an aware datetime"
+            )
+        # One implementation of the auction rule, shared with the exchange-day
+        # pass: a shift here that the consensus did not see would put this row's
+        # open and its exchange's open on different clocks.
+        attributed = _attributed_night_start(row)
+        if attributed != start:
+            # The auction match printed one minute before the session it opened.
+            start = attributed
+            note = "night_auction_attributed"
         if session_start is not None and session_start < start:
             # This product traded late into a session that was already open.
             start = session_start
