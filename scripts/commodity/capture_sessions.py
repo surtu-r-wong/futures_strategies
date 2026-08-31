@@ -300,6 +300,11 @@ def _digest_path(path: Path) -> Path:
     return path.with_name(path.name + ".digest")
 
 
+#: 缓存格式标记。写法变了（比如某一类 dtype 的还原方式），旧缓存读回来的行为就与
+#: 直接观测不同 —— 而缓存这层的全部价值就是两者相同。所以格式认不出就拒绝，别还原。
+BOUNDARY_CACHE_FORMAT = "boundary-cache/v2"
+
+
 def boundary_cache_digest(keys) -> str:
     """键集的指纹 —— 缓存属于哪一次采集，靠它认。"""
     payload = "\n".join(
@@ -319,6 +324,10 @@ _DATE_COLUMNS = ("trade_date", "previous_trade_date")
 #: 时区的 datetime64，读回时再还原成 object —— 分类器按 None 判空。
 #: 不按列名清单走：观测帧里带时区的列不止 `BOUNDARY_COLUMNS`（还有
 #: `night_traded_first` 之类），逐个抄名字只会在真实数据上一次炸一个。按 dtype 判。
+#:
+#: 可空**布尔**列同理且更凶：`night_traded_first_flat` 混着 None 时是 object 列，
+#: 直接落盘会变成 float，读回是 `1.0`。分类器用 `is True` 判它，float 不报错、
+#: 只是竞价 K 线归位从此静默失效 —— 2019-12-26 全市场延迟开盘那一晚因此整晚判歧义。
 def write_boundary_cache(frame, path: Path, *, keys) -> None:
     """把观测与键集指纹一起落盘，供权威采集复用。"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -339,8 +348,17 @@ def write_boundary_cache(frame, path: Path, *, keys) -> None:
             .dt.tz_convert("Asia/Shanghai")
             .astype("datetime64[ns, Asia/Shanghai]")
         )
+    for column in payload.columns:
+        if not pd.api.types.is_object_dtype(payload[column]):
+            continue
+        present = payload[column].dropna()
+        if present.empty or not present.map(lambda v: type(v) is bool).all():
+            continue
+        payload[column] = payload[column].astype("boolean")
     payload.to_parquet(path, index=False)
-    _digest_path(path).write_text(boundary_cache_digest(keys), encoding="utf-8")
+    _digest_path(path).write_text(
+        f"{BOUNDARY_CACHE_FORMAT}\n{boundary_cache_digest(keys)}", encoding="utf-8"
+    )
 
 
 def read_boundary_cache(path: Path, *, keys):
@@ -354,11 +372,18 @@ def read_boundary_cache(path: Path, *, keys):
         return None
     digest_path = _digest_path(path)
     expected = boundary_cache_digest(keys)
-    actual = (
-        digest_path.read_text(encoding="utf-8").strip()
+    stamped = (
+        digest_path.read_text(encoding="utf-8").strip().splitlines()
         if digest_path.exists()
-        else None
+        else []
     )
+    if len(stamped) != 2 or stamped[0] != BOUNDARY_CACHE_FORMAT:
+        observed = stamped[0] if stamped else None
+        raise SessionCaptureError(
+            f"boundary_cache_format: path={path} expected={BOUNDARY_CACHE_FORMAT}; "
+            f"got {observed!r} -- re-run the survey"
+        )
+    actual = stamped[1]
     if actual != expected:
         raise SessionCaptureError(
             f"boundary_cache_stale: path={path} expected={expected} observed={actual}"
@@ -375,6 +400,15 @@ def read_boundary_cache(path: Path, *, keys):
         if isinstance(restored[column].dtype, pd.DatetimeTZDtype):
             values = restored[column]
             restored[column] = values.astype("object").where(values.notna(), None)
+        elif isinstance(restored[column].dtype, pd.BooleanDtype):
+            # 归位规则问的是 `flag is True`，只有真 `bool` 答得上。可空布尔列一旦
+            # 以 float 还原（1.0/NaN），规则不报错、只是不再生效。
+            values = restored[column]
+            restored[column] = pd.Series(
+                [None if value is pd.NA else bool(value) for value in values],
+                index=values.index,
+                dtype="object",
+            )
     return restored
 
 
