@@ -10,7 +10,12 @@
 
 import pytest
 
-from cta_continuous.signals import Direction, position_signal, up_down_prob
+from cta_continuous.signals import (
+    Direction,
+    position_path,
+    position_signal,
+    up_down_prob,
+)
 
 
 def test_up_down_prob_reproduces_figure_13():
@@ -190,3 +195,103 @@ def test_atr_leverage_gate_is_strict():
     assert gate_flags(
         short_above_long=True, widening=True, atr_leverage=1.0, delta_tnr=0.01
     ) == (False, False)
+
+
+# --- D21：离场用哪几道闸 -----------------------------------------------------
+
+def _bars(count, overrides=None):
+    """一串默认「四闸全过、多头」的 bar，按需覆盖某几根。"""
+    bars = [
+        {
+            "short_above_long": True,
+            "widening": True,
+            "atr_leverage": 2.0,
+            "delta_tnr": 0.1,
+            "u2p": 0.5,
+        }
+        for _ in range(count)
+    ]
+    for index, patch in (overrides or {}).items():
+        bars[index].update(patch)
+    return bars
+
+
+def _path(bars, **kwargs):
+    return position_path(
+        short_above_long=[b["short_above_long"] for b in bars],
+        widening=[b["widening"] for b in bars],
+        atr_leverage=[b["atr_leverage"] for b in bars],
+        delta_tnr=[b["delta_tnr"] for b in bars],
+        u2p=[b["u2p"] for b in bars],
+        **kwargs,
+    )
+
+
+def test_wide_exit_is_pointwise_the_stateless_reading():
+    """`exit_gates="wide"` 必须与逐 bar 无状态判定**逐点相同** —— 它就是 D6 原样。"""
+    bars = _bars(8, {2: {"widening": False}, 4: {"delta_tnr": -0.1}, 6: {"atr_leverage": 0.5}})
+
+    path = _path(bars, exit_gates="wide")
+    stateless = [position_signal(**bar) for bar in bars]
+
+    assert list(path) == stateless
+
+
+def test_narrow_exit_holds_a_position_through_a_noise_gate_dip():
+    """D6 的原文只点名 `Lev_ATR<1`；ΔTNR 转负不该把仓位打掉。"""
+    bars = _bars(5, {2: {"delta_tnr": -0.3}, 3: {"widening": False}})
+
+    path = _path(bars, exit_gates="narrow")
+
+    assert [signal.direction for signal in path] == [Direction.LONG] * 5
+
+
+def test_narrow_exit_closes_when_atr_leverage_falls_below_one():
+    """§3.1：「当开仓杠杆率 Lev_ATR<1 …… 即使此时传统信号为 1，我们依然平仓操作」。"""
+    bars = _bars(5, {2: {"atr_leverage": 0.5}})
+
+    path = _path(bars, exit_gates="narrow")
+
+    assert path[1].direction is Direction.LONG
+    assert path[2].direction is Direction.FLAT
+    # 杠杆恢复、四闸重新全过 ⇒ 可以再进场。
+    assert path[3].direction is Direction.LONG
+
+
+def test_narrow_exit_closes_on_a_moving_average_reversal():
+    bars = _bars(5, {2: {"short_above_long": False}, 3: {"short_above_long": False},
+                       4: {"short_above_long": False}})
+
+    path = _path(bars, exit_gates="narrow")
+
+    assert path[1].direction is Direction.LONG
+    # 均线反向：多头必须离场；能不能立刻反手，取决于空头那侧的 U2P。
+    assert path[2].direction is not Direction.LONG
+
+
+def test_narrow_exit_can_reverse_straight_into_the_other_side():
+    bars = _bars(4)
+    for index in (2, 3):
+        bars[index].update({"short_above_long": False, "u2p": -0.5})
+
+    path = _path(bars, exit_gates="narrow")
+
+    assert path[1].direction is Direction.LONG
+    assert path[2].direction is Direction.SHORT
+
+
+def test_narrow_exit_still_needs_all_four_gates_to_enter():
+    """收窄的是**离场**，不是入场。入场照旧要四道闸全过。"""
+    bars = _bars(4, {0: {"delta_tnr": -0.1}, 1: {"widening": False},
+                       2: {"u2p": 0.1}})
+
+    path = _path(bars, exit_gates="narrow")
+
+    assert [signal.direction for signal in path[:3]] == [Direction.FLAT] * 3
+    assert path[3].direction is Direction.LONG
+
+
+def test_position_path_rejects_an_exit_rule_it_does_not_know():
+    with pytest.raises(ValueError) as caught:
+        _path(_bars(2), exit_gates="trailing")
+    assert str(caught.value).startswith("exit_gates:")

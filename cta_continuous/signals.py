@@ -35,13 +35,27 @@ from enum import StrEnum
 __all__ = [
     "ATR_LEVERAGE_FLOOR",
     "Direction",
+    "EXIT_RULES",
     "ProbabilityPath",
     "Signal",
     "U2P_THRESHOLD",
     "gate_flags",
+    "position_path",
     "position_signal",
     "up_down_prob",
 ]
+
+#: 离场用哪几道闸（计划 D21）。
+#:
+#: - ``"wide"``：**D6 原样** —— 四道闸任一不满足即空仓。
+#: - ``"narrow"``：只有 `Lev_ATR < 1` 或均线状态反向才离场；距离扩大与 ΔTNR 只管
+#:   入场时点与仓位大小，不制造离场抖动。
+#:
+#: 收窄的依据是 D6 引的那句原文本身只点名了 `Lev_ATR`：「当开仓杠杆率 Lev_ATR<1
+#: …… 即使此时传统信号为 1，我们依然平仓操作」。它没说另外两道也会平仓，而实测里
+#: 抖得最凶的恰恰是那两道（距离扩大 47.1%、ΔTNR 48.6%，每根 bar 近似抛硬币），
+#: 宽口径下年化成本 34.3%，研报自报的 23.1% 在算术上就到不了。
+EXIT_RULES = ("wide", "narrow")
 
 #: 研报 §3.2：涨跌概率差的绝对值**大于** 0.2 才认为趋势清晰。
 U2P_THRESHOLD = 0.2
@@ -169,3 +183,74 @@ def position_signal(
     if is_short and u2p < -U2P_THRESHOLD:
         return Signal(Direction.SHORT, -(1.0 - u2p) / 2.0)
     return Signal(Direction.FLAT, 0.0)
+
+
+def position_path(
+    *,
+    short_above_long: Sequence[bool],
+    widening: Sequence[bool],
+    atr_leverage: Sequence[float],
+    delta_tnr: Sequence[float],
+    u2p: Sequence[float],
+    tnr_sign: str = "positive",
+    ma_orientation: str = "paper",
+    exit_gates: str = "wide",
+) -> tuple[Signal, ...]:
+    """一整段的仓位路径。``exit_gates`` 决定**离场**用哪几道闸（D21）。
+
+    ``"wide"`` 与逐 bar 调用 `position_signal` **逐点相同** —— 它就是 D6 原样，这条
+    由 `tests/test_continuous_signals.py` 钉死。
+
+    ``"narrow"`` 是一个状态机：入场仍要四道闸全过，但持仓期间只有 `Lev_ATR < 1` 或
+    均线状态反向才离场。距离扩大与 ΔTNR 于是只影响进场时点与仓位大小。
+    """
+    if exit_gates not in EXIT_RULES:
+        raise ValueError(f"exit_gates: 只接受 {EXIT_RULES}；got {exit_gates!r}")
+    lengths = {
+        len(short_above_long), len(widening), len(atr_leverage),
+        len(delta_tnr), len(u2p),
+    }
+    if len(lengths) != 1:
+        raise ValueError(f"position_path_length: 五条序列长度必须相同；got {sorted(lengths)}")
+
+    out: list[Signal] = []
+    held = Direction.FLAT
+    for index in range(len(u2p)):
+        entry = position_signal(
+            short_above_long=bool(short_above_long[index]),
+            widening=bool(widening[index]),
+            atr_leverage=float(atr_leverage[index]),
+            delta_tnr=float(delta_tnr[index]),
+            u2p=float(u2p[index]),
+            tnr_sign=tnr_sign,
+            ma_orientation=ma_orientation,
+        )
+        if exit_gates == "wide":
+            out.append(entry)
+            continue
+
+        bullish = (
+            bool(short_above_long[index])
+            if ma_orientation == "paper"
+            else not bool(short_above_long[index])
+        )
+        alive = float(atr_leverage[index]) > ATR_LEVERAGE_FLOOR and (
+            (held is Direction.LONG and bullish)
+            or (held is Direction.SHORT and not bullish)
+        )
+        if entry.direction is not Direction.FLAT:
+            held = entry.direction
+            out.append(entry)
+            continue
+        if alive:
+            # 持仓期间信号值继续跟着 U2P 走（研报「信号持续度」那一档就是它）。
+            value = (
+                (1.0 + float(u2p[index])) / 2.0
+                if held is Direction.LONG
+                else -(1.0 - float(u2p[index])) / 2.0
+            )
+            out.append(Signal(held, value))
+            continue
+        held = Direction.FLAT
+        out.append(Signal(Direction.FLAT, 0.0))
+    return tuple(out)

@@ -103,7 +103,7 @@ def test_fidelity_ledger_lists_every_decision():
     assert list(ledger.columns) == ["id", "question", "ruling", "basis"]
     ids = list(ledger["id"])
     assert ids == [f"D{n}" for n in range(1, len(DECISIONS) + 1)]
-    assert len(ids) == 20
+    assert len(ids) == 21
     assert ledger["question"].str.len().min() > 0
     assert ledger["ruling"].str.len().min() > 0
     assert ledger["basis"].str.len().min() > 0

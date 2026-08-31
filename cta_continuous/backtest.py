@@ -74,7 +74,12 @@ from cta_continuous.indicators import (
     gap_widening,
     tnr_series,
 )
-from cta_continuous.signals import Direction, gate_flags, position_signal
+from cta_continuous.signals import (
+    EXIT_RULES,
+    Direction,
+    gate_flags,
+    position_path,
+)
 
 __all__ = [
     "BacktestParams",
@@ -131,6 +136,7 @@ class BacktestParams:
     ma_orientation: str = "paper"
     tnr_sign: str = "positive"
     dtnr_mode: str = "mean"
+    exit_gates: str = "wide"
     min_observations: int = TRADING_DAYS_PER_YEAR
 
     def __post_init__(self) -> None:
@@ -145,6 +151,10 @@ class BacktestParams:
             )
         if not math.isfinite(self.cost_bps) or self.cost_bps < 0:
             raise ValueError(f"backtest_params: cost_bps 必须有限且非负；got {self.cost_bps!r}")
+        if self.exit_gates not in EXIT_RULES:
+            raise ValueError(
+                f"backtest_params: exit_gates 只接受 {EXIT_RULES}；got {self.exit_gates!r}"
+            )
         if self.dtnr_mode not in ("mean", "lag"):
             raise ValueError(
                 "backtest_params: dtnr_mode 只接受 'mean'（公式图）或 'lag'（正文）；"
@@ -240,25 +250,29 @@ def _segment_signals(frame: pd.DataFrame, *, params: BacktestParams) -> pd.DataF
     # U2P 的递推只走已成交的 bar：空 K 线不是一次「没触发」，它根本没有观测。
     path = _up_down_prob(long_flags=longs, short_flags=shorts)
 
-    directions: list[str] = []
-    values: list[float] = []
-    for index in range(closes.size):
-        warm = index >= warmup and not math.isnan(dtnr[index])
-        if not warm:
-            directions.append(Direction.FLAT.value)
-            values.append(0.0)
-            continue
-        signal = position_signal(
-            short_above_long=bool(short[index] > long[index]),
-            widening=bool(widening[index]),
-            atr_leverage=leverages[index],
-            delta_tnr=float(dtnr[index]),
-            u2p=path[index],
-            tnr_sign=params.tnr_sign,
-            ma_orientation=params.ma_orientation,
-        )
-        directions.append(signal.direction.value)
-        values.append(signal.value)
+    # ⚠️ 仓位要整段一起算：`exit_gates="narrow"` 是个状态机，逐 bar 独立判定得不出
+    # 「持仓期间只有 Lev_ATR<1 或均线反向才离场」。预热未完成的那几根喂成永不开仓的
+    # 输入，而不是事后再抹掉 —— 抹掉会让状态机以为它们曾经持过仓。
+    warm_flags = [
+        index >= warmup and not math.isnan(dtnr[index]) for index in range(closes.size)
+    ]
+    signals_path = position_path(
+        short_above_long=[bool(short[i] > long[i]) for i in range(closes.size)],
+        widening=[bool(widening[i]) and warm_flags[i] for i in range(closes.size)],
+        atr_leverage=[
+            leverages[i] if warm_flags[i] else 0.0 for i in range(closes.size)
+        ],
+        delta_tnr=[
+            float(dtnr[i]) if warm_flags[i] else float("-inf")
+            for i in range(closes.size)
+        ],
+        u2p=list(path),
+        tnr_sign=params.tnr_sign,
+        ma_orientation=params.ma_orientation,
+        exit_gates=params.exit_gates,
+    )
+    directions = [signal.direction.value for signal in signals_path]
+    values = [signal.value for signal in signals_path]
 
     index = traded.index
     out.loc[index, "atr"] = atr

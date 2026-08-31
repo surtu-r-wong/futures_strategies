@@ -479,6 +479,31 @@ def test_the_dtnr_mode_actually_reaches_the_indicator_layer():
     assert a["direction"].equals(b["direction"])
 
 
+def test_the_exit_rule_actually_reaches_the_signal_layer():
+    """记下 `exit_gates` 不等于用上它 —— 两条读法必须给出不同的方向序列。"""
+    closes = _zigzag(20)
+    wide = product_signals(_price_panel(closes), params=replace(SIGNAL_PARAMS, exit_gates="wide"))
+    narrow = product_signals(_price_panel(closes), params=replace(SIGNAL_PARAMS, exit_gates="narrow"))
+
+    assert list(wide["direction"]) != list(narrow["direction"])
+    # 窄口径只放宽**离场**，所以它持仓的 bar 不会比宽口径少。
+    assert (narrow["direction"] != "flat").sum() >= (wide["direction"] != "flat").sum()
+
+
+def test_narrow_exit_does_not_open_before_warmup():
+    """预热未完成的那几根被喂成「永不开仓」的输入，状态机不该以为它们持过仓。"""
+    closes = _zigzag(20)
+    narrow = product_signals(_price_panel(closes), params=replace(SIGNAL_PARAMS, exit_gates="narrow"))
+
+    assert set(narrow.loc[~narrow["warm"], "direction"]) <= {"flat"}
+
+
+def test_backtest_params_rejects_an_exit_rule_it_does_not_know():
+    with pytest.raises(ValueError) as caught:
+        BacktestParams(exit_gates="trailing")
+    assert str(caught.value).startswith("backtest_params: exit_gates")
+
+
 def test_the_lag_mode_needs_one_more_bar_of_warmup():
     """滞后版 `TNR_t − TNR_{t−k}` 在第 k+1 个 TNR 上才有定义，均值版第 k 个就有。"""
     mean = BacktestParams(ema_short=2, ema_long=3, tnr_window=2, atr_window=2, dtnr_k=2)
