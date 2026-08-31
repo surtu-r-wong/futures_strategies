@@ -34,7 +34,10 @@ __all__ = [
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SESSION_RULES_PATH = _REPO_ROOT / "config" / "carry_minute_sessions.csv"
+#: 窗口闸读的必须是**面板据以构建的**那份资产：Bollinger 与道氏的面板出自商品复刻
+#: 自己的采集（2012-01-04 起、窗口内曾入池的 63 个品种）。指着 Carry 那份会放行一段
+#: 面板根本没有的区间（2011 年），把「资产服务不了」推迟成「bundle 覆盖不了」。
+SESSION_RULES_PATH = _REPO_ROOT / "config" / "commodity_minute_sessions.csv"
 
 
 @lru_cache(maxsize=1)

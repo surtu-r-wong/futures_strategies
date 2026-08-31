@@ -61,8 +61,8 @@ def test_cli_rejects_a_start_before_the_session_rules_begin(tmp_path) -> None:
     argv = _args(tmp_path)
     argv[argv.index("--start") + 1] = "2010-01-04"
 
-    assert SESSION_RULES_START == date(2011, 1, 4)
-    with pytest.raises(SystemExit, match="2011-01-04"):
+    assert SESSION_RULES_START == date(2012, 1, 4)
+    with pytest.raises(SystemExit, match="2012-01-04"):
         resolve_options(build_parser().parse_args(argv))
 
 
