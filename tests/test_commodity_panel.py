@@ -909,3 +909,28 @@ def test_contexts_stay_inside_the_month_they_are_asked_for():
     contexts = build_contexts([predecessor, *_choices()], rules=[rule], month=month)
 
     assert sorted(key[0] for key in contexts) == DAYS
+
+
+def test_a_registered_absent_product_day_yields_no_bars_instead_of_failing():
+    """归档确实没有那一天（供应商 2026-08-21 明确无法补），授权资产已登记。
+
+    面板不该为此中止：那个品种日没有 bar，影子在那天没有观测，就像品种停摆一样。
+    没登记的空帧仍然硬失败 —— 那是"数据丢了"，不是"数据本来就没有"。
+    """
+    missing = DAYS[1]
+    contexts = build_contexts(_choices(), rules=[_day_only_rule()])
+
+    panel = build_panel(
+        contexts=contexts,
+        source=_OmittingSource(contexts, [missing]),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame, **_: 10,
+        adjustment_factor_by_key={key: 1.0 for key in contexts},
+        continuity_segment_by_key={key: 0 for key in contexts},
+        absent_product_days=frozenset({("SHFE", "RB", missing)}),
+    )
+
+    assert missing not in set(pd.to_datetime(panel["trade_date"]).dt.date)
+    assert set(pd.to_datetime(panel["trade_date"]).dt.date) == {
+        day for day in DAYS[1:] if day != missing
+    }

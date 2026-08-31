@@ -509,8 +509,15 @@ def iter_panel_months(
     continuity_segment_by_key: Mapping[tuple[date, str], int],
     resume_after: date | None = None,
     initial_pending: pd.DataFrame | None = None,
+    absent_product_days: frozenset[tuple[str, str, date]] = frozenset(),
 ):
-    """Yield finalized monthly bars and the small resumable pending state."""
+    """Yield finalized monthly bars and the small resumable pending state.
+
+    ``absent_product_days`` 是授权资产登记过的「归档本来就没有这一天」
+    （`config/carry_minute_absent_product_days.csv`，供应商 2026-08-21 明确无法补的
+    五个品种日）。这样的品种日拿不到分钟帧时**不产出 bar 也不中止**：影子在那天没有
+    观测，就像品种停摆。没登记的空帧仍然硬失败 —— 那是"数据丢了"，不是"本来就没有"。
+    """
     if not contexts:
         return
     missing_factors = sorted(set(contexts) - set(adjustment_factor_by_key))
@@ -566,6 +573,7 @@ def iter_panel_months(
         month = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
         context_frames: dict[tuple[date, str], pd.DataFrame] = {}
         inference_frames: dict[tuple[date, str], pd.DataFrame] = {}
+        absent_keys: set[tuple[date, str]] = set()
         required_identity = {"trade_date", "daily_contract"}
         for key in month_keys:
             candidate = contexts[key].candidate
@@ -577,6 +585,13 @@ def iter_panel_months(
                     & (month["daily_contract"] == candidate.daily_contract)
                 ]
             if frame.empty:
+                if (
+                    candidate.exchange,
+                    candidate.product,
+                    candidate.trade_date,
+                ) in absent_product_days:
+                    absent_keys.add(key)
+                    continue
                 raise ValueError(
                     "panel_context_missing: expected product-day minute frame; "
                     f"trade_date={candidate.trade_date.isoformat()} "
@@ -594,7 +609,7 @@ def iter_panel_months(
                 else month
             )
 
-        for key in month_keys:
+        for key in [item for item in month_keys if item not in absent_keys]:
             context = contexts[key]
             candidate = context.candidate
             symbol = candidate.minute_symbol
@@ -666,6 +681,7 @@ def build_panel(
     multiplier_resolver,
     adjustment_factor_by_key: Mapping[tuple[date, str], float],
     continuity_segment_by_key: Mapping[tuple[date, str], int],
+    absent_product_days: frozenset[tuple[str, str, date]] = frozenset(),
 ) -> pd.DataFrame:
     """Compatibility wrapper around the bounded monthly iterator."""
     chunks = list(
@@ -676,6 +692,7 @@ def build_panel(
             multiplier_resolver=multiplier_resolver,
             adjustment_factor_by_key=adjustment_factor_by_key,
             continuity_segment_by_key=continuity_segment_by_key,
+            absent_product_days=absent_product_days,
         )
     )
     if not chunks:

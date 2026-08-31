@@ -69,6 +69,7 @@ from common.minute.pg_source import (  # noqa: E402
 )
 from common.minute.sessions import load_session_rules  # noqa: E402
 from cta_carry.session_authority import (  # noqa: E402
+    load_absent_product_days,
     load_pricing_bases,
     pricing_basis_for,
 )
@@ -79,6 +80,7 @@ from cta_carry.session_authority import (  # noqa: E402
 #: 从 2012-01-04 起 —— 所以资产走参数，落进 manifest 的 provenance 里可查。
 SESSION_RULES = _REPO_ROOT / "config" / "continuous_minute_sessions.csv"
 PRICING_BASES = _REPO_ROOT / "config" / "carry_minute_pricing_basis.csv"
+ABSENT_PRODUCT_DAYS = _REPO_ROOT / "config" / "carry_minute_absent_product_days.csv"
 DAILY_HISTORY_START = date(2010, 1, 1)
 _DAILY_COLUMNS = ["symbol", "trade_date", "oi", "volume", "turnover", "close"]
 
@@ -1931,6 +1933,7 @@ def _build_panel_checkpointed_locked(
     checkpoint_directory: str | Path,
     checkpoint_key: str,
     checkpoint_state_objects: Mapping[str, object] | None = None,
+    absent_product_days: frozenset[tuple[str, str, date]] = frozenset(),
 ) -> pd.DataFrame:
     """Stage finalized months and resume after the last atomic checkpoint.
 
@@ -1960,6 +1963,7 @@ def _build_panel_checkpointed_locked(
         continuity_segment_by_key=continuity_segment_by_key,
         resume_after=resume_after,
         initial_pending=initial_pending,
+        absent_product_days=absent_product_days,
     ):
         month_label = chunk.month_start.strftime("%Y-%m")
         generation = hashlib.sha256(
@@ -2107,6 +2111,12 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         parser.error(str(exc))
     bases = load_pricing_bases(PRICING_BASES)
+    # 授权登记过的「归档本来就没有这一天」（供应商 2026-08-21 明确无法补的五个品种日）。
+    # 面板对它们不产出 bar，也不中止 —— 没登记的空帧仍然硬失败。
+    absent_days = frozenset(
+        (row.exchange, row.product, row.trade_date)
+        for row in load_absent_product_days(ABSENT_PRODUCT_DAYS)
+    )
 
     settings_path = args.settings or resolve_settings_path()
     cfg = load_config(settings_path)
@@ -2312,6 +2322,7 @@ def main(argv: list[str] | None = None) -> int:
             "minute": source,
             "multiplier": multiplier_resolver,
         },
+        absent_product_days=absent_days,
     )
     dominants = _dominant_frame(choices, contexts=contexts, factor_by_key=factor_by_key)
     bars = _bundle_bars(raw_bars, contexts=contexts, dominants=dominants)
