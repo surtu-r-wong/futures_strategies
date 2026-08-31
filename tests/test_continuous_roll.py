@@ -72,7 +72,12 @@ def test_dominant_keeps_the_previous_contract_when_nobody_is_both_max():
 
 
 def test_dominant_goes_missing_when_the_held_contract_leaves_the_daily_pool():
-    """D11 只允许沿用仍可交易的旧主力；合约消失后不得伪造零量主力日。"""
+    """D11 只允许沿用仍可交易的旧主力；合约消失后不得伪造零量主力日。
+
+    ⚠️ `days[1]` 曾被期望为 `RB2405.SHF` —— 那正是 D16 守卫错位一天的产物：选择日
+    `days[0]` 的池子里还有 RB2405，交易日 `days[1]` 已经没有了。断言与本 docstring
+    自相矛盾，修守卫时一并纠正。
+    """
     days = [date(2024, 3, day) for day in (1, 4, 5, 6)]
     frame = _pool(
         [
@@ -90,10 +95,55 @@ def test_dominant_goes_missing_when_the_held_contract_leaves_the_daily_pool():
 
     choices = choose_dominant_commodity(frame, products=("RB",))
 
-    assert [(c.trade_date, c.contract) for c in choices] == [
-        (days[1], "RB2405.SHF"),
-        (days[3], "RB2410.SHF"),
-    ]
+    assert [(c.trade_date, c.contract) for c in choices] == [(days[3], "RB2410.SHF")]
+
+
+def test_dominant_drops_a_held_contract_that_expires_before_the_trading_day():
+    """D16 的守卫错位一天：主力选择滞后一日，「仍可交易」却按**选择日**的池判。
+
+    实证六例形态完全一致（AU1912 / AU2012 / AU2206 / LU2209 / FU2309 / FU2509）：
+    `selected_from` 恰是该合约在 `futures_daily` 上的最后一个交易日，次日退市，
+    面板于是建了上下文却一根 bar 都查不到。交割到期日是交易所事先公布的日历事实，
+    拿它判「当日还能不能交易」不构成未来函数。
+    """
+    days = [date(2024, 3, day) for day in (1, 4, 5)]
+    frame = _pool(
+        [
+            (days[0], "RB2405.SHF", 100, 300),   # 双最大 → 主力
+            (days[0], "RB2410.SHF", 90, 100),
+            # RB2405 在 days[1] 退市；当天又没有双最大，旧口径会沿用一张已退市的合约。
+            (days[1], "RB2410.SHF", 100, 100),
+            (days[1], "RB2501.SHF", 90, 300),
+            (days[2], "RB2410.SHF", 100, 100),
+            (days[2], "RB2501.SHF", 90, 300),
+        ]
+    )
+
+    assert choose_dominant_commodity(frame, products=("RB",)) == ()
+
+
+def test_dominant_holds_through_a_day_the_product_is_missing_from_entirely():
+    """整个品种当日无行 ≠ 旧主力退市。
+
+    `futures_daily` 有已知的整日空洞（2026-03 缺 6 个交易日）。把「当日查不到这张
+    合约」一律当成退市，会让一个数据缺口静默地缩小宇宙 —— 那是最难发现的一类错。
+    只有在该品种当日**确实有行情、而这张合约不在其中**时才判退市。
+    """
+    days = [date(2024, 3, day) for day in (1, 4, 5)]
+    frame = _pool(
+        [
+            (days[0], "RB2405.SHF", 100, 300),
+            (days[0], "RB2410.SHF", 90, 100),
+            (days[1], "CU2405.SHF", 10, 10),     # 当日只有别的品种，RB 整体缺失
+            (days[2], "RB2405.SHF", 100, 300),
+            (days[2], "RB2410.SHF", 90, 100),
+        ]
+    )
+
+    choices = choose_dominant_commodity(frame, products=("RB",))
+
+    # days[1] 照常成交；days[2] 的选择日是 days[1]，那天 RB 无行 ⇒ 本来就发不出选择。
+    assert [(c.trade_date, c.contract) for c in choices] == [(days[1], "RB2405.SHF")]
 
 
 def test_dominant_never_rolls_backwards():
@@ -131,13 +181,19 @@ def test_dominant_decides_today_from_the_previous_session():
 
 
 def test_czce_three_digit_codes_compare_as_the_same_delivery_month():
-    """不可逆判据要比交割月；郑商所三位码不归一就比不出 TA701 与 TA1701 是同一个月。"""
+    """不可逆判据要比交割月；郑商所三位码不归一就比不出 TA701 与 TA1701 是同一个月。
+
+    ⚠️ 日期必须落在三位码确实展开成 `17xx` 的年代。原夹具用 2024 年的日期，
+    `TA701` 归一成 `CZC:TA:2701`、`TA1701` 归一成 `CZC:TA:1701` —— 两个不同的月，
+    这条用例于是从未验到它 docstring 里声称的那件事。
+    """
+    czce = [date(2016, 12, day) for day in (1, 2)]
     frame = _pool(
         [
-            (D[0], "TA701.CZC", 100, 300),
-            (D[0], "TA705.CZC", 90, 100),
-            (D[1], "TA1701.CZC", 100, 300),
-            (D[1], "TA1705.CZC", 90, 100),
+            (czce[0], "TA701.CZC", 100, 300),
+            (czce[0], "TA705.CZC", 90, 100),
+            (czce[1], "TA1701.CZC", 100, 300),
+            (czce[1], "TA1705.CZC", 90, 100),
         ]
     )
     choices = choose_dominant_commodity(frame, products=("TA",))

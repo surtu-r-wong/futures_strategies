@@ -105,13 +105,22 @@ def choose_dominant_commodity(
         rows = frame.loc[frame["product"] == product]
         if rows.empty:
             raise ValueError(f"dominant_missing_product: 日线里没有 {product!r}")
+        # 逐日的池子先切好：内层循环原本每个交易日都对整段行情做一次布尔掩码，
+        # 全历史下是 `品种数 × 交易日数 × 该品种行数` 的量级。
+        pool_by_date = {
+            trade_date: group for trade_date, group in rows.groupby("trade_date", sort=False)
+        }
+        keys_by_date = {
+            trade_date: set(group["contract_key"])
+            for trade_date, group in pool_by_date.items()
+        }
         held_key: str | None = None
         held_month: tuple[int, int] | None = None
         for index in range(lag, len(sessions)):
             trade_date = sessions[index]
             source_date = sessions[index - lag]
-            pool = rows.loc[rows["trade_date"] == source_date]
-            if pool.empty:
+            pool = pool_by_date.get(source_date)
+            if pool is None:
                 continue
 
             candidate = _both_max(pool, source_date)
@@ -127,6 +136,18 @@ def choose_dominant_commodity(
             # D11 的「沿用」只适用于旧主力仍在当日合约池的情形。已经退市/缺档的
             # 合约不能被伪造成 oi=volume=0 的可交易主力；等下一张双最大出现再恢复。
             if row.empty:
+                continue
+
+            # ⚠️ 主力选择滞后 `lag` 个交易日，所以「仍可交易」必须按 **trade_date
+            # 当天**的池子判，不是按选择日。临期合约在 `source_date` 那天还挂着、
+            # 次日就退市 —— 实证六例（AU1912 / AU2012 / AU2206 / LU2209 / FU2309 /
+            # FU2509）全是这个形态，面板据此建了上下文却一根 bar 都查不到。交割
+            # 到期日是交易所事先公布的日历事实，用它不构成未来函数。
+            #
+            # 但**整个品种当日无行**时不判退市：`futures_daily` 有已知的整日空洞
+            # （2026-03 缺 6 个交易日），据此缩小宇宙会静默改变研究结论。
+            today_keys = keys_by_date.get(trade_date)
+            if today_keys is not None and held_key not in today_keys:
                 continue
             chosen.append(
                 DominantChoice(
