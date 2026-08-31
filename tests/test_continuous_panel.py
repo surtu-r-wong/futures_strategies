@@ -342,6 +342,52 @@ def test_a_pending_fill_stops_at_a_continuity_segment_break():
     assert set(new_segment["continuity_segment"]) == {1}
 
 
+def test_a_resolve_only_context_prices_the_tail_without_emitting_bars():
+    """跨分片接力：只用来定价、不发 bar 的上下文。
+
+    分片是**逐月各调一次** `build_panel` 写出来的，所以 `pending` 字典每片都从空
+    开始，月末那一根永远补不上。补法是把下个月首日的上下文一并交进来 —— 但它的
+    bar 属于下一个分片，这里发出来就会重复。
+    """
+    rules = [_day_only_rule()]
+    contexts = build_contexts(_choices(), rules=rules)
+    tail = (DAYS[2], "RB")
+    assert tail in contexts
+
+    panel = build_panel(
+        contexts=contexts,
+        source=_FakeSource(contexts),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key={key: 1.0 for key in contexts},
+        continuity_segment_by_key={key: 0 for key in contexts},
+        resolve_only_keys={tail},
+    )
+
+    assert set(panel["trade_date"]) == {pd.Timestamp(DAYS[1])}
+    last = panel.iloc[-1]
+    assert bool(last["fill_pending"]) is False
+    assert last["fill_price"] == pytest.approx(sum(2100.0 + i for i in range(5)) / 5)
+
+
+def test_a_resolve_only_context_does_not_become_the_next_pending_tail():
+    """定价用的那一天不能反过来把自己挂起 —— 否则下一分片会去补一根不存在的 bar。"""
+    rules = [_day_only_rule()]
+    contexts = build_contexts(_choices(), rules=rules)
+
+    panel = build_panel(
+        contexts=contexts,
+        source=_FakeSource(contexts),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame: 10,
+        adjustment_factor_by_key={key: 1.0 for key in contexts},
+        continuity_segment_by_key={key: 0 for key in contexts},
+        resolve_only_keys={(DAYS[2], "RB")},
+    )
+
+    assert not panel["fill_pending"].any()
+
+
 def test_the_final_bar_of_the_whole_panel_stays_pending():
     """最后一天之后没有下一时段，那一根只能挂着 —— 不许拿别的价顶上。"""
     _, panel = _panel()
@@ -639,6 +685,7 @@ def test_require_session_coverage_is_silent_when_every_day_is_covered(tmp_path):
 
 import importlib.util  # noqa: E402
 import sys  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 _BUILD_PANEL_PATH = (
@@ -673,6 +720,114 @@ def _daily_frame():
             "close": [3500.0] * len(days),
         }
     )
+
+
+class _ScriptFakeSource:
+    """脚本级分钟替身：按候选窗逐分钟造行，价格在**同一交易日内恒定**。
+
+    恒定价把「这笔成交价来自哪一天」变成可判定的字面量，不必去猜槽位对齐 ——
+    任意 5 分钟的 VWAP 都等于当日那个价。
+    """
+
+    def __init__(self, **_kwargs):
+        pass
+
+    @staticmethod
+    def level(trade_date):
+        return 100.0 + float(trade_date.toordinal())
+
+    def iter_month(self, candidates, lower, upper):
+        frames = []
+        for candidate in candidates:
+            minutes = pd.date_range(
+                candidate.window_start,
+                candidate.window_end,
+                freq="1min",
+                inclusive="left",
+            )
+            level = self.level(candidate.trade_date)
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "trade_date": candidate.trade_date,
+                        "product": candidate.product,
+                        "daily_contract": candidate.daily_contract,
+                        "bar_time": minutes,
+                        "symbol": candidate.minute_symbol,
+                        "open": level,
+                        "high": level + 0.5,
+                        "low": level - 0.5,
+                        "close": level,
+                        "volume": 10.0,
+                        "amount": level * 10.0 * 10,
+                    }
+                )
+            )
+        if frames:
+            yield pd.concat(frames, ignore_index=True)
+
+    @staticmethod
+    def resolve_metadata_multiplier(**_kwargs):
+        return SimpleNamespace(multiplier=10)
+
+
+def _script_stubs(monkeypatch, module):
+    monkeypatch.setattr(module, "resolve_settings_path", lambda: Path("unused.yaml"))
+    monkeypatch.setattr(module, "load_config", lambda _path: {})
+    monkeypatch.setattr(module, "pg_config_from", lambda _cfg: {})
+    monkeypatch.setattr(module, "load_scope_daily", lambda _pg, *, end: _daily_frame())
+    monkeypatch.setattr(module, "load_session_rules", lambda _path: [_day_only_rule()])
+    monkeypatch.setattr(module, "load_pricing_bases", lambda _path: {})
+    monkeypatch.setattr(
+        module, "pricing_basis_for", lambda _bases, _exchange: "amount_vwap"
+    )
+    monkeypatch.setattr(module, "require_session_coverage", lambda **_kw: None)
+    monkeypatch.setattr(module, "PublicMinuteSource", _ScriptFakeSource)
+
+
+def test_each_shard_prices_the_last_bar_of_its_month(monkeypatch, tmp_path):
+    """月末那一根的成交价必须跨分片补上。
+
+    这条只有**接线**才看得见：`build_panel` 自己的 `pending` 是跨月存活的，而分片
+    是逐月各调一次写出来的，于是每片都从空的 `pending` 开始。全历史实测未补上的
+    `fill_pending` 恰好 6,259 个 = （品种 × 分片）组合数，181 个分片无一例外。
+    """
+    module = _load_build_panel()
+    _script_stubs(monkeypatch, module)
+    out = tmp_path / "panel"
+
+    assert module.main(
+        ["--start", "2024-02", "--end", "2024-03", "--out", str(out)]
+    ) == 0
+
+    february = pd.read_parquet(out / "panel-2024-02.parquet")
+    march = pd.read_parquet(out / "panel-2024-03.parquet")
+
+    # 拿来定价的三月首日不许把 bar 漏进二月分片，否则两片重复。
+    assert february["trade_date"].max() < pd.Timestamp("2024-03-01")
+    assert march["trade_date"].min() >= pd.Timestamp("2024-03-01")
+
+    tail = february.iloc[-1]
+    assert bool(tail["fill_pending"]) is False
+    assert tail["fill_price"] == pytest.approx(
+        _ScriptFakeSource.level(march["trade_date"].min().date())
+    )
+
+
+def test_the_last_shard_of_the_run_keeps_its_unpriced_tail(monkeypatch, tmp_path):
+    """最后一个分片之后没有下一片，那一根只能挂着 —— 不许拿别的价顶上。"""
+    module = _load_build_panel()
+    _script_stubs(monkeypatch, module)
+    out = tmp_path / "panel"
+
+    assert module.main(
+        ["--start", "2024-02", "--end", "2024-03", "--out", str(out)]
+    ) == 0
+
+    march = pd.read_parquet(out / "panel-2024-03.parquet")
+    tail = march.iloc[-1]
+    assert bool(tail["fill_pending"]) is True
+    assert pd.isna(tail["fill_price"])
 
 
 def test_build_panel_gates_coverage_before_touching_the_minute_source(

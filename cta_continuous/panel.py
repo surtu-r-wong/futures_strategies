@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import csv
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -412,6 +412,7 @@ def build_panel(
     multiplier_resolver,
     adjustment_factor_by_key: Mapping[tuple[date, str], float],
     continuity_segment_by_key: Mapping[tuple[date, str], int],
+    resolve_only_keys: Collection[tuple[date, str]] = (),
 ) -> pd.DataFrame:
     """按月分批把面板建出来。
 
@@ -421,8 +422,25 @@ def build_panel(
     **挂起的成交价跨日、跨月接力**：某个品种-日最后一根桶没有「之后 5 分钟」，它由
     该品种**下一次出现**的那一天的前 5 分钟补上（计划 D14）。所以 `pending` 按品种
     维护、跨月存活；月末那一根不会因为换了批次就丢掉。
+
+    ⚠️ 「跨月存活」只在**一次调用之内**成立。全历史面板是逐月各调一次、逐月落盘的
+    （续跑要求），于是每个分片的 `pending` 都从空开始 —— 实测 181 个分片里未补上的
+    `fill_pending` 恰好 6,259 个，一个不多一个不少地等于（品种 × 分片）组合数。
+    所以调用方要把下个分片首日的上下文一并交进来，并用 `resolve_only_keys` 标出：
+    这些品种日**只用来给上一根定价，不发 bar、也不把自己挂起**，它们的 bar 属于
+    下一个分片。
     """
     if not contexts:
+        return _empty_panel()
+
+    resolve_only = frozenset(resolve_only_keys)
+    unknown = sorted(resolve_only - set(contexts))
+    if unknown:
+        raise ValueError(
+            "panel_resolve_only_unknown: 只用于定价的品种日必须同时出现在 contexts 里；"
+            f"first={unknown[0]!r} count={len(unknown)}"
+        )
+    if not (set(contexts) - resolve_only):
         return _empty_panel()
 
     missing_factors = sorted(set(contexts) - set(adjustment_factor_by_key))
@@ -496,6 +514,12 @@ def build_panel(
                     rows[waiting]["fill_price"] = None
                 rows[waiting]["fill_pending"] = False
                 rows[waiting]["fill_unpriceable"] = rows[waiting]["fill_price"] is None
+
+            if key in resolve_only:
+                # 只用来给上一分片的月末那一根定价。它的 bar 属于下一个分片，这里
+                # 发出来就重复了；也不能把自己挂起 —— 那会让下一分片去补一根不
+                # 存在的 bar。
+                continue
 
             day_rows = build_session_bars(
                 frame,

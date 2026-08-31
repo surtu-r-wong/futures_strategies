@@ -137,6 +137,22 @@ def main(argv: list[str] | None = None) -> int:
             pricing_basis=pricing_basis_for(bases, candidate.exchange),
         ).multiplier
 
+    def contexts_for(target: date):
+        """某个自然月的品种日上下文；宇宙为空或当月无主力时返回空 dict。"""
+        products = products_by_month.get(target, ())
+        if not products:
+            return {}
+        eligible = tuple(choice for choice in choices if choice.product in products)
+        month_choices = context_choices_for_month(eligible, month_start=target)
+        if not month_choices:
+            return {}
+        built = build_contexts(month_choices, rules=rules)
+        return {
+            key: value
+            for key, value in built.items()
+            if key[0].year == target.year and key[0].month == target.month
+        }
+
     month = args.start
     while month <= args.end:
         shard = args.out / f"panel-{month:%Y-%m}.parquet"
@@ -146,50 +162,51 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         started = time.monotonic()
-        products = products_by_month[month]
-        if not products:
+        if not products_by_month.get(month, ()):
             print(f"{month:%Y-%m} 宇宙为空，跳过", flush=True)
             month = _next_month(month)
             continue
 
-        eligible_choices = tuple(
-            choice for choice in choices if choice.product in products
-        )
-        this_month = [
-            choice
-            for choice in eligible_choices
-            if choice.trade_date.year == month.year
-            and choice.trade_date.month == month.month
-        ]
-        if not this_month:
+        contexts = contexts_for(month)
+        if not contexts:
             print(f"{month:%Y-%m} 当月无主力，跳过", flush=True)
             month = _next_month(month)
             continue
 
-        context_choices = context_choices_for_month(
-            eligible_choices, month_start=month
-        )
-        contexts = build_contexts(context_choices, rules=rules)
-        contexts = {
-            key: value for key, value in contexts.items()
-            if key[0].year == month.year and key[0].month == month.month
-        }
+        # ⚠️ 每个分片是**单独一次** `build_panel`，所以它的 `pending` 从空开始：
+        # 不把下个月首日交进去，本月最后一根就永远拿不到成交价（全历史实测正好
+        # 丢掉 6,259 根 = 品种 × 分片）。这些品种日只用来定价，`resolve_only_keys`
+        # 保证它们不发 bar —— 它们的 bar 属于下一个分片。
+        present = {key[1] for key in contexts}
+        following = contexts_for(_next_month(month))
+        tail_by_product: dict[str, tuple[date, str]] = {}
+        for key in sorted(following):
+            if key[1] in present:
+                tail_by_product.setdefault(key[1], key)
+        tail_contexts = {key: following[key] for key in tail_by_product.values()}
+        resolve_only = frozenset(tail_contexts)
+        all_contexts = {**contexts, **tail_contexts}
+
         panel = build_panel(
-            contexts=contexts,
+            contexts=all_contexts,
             source=source,
             pricing_basis_by_exchange={
                 exchange: pricing_basis_for(bases, exchange)
-                for exchange in {c.candidate.exchange for c in contexts.values()}
+                for exchange in {c.candidate.exchange for c in all_contexts.values()}
             },
             multiplier_resolver=resolve_multiplier,
             adjustment_factor_by_key={
-                key: factor_by_key[key] for key in contexts
+                key: factor_by_key[key] for key in all_contexts
             },
-            continuity_segment_by_key={key: segment_by_key[key] for key in contexts},
+            continuity_segment_by_key={
+                key: segment_by_key[key] for key in all_contexts
+            },
+            resolve_only_keys=resolve_only,
         )
         panel.to_parquet(shard, index=False)
         print(
-            f"{month:%Y-%m} 品种 {len(products)} 上下文 {len(contexts)} "
+            f"{month:%Y-%m} 品种 {len(products_by_month[month])} "
+            f"上下文 {len(contexts)} 定价用 {len(resolve_only)} "
             f"bar {len(panel):,} 用时 {time.monotonic() - started:.1f}s",
             flush=True,
         )
