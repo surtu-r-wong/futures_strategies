@@ -49,7 +49,8 @@ _RANGE_COLUMNS = (
     "reason",
     "source_url",
 )
-_NORMAL_NIGHT_ENDS = frozenset({"23:00", "23:30", "01:00", "02:30"})
+#: 夜盘的四个收盘时刻。观测方（采集）与授权方（本模块）读同一份，避免两处漂移。
+NORMAL_NIGHT_ENDS = frozenset({"23:00", "23:30", "01:00", "02:30"})
 
 
 def _stable_value(value: object) -> str:
@@ -967,7 +968,7 @@ def authorize_night_observation(
         expected = (exceptions[0].night_start, exceptions[0].night_end)
         if observed == expected:
             return exceptions[0]
-    elif observed_night_start == "21:00" and observed_night_end in _NORMAL_NIGHT_ENDS:
+    elif observed_night_start == "21:00" and observed_night_end in NORMAL_NIGHT_ENDS:
         return None
     raise SessionAuthorityError(
         check="night_authority_conflict",

@@ -4120,3 +4120,179 @@ def test_unconsumed_exception_still_blocks_when_no_audit_scope_is_declared():
     )
 
     assert _unconsumed(ambiguities) == [("SHFE", "AU", monday)]
+
+
+# --- 观测只能从时段内部约束时段 -------------------------------------------------
+#
+# 边界观测取自**成交**，而成交只发生在时段内部：薄品种的首笔成交晚于开盘、段尾没有
+# 成交就没有 K 线。所以一次观测能证明的只有「这一刻在时段里」，永远推不出时段的两端。
+# 开盘时刻改由同交易所当天所有品种里最早的一笔成交给出 —— 薄品种只会把它推晚，
+# 于是取最早天然免疫流动性。
+
+
+def test_a_thin_first_trade_takes_the_exchange_day_open():
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    liquid = _observation(monday, friday, night_end="23:00", product="RB")
+    thin = _observation(
+        monday,
+        friday,
+        night_end="23:00",
+        product="B",
+        traded_first=_night_instant(friday, "21:00") + timedelta(minutes=42),
+    )
+
+    rows, ambiguities, _ = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([liquid, thin]),
+        _authority(),
+        global_calendar=(friday, monday),
+    )
+
+    assert ambiguities == ()
+    assert {row["product"]: row["night_start"] for row in rows.to_dict("records")} == {
+        "RB": "21:00",
+        "B": "21:00",
+    }
+
+
+def _untraded_night(row):
+    """夜盘 K 线在、整夜零成交 —— 归档对停摆品种就是这个形状。"""
+    row.update(
+        night_traded_first=None, night_traded_second=None, night_traded_first_flat=None
+    )
+    return row
+
+
+def test_a_night_nobody_traded_takes_the_exchange_day_open():
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    liquid = _observation(monday, friday, night_end="23:00", product="RB")
+    silent = _untraded_night(
+        _observation(monday, friday, night_end="23:00", product="B")
+    )
+
+    rows, ambiguities, _ = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([liquid, silent]),
+        _authority(),
+        global_calendar=(friday, monday),
+    )
+
+    assert ambiguities == ()
+    assert {row["product"]: row["night_start"] for row in rows.to_dict("records")} == {
+        "RB": "21:00",
+        "B": "21:00",
+    }
+
+
+def test_the_exchange_day_open_still_moves_when_the_whole_exchange_moved():
+    """2019-12-26 全市场延迟开盘：取最早**没有**把它抹平成 21:00。"""
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    delayed = [
+        _observation(
+            monday, friday, night_start="22:30", night_end="23:00", product=product
+        )
+        for product in ("RB", "B")
+    ]
+
+    rows, ambiguities, _ = capture_module.classify_authorized_boundaries(
+        pd.DataFrame(delayed),
+        _authority(
+            session_exceptions=(_session_exception(exchange="SHFE", trade_date=monday),)
+        ),
+        global_calendar=(friday, monday),
+    )
+
+    assert ambiguities == ()
+    assert {row["night_start"] for row in rows.to_dict("records")} == {"22:30"}
+
+
+def test_night_padding_is_not_evidence_against_a_day_only_regime():
+    """夜盘开通前归档照样给出 21:00-23:29 的空 K 线（ZC 2015-05 就是），所以
+    padding 不能当作品种有夜盘的证据 —— 否则继承来的开盘会与 day-only 打架。"""
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    liquid = _observation(monday, friday, night_end="23:00", product="RB")
+    not_yet = _untraded_night(
+        _observation(monday, friday, night_end="23:00", product="ZC")
+    )
+
+    rows, ambiguities, _ = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([liquid, not_yet]),
+        _authority(
+            day_only=(
+                EffectiveAuthorityRange(
+                    version=SESSION_RULES_VERSION,
+                    exchange="SHFE",
+                    product="ZC",
+                    effective_start=date(2024, 1, 1),
+                    effective_end=monday,
+                    reason="night session not launched yet",
+                    source_url="https://www.shfe.cn/example",
+                ),
+            )
+        ),
+        global_calendar=(friday, monday),
+    )
+
+    assert ambiguities == ()
+    assert {row["product"]: row["night_start"] for row in rows.to_dict("records")} == {
+        "RB": "21:00",
+        "ZC": "none",
+    }
+
+
+def test_a_day_only_product_that_traded_at_night_is_still_ambiguous():
+    friday, monday = date(2024, 1, 5), date(2024, 1, 8)
+    traded = _observation(monday, friday, night_end="23:00", product="ZC")
+
+    _rows, ambiguities, _ = capture_module.classify_authorized_boundaries(
+        pd.DataFrame([traded]),
+        _authority(
+            day_only=(
+                EffectiveAuthorityRange(
+                    version=SESSION_RULES_VERSION,
+                    exchange="SHFE",
+                    product="ZC",
+                    effective_start=date(2024, 1, 1),
+                    effective_end=monday,
+                    reason="night session not launched yet",
+                    source_url="https://www.shfe.cn/example",
+                ),
+            )
+        ),
+        global_calendar=(friday, monday),
+    )
+
+    assert [item.product for item in ambiguities] == ["ZC"]
+
+
+def test_a_day_segment_that_ends_early_is_inside_the_session():
+    row = _captured_boundary(night_end="23:00")
+    row["day_1_last"] = _dt(2024, 1, 8, 10, 13)
+
+    assert _interval(classify_session_boundary(row)) == ("21:00", "23:00")
+
+
+def test_a_day_segment_boundary_outside_the_session_still_fails():
+    row = _captured_boundary(night_end="23:00")
+    row["day_1_last"] = _dt(2024, 1, 8, 10, 20)
+
+    with pytest.raises(SessionCaptureError, match="day_1_last"):
+        classify_session_boundary(row)
+
+
+def test_a_night_whose_last_minute_never_traded_still_closes_on_the_hour():
+    """收盘同理只能从内部约束：末分钟没成交就没有 K 线，01:00 的夜盘于是停在 00:58。
+    差距在一个 15 分钟槽以内，对面板的槽格没有任何影响。"""
+    row = _captured_boundary(night_end="01:00")
+    row["night_last"] = _night_instant(date(2024, 1, 5), "01:00") - timedelta(minutes=2)
+
+    assert _interval(classify_session_boundary(row)) == ("21:00", "01:00")
+
+
+def test_a_night_short_by_more_than_one_slot_still_fails():
+    """差距超过一个槽就不是「末尾没成交」，是另一个时段 —— 必须看得见。"""
+    row = _captured_boundary(night_end="01:00")
+    row["night_last"] = _night_instant(date(2024, 1, 5), "01:00") - timedelta(
+        minutes=17
+    )
+
+    with pytest.raises(SessionCaptureError, match="night_last"):
+        classify_session_boundary(row)

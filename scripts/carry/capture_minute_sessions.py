@@ -51,6 +51,7 @@ from cta_carry.session_authority import (
     SessionException,
     authorize_night_observation,
     load_session_authority,
+    NORMAL_NIGHT_ENDS,
     matching_ranges,
     validate_session_exception_calendar,
 )
@@ -847,15 +848,24 @@ def _boundary_error(row: Any, field: str, expected: datetime | None) -> None:
     )
 
 
-def _require_boundary(row: Any, field: str, expected: datetime) -> None:
+def _require_boundary(
+    row: Any, field: str, expected: datetime, *, window: tuple[datetime, datetime]
+) -> None:
+    """Require the observed boundary to sit inside its canonical segment.
+
+    The boundary is the first (or last) minute that *traded*, so a thin product
+    can only ever report a boundary strictly inside the segment -- nobody traded
+    the opening or closing minute. What no observation may do is fall outside
+    the segment: that is a different clock, not thin trading, and stays fatal.
+    """
     actual = row[field]
     if not isinstance(actual, datetime) or actual.tzinfo is None:
         _boundary_error(row, field, expected)
     try:
-        matches = actual.astimezone(SHANGHAI) == expected
+        observed = actual.astimezone(SHANGHAI)
     except (TypeError, ValueError, OverflowError):
-        matches = False
-    if not matches:
+        _boundary_error(row, field, expected)
+    if not window[0] <= observed <= window[1]:
         _boundary_error(row, field, expected)
 
 
@@ -873,21 +883,93 @@ def _night_boundary_error(row: Any, field: str, reason: str) -> None:
     )
 
 
+def _attributed_night_start(row: Any) -> datetime | None:
+    """This row's own first traded night minute, auction bar attributed forward.
+
+    Best effort and total: a malformed row simply contributes nothing to the
+    exchange-day consensus. The strict reading lives in
+    :func:`classify_session_boundary`, which still fails loudly on it.
+    """
+    traded_first = row["night_traded_first"]
+    if (
+        _missing_boundary(traded_first)
+        or not isinstance(traded_first, datetime)
+        or traded_first.tzinfo is None
+    ):
+        return None
+    try:
+        start = traded_first.astimezone(SHANGHAI)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    traded_second = row["night_traded_second"]
+    if (
+        start.minute % 15
+        and row["night_traded_first_flat"] is True
+        and not _missing_boundary(traded_second)
+        and isinstance(traded_second, datetime)
+        and traded_second.tzinfo is not None
+    ):
+        shifted = traded_second.astimezone(SHANGHAI)
+        if shifted == start + timedelta(minutes=1) and shifted.minute % 15 == 0:
+            return shifted
+    return start
+
+
+def exchange_day_night_opens(
+    boundaries: pd.DataFrame,
+) -> dict[tuple[str, date], datetime]:
+    """The night open of every exchange-day: its earliest first traded minute.
+
+    An exchange opens for all of its products at once, and no product can trade
+    before that. A thin product's first trade only ever lands *later*, so the
+    minimum over the exchange-day is immune to thin trading -- while a session
+    the whole exchange opened late (2019-12-26) still moves it, because every
+    product moved together.
+    """
+    opens: dict[tuple[str, date], datetime] = {}
+    for row in boundaries.to_dict("records"):
+        start = _attributed_night_start(row)
+        if start is None or start.date() != row["previous_trade_date"]:
+            continue
+        key = (row["exchange"], row["trade_date"])
+        current = opens.get(key)
+        if current is None or start < current:
+            opens[key] = start
+    return opens
+
+
 def classify_session_boundary(
-    row: Any, *, day_session_absent: bool = False
+    row: Any,
+    *,
+    day_session_absent: bool = False,
+    night_session_absent: bool = False,
+    session_start: datetime | None = None,
 ) -> NightObservation:
-    """Classify one exact empirical row into its authoritative night interval."""
+    """Classify one exact empirical row into its authoritative night interval.
+
+    ``session_start`` is the exchange-day open from
+    :func:`exchange_day_night_opens`; given it, this row's own first trade is
+    only evidence that trading happened *inside* the session, never of where the
+    session began. ``night_session_absent`` says authority already declared the
+    product day-only, and the archive's empty 21:00 night bars -- which it lays
+    down for products whose night session had not launched yet -- must not be
+    read as a session.
+    """
     trade_date = row["trade_date"]
     previous_trade_date = row["previous_trade_date"]
     if type(trade_date) is not date or type(previous_trade_date) is not date:
         raise SessionCaptureError("boundary trade dates must be concrete dates")
+    day_windows = {
+        "day_1_first": (_at(trade_date, 9, 0), _at(trade_date, 10, 14)),
+        "day_1_last": (_at(trade_date, 9, 0), _at(trade_date, 10, 14)),
+        "day_2_first": (_at(trade_date, 10, 30), _at(trade_date, 11, 29)),
+        "day_2_last": (_at(trade_date, 10, 30), _at(trade_date, 11, 29)),
+        "day_3_first": (_at(trade_date, 13, 30), _at(trade_date, 14, 59)),
+        "day_3_last": (_at(trade_date, 13, 30), _at(trade_date, 14, 59)),
+    }
     expected_day = {
-        "day_1_first": _at(trade_date, 9, 0),
-        "day_1_last": _at(trade_date, 10, 14),
-        "day_2_first": _at(trade_date, 10, 30),
-        "day_2_last": _at(trade_date, 11, 29),
-        "day_3_first": _at(trade_date, 13, 30),
-        "day_3_last": _at(trade_date, 14, 59),
+        field: window[0] if field.endswith("_first") else window[1]
+        for field, window in day_windows.items()
     }
     if day_session_absent:
         # An authorised absence says the archive holds no day session at all for
@@ -905,7 +987,7 @@ def classify_session_boundary(
             )
     else:
         for field, expected in expected_day.items():
-            _require_boundary(row, field, expected)
+            _require_boundary(row, field, expected, window=day_windows[field])
 
     night_first = row["night_first"]
     night_last = row["night_last"]
@@ -920,39 +1002,61 @@ def classify_session_boundary(
             "night_first" if _missing_boundary(night_first) else "night_last",
             None,
         )
-    if _missing_boundary(traded_first):
-        # Bars exist but nothing traded. A padded day-only product and a night
-        # nobody traded are indistinguishable here, so hand the call to the
-        # authority layer and leave a counted trace either way.
+    if night_session_absent and _missing_boundary(traded_first):
+        # The archive lays 21:00 night bars over products whose night session had
+        # not launched yet (ZC through 2015-06-11). Empty bars are not a session,
+        # so the exchange-day open must not reach this row -- but the padding is
+        # still an observed fact and keeps its counted trace.
         return NightObservation("none", "none", "night_untraded_padding")
-    for field, value in (
-        ("night_traded_first", traded_first),
-        ("night_last", night_last),
-    ):
-        if not isinstance(value, datetime) or value.tzinfo is None:
-            _night_boundary_error(row, field, "requires an aware datetime")
+    if not isinstance(night_last, datetime) or night_last.tzinfo is None:
+        _night_boundary_error(row, "night_last", "requires an aware datetime")
     try:
-        start = traded_first.astimezone(SHANGHAI)
         end = night_last.astimezone(SHANGHAI) + timedelta(minutes=1)
     except (TypeError, ValueError, OverflowError):
         _night_boundary_error(
-            row, "night_traded_first", "could not be converted to the exchange clock"
+            row, "night_last", "could not be converted to the exchange clock"
         )
     note = None
-    if (
-        start.minute % 15
-        and traded_flat is True
-        and not _missing_boundary(traded_second)
-    ):
-        if not isinstance(traded_second, datetime) or traded_second.tzinfo is None:
+    if _missing_boundary(traded_first):
+        # Bars exist but nothing traded. A padded day-only product and a night
+        # nobody traded are indistinguishable here, so without an exchange-day
+        # open hand the call to the authority layer, leaving a counted trace.
+        if session_start is None:
+            return NightObservation("none", "none", "night_untraded_padding")
+        start = session_start
+        note = "night_untraded_padding"
+    else:
+        if not isinstance(traded_first, datetime) or traded_first.tzinfo is None:
             _night_boundary_error(
-                row, "night_traded_second", "requires an aware datetime"
+                row, "night_traded_first", "requires an aware datetime"
             )
-        shifted = traded_second.astimezone(SHANGHAI)
-        if shifted == start + timedelta(minutes=1) and shifted.minute % 15 == 0:
-            # The auction match printed one minute before the session it opened.
-            start = shifted
-            note = "night_auction_attributed"
+        try:
+            start = traded_first.astimezone(SHANGHAI)
+        except (TypeError, ValueError, OverflowError):
+            _night_boundary_error(
+                row,
+                "night_traded_first",
+                "could not be converted to the exchange clock",
+            )
+        if (
+            start.minute % 15
+            and traded_flat is True
+            and not _missing_boundary(traded_second)
+        ):
+            if not isinstance(traded_second, datetime) or traded_second.tzinfo is None:
+                _night_boundary_error(
+                    row, "night_traded_second", "requires an aware datetime"
+                )
+            shifted = traded_second.astimezone(SHANGHAI)
+            if shifted == start + timedelta(minutes=1) and shifted.minute % 15 == 0:
+                # The auction match printed one minute before the session it
+                # opened.
+                start = shifted
+                note = "night_auction_attributed"
+        if session_start is not None and session_start < start:
+            # This product traded late into a session that was already open.
+            start = session_start
+            note = "night_open_from_exchange_day"
     after_midnight = previous_trade_date.fromordinal(
         previous_trade_date.toordinal() + 1
     )
@@ -969,6 +1073,28 @@ def classify_session_boundary(
             "night_last",
             f"ends after the 02:30 commodity clock bound; got {end}",
         )
+    # The close is observed the same way the open is: from bars that only exist
+    # where something traded. A night whose final minutes never traded stops
+    # short of its close, so an end inside the last fifteen-minute slot -- the
+    # grid the panel is built on -- is read as that close. A wider gap is a
+    # different session, not a quiet one, and stays fatal.
+    close = min(
+        (
+            candidate
+            for candidate in (
+                _at(
+                    previous_trade_date if int(label[:2]) >= 21 else after_midnight,
+                    int(label[:2]),
+                    int(label[3:]),
+                )
+                for label in NORMAL_NIGHT_ENDS
+            )
+            if timedelta(0) <= candidate - end < timedelta(minutes=15)
+        ),
+        default=None,
+    )
+    if close is not None:
+        end = close
     labels = (f"{start:%H:%M}", f"{end:%H:%M}")
     for field, label in (("night_traded_first", labels[0]), ("night_last", labels[1])):
         try:
@@ -1027,6 +1153,9 @@ def classify_authorized_boundaries(
         ["trade_date", "exchange", "product", "daily_contract"],
         kind="mergesort",
     )
+    # One pass first: the night open is a fact about the exchange-day, so it has
+    # to be settled before any single product's thin observation is read.
+    opens = exchange_day_night_opens(ordered)
     for row in ordered.to_dict("records"):
         absent = matching_absent_product_day(
             authority.absent_product_days,
@@ -1034,9 +1163,18 @@ def classify_authorized_boundaries(
             row["product"],
             row["trade_date"],
         )
+        regimes = matching_ranges(
+            authority.day_only_regimes,
+            row["exchange"],
+            row["product"],
+            row["trade_date"],
+        )
         try:
             observation = classify_session_boundary(
-                row, day_session_absent=absent is not None
+                row,
+                day_session_absent=absent is not None,
+                night_session_absent=bool(regimes),
+                session_start=opens.get((row["exchange"], row["trade_date"])),
             )
         except (SessionCaptureError, SessionAuthorityError) as exc:
             ambiguous.append(
