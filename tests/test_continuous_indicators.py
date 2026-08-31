@@ -50,6 +50,34 @@ def test_delta_tnr_uses_the_mean_of_the_last_k_including_now():
     assert delta_tnr([0.9, 0.6, 0.3], k=3)[2] == pytest.approx(-0.3)
 
 
+def test_delta_tnr_lag_mode_compares_with_k_periods_ago():
+    """D7 的另一侧：研报**正文**说「当日与 3 日前」比，公式图说与近 k 期均值比。
+
+    ⚠️ k=3 的滞后版在第 4 个值上才有定义（索引 3 减索引 0）。三个值时索引 2 要减
+    索引 −1，那是 NaN —— `0.3 − 0.9` 是滞后 **2**，不是 3。
+
+    手算（四个值）：滞后版 `0.2 − 0.9 = −0.7`；均值版
+    `0.2 − (0.6 + 0.3 + 0.2)/3 = −1/6`。两条口径确实分得开。
+    """
+    lag = delta_tnr([0.9, 0.6, 0.3, 0.2], k=3, mode="lag")
+    mean = delta_tnr([0.9, 0.6, 0.3, 0.2], k=3, mode="mean")
+    assert math.isnan(lag[2])
+    assert lag[3] == pytest.approx(-0.7)
+    assert mean[3] == pytest.approx(-1 / 6)
+
+
+def test_delta_tnr_lag_mode_needs_k_periods_of_history():
+    values = delta_tnr([0.1, 0.2, 0.3, 0.4], k=3, mode="lag")
+    assert all(math.isnan(value) for value in values[:3])
+    assert values[3] == pytest.approx(0.3)
+
+
+def test_delta_tnr_rejects_a_mode_it_does_not_know():
+    with pytest.raises(ValueError) as caught:
+        delta_tnr([0.1, 0.2], k=1, mode="ewm")
+    assert str(caught.value).startswith("delta_tnr_mode:")
+
+
 def test_delta_tnr_is_positive_when_noise_is_falling():
     """噪音减小 = TNR 上升 ⇒ ΔTNR > 0，这才是研报表 4 里赚钱的那一侧。"""
     assert delta_tnr([0.3, 0.6, 0.9], k=3)[2] > 0

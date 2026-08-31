@@ -211,3 +211,14 @@ def test_load_panel_reads_only_the_requested_months(tmp_path):
     frame = load_panel(panel, start=date(2024, 2, 1), end=date(2024, 2, 1))
 
     assert set(frame["trade_date"].dt.month) == {2}
+
+
+def test_cli_exposes_the_third_contradiction_switch(tmp_path):
+    """D7：研报正文的「当日与 3 日前」那一侧也要能从命令行跑到。"""
+    sessions = _sessions(tmp_path)
+    panel = _panel_dir(tmp_path, months=[date(2024, 1, 1), date(2024, 2, 1)])
+
+    assert main(_argv(panel, sessions, tmp_path / "lag", "--dtnr-mode", "lag")) == 0
+
+    summary = pd.read_csv(tmp_path / "lag-summary.csv")
+    assert list(summary["dtnr_mode"]) == ["lag"]

@@ -130,6 +130,7 @@ class BacktestParams:
     cost_bps: float = DEFAULT_COST_BPS
     ma_orientation: str = "paper"
     tnr_sign: str = "positive"
+    dtnr_mode: str = "mean"
     min_observations: int = TRADING_DAYS_PER_YEAR
 
     def __post_init__(self) -> None:
@@ -144,6 +145,11 @@ class BacktestParams:
             )
         if not math.isfinite(self.cost_bps) or self.cost_bps < 0:
             raise ValueError(f"backtest_params: cost_bps 必须有限且非负；got {self.cost_bps!r}")
+        if self.dtnr_mode not in ("mean", "lag"):
+            raise ValueError(
+                "backtest_params: dtnr_mode 只接受 'mean'（公式图）或 'lag'（正文）；"
+                f"got {self.dtnr_mode!r}"
+            )
 
     @property
     def warmup_bars(self) -> int:
@@ -154,11 +160,10 @@ class BacktestParams:
         取三者的上界，并把 EMA 的预热定成它自己的跨度 —— 那时种子的残余权重
         `(1−α)^span ≈ e^{−2} ≈ 13.5%`。这是显式假设，须进保真度报告。
         """
-        return max(
-            self.ema_long,
-            self.tnr_window + self.dtnr_k - 1,
-            self.atr_window,
-        )
+        # ⚠️ 滞后版要多一根：`TNR_t − TNR_{t−k}` 在第 `k+1` 个 TNR 上才有定义，
+        # 均值版在第 `k` 个上就有了。
+        noise = self.tnr_window + self.dtnr_k - (0 if self.dtnr_mode == "lag" else 1)
+        return max(self.ema_long, noise, self.atr_window)
 
 
 @dataclass(frozen=True)
@@ -206,7 +211,7 @@ def _segment_signals(frame: pd.DataFrame, *, params: BacktestParams) -> pd.DataF
     long = ema(closes, span=params.ema_long)
     widening = gap_widening(short, long)
     tnr = tnr_series(closes, window=params.tnr_window)
-    dtnr = delta_tnr(tnr, k=params.dtnr_k)
+    dtnr = delta_tnr(tnr, k=params.dtnr_k, mode=params.dtnr_mode)
     atr = atr_series(highs, lows, closes, window=params.atr_window)
 
     warmup = params.warmup_bars

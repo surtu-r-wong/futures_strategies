@@ -121,6 +121,7 @@ def _params(args, *, ema_short, ema_long, tnr_window, ma_orientation, tnr_sign):
         cost_bps=args.cost_bps,
         ma_orientation=ma_orientation,
         tnr_sign=tnr_sign,
+        dtnr_mode=args.dtnr_mode,
         min_observations=args.min_observations,
     )
 
@@ -181,6 +182,7 @@ def _summary_row(label: str, params: BacktestParams, result) -> dict:
         "tnr_window": params.tnr_window,
         "ma_orientation": params.ma_orientation,
         "tnr_sign": params.tnr_sign,
+        "dtnr_mode": params.dtnr_mode,
         "cost_bps": params.cost_bps,
     }
     for name in ("full", "in_sample", "out_of_sample"):
@@ -215,6 +217,12 @@ def main(argv: list[str] | None = None) -> int:
         choices=("positive", "negative"),
         default="positive",
         help="D3：噪音闸取 ΔTNR>0（positive，正文与表 4）还是 <0（negative，§5.1 汇总框）",
+    )
+    parser.add_argument(
+        "--dtnr-mode",
+        choices=("mean", "lag"),
+        default="mean",
+        help="D7：ΔTNR 与近 k 期均值比（mean，公式图）还是与 k 期前比（lag，正文）",
     )
     parser.add_argument("--grid", action="store_true", help="跑 D9 的 9 个网格点 + 3 个反向对照")
     parser.add_argument("--cost-sensitivity", action="store_true", help="追加研报表 8 的三档成本")

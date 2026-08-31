@@ -18,6 +18,7 @@ TNR 严格上升，而 TNR 上界是 1 —— 光滑趋势里它会钉在 1、�
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -456,3 +457,38 @@ def test_the_backtest_refuses_a_panel_whose_columns_it_does_not_know():
         run_backtest(frame, params=FAST)
 
     assert str(caught.value).startswith("backtest_panel_columns:")
+
+
+def test_the_dtnr_mode_actually_reaches_the_indicator_layer():
+    """记下 `dtnr_mode` 不等于用上它。
+
+    只断言「摘要里写着 lag」是抓不到「参数根本没传下去」的 —— 两条口径必须在同一条
+    价格路径上给出**不同的信号序列**。
+    """
+    closes = _zigzag(20)
+    mean = replace(SIGNAL_PARAMS, dtnr_mode="mean")
+    lag = replace(SIGNAL_PARAMS, dtnr_mode="lag")
+
+    a = product_signals(_price_panel(closes), params=mean)
+    b = product_signals(_price_panel(closes), params=lag)
+
+    assert not a["delta_tnr"].equals(b["delta_tnr"])
+    # ⚠️ 不能顺手断言「方向也不同」：本夹具的 TNR 严格上升，两种口径的 ΔTNR **符号
+    # 相同**，闸自然开在同几根上。真正的接线判据是 ΔTNR 这一列本身 —— 模式没传下去
+    # 时它会一模一样（变异验证过）。
+    assert a["direction"].equals(b["direction"])
+
+
+def test_the_lag_mode_needs_one_more_bar_of_warmup():
+    """滞后版 `TNR_t − TNR_{t−k}` 在第 k+1 个 TNR 上才有定义，均值版第 k 个就有。"""
+    mean = BacktestParams(ema_short=2, ema_long=3, tnr_window=2, atr_window=2, dtnr_k=2)
+    lag = replace(mean, dtnr_mode="lag")
+
+    assert mean.warmup_bars == 3
+    assert lag.warmup_bars == 4
+
+
+def test_backtest_params_rejects_a_dtnr_mode_it_does_not_know():
+    with pytest.raises(ValueError) as caught:
+        BacktestParams(dtnr_mode="ewm")
+    assert str(caught.value).startswith("backtest_params: dtnr_mode")
