@@ -1625,14 +1625,26 @@ def _target_contexts(
     start: date,
     end: date,
     absent_product_days: frozenset[tuple[str, str, date]] = frozenset(),
+    traded_contract_days: frozenset[tuple[date, str]] | None = None,
 ):
-    """面板覆盖哪些品种日 —— 授权登记过的「归档本来就没有这一天」在这里剔除。
+    """面板覆盖哪些品种日 —— 看不见的那些在这里剔除。
 
     剔在**上下文**这一层而不是产出 bar 那一层：bundle 的跨表关系要求每个主力品种日
     都有 bar，所以"有主力行、没有 bar"会当场违约。剔掉之后这个品种日在 bundle 里
     整个不存在，换月则顺延到下一个看得见的交易日按常规定价。
+
+    两类剔除：
+
+    1. `absent_product_days` —— 授权资产登记过的「归档本来就没有这一天」。
+    2. `traded_contract_days` —— **主力合约当天自己没有成交**的品种日。既没有分钟
+       可观测，也没有仓位可动；菜籽油 OI1307 2012 年逐日零成交、价格冻在 10230/9810
+       却当着主力，面板于是去要一张从没交易过的合约的乘数与分钟。全历史 160,890 条
+       主力选择里这样的有 2,120 条（1.3%），集中在 WR/FU/B/SM/SF 这些薄或已死的品种。
+       这是 D11「发出去的那一天自己必须有成交」在**合约**这一层的落实 —— 主力链本身
+       不动（它与连续信号那条线共用，那份面板已验收）。
     """
     contexts = {}
+    untraded: list[tuple[date, str, str]] = []
     for month in _months(start, end):
         selected = context_choices_for_month(choices, month_start=month)
         monthly = build_contexts(selected, rules=rules, month=month)
@@ -1644,9 +1656,18 @@ def _target_contexts(
                 candidate.trade_date,
             ) in absent_product_days:
                 continue
+            if (
+                traded_contract_days is not None
+                and (candidate.trade_date, candidate.daily_contract)
+                not in traded_contract_days
+            ):
+                untraded.append(
+                    (candidate.trade_date, candidate.product, candidate.daily_contract)
+                )
+                continue
             if start <= key[0] <= end and _month_start(key[0]) == month:
                 contexts[key] = context
-    return contexts
+    return contexts, tuple(sorted(untraded))
 
 
 def _contexts_sha256(contexts: Mapping[tuple[date, str], object]) -> str:
@@ -2217,13 +2238,36 @@ def main(argv: list[str] | None = None) -> int:
         rules=rules,
         manifest_path=Path(args.output_dir) / "session-coverage-gap.csv",
     )
-    contexts = _target_contexts(
+    traded_contract_days = frozenset(
+        (trade_date, str(symbol))
+        for trade_date, symbol, volume in daily.loc[
+            :, ["trade_date", "symbol", "volume"]
+        ].itertuples(index=False, name=None)
+        if float(volume or 0.0) > 0.0
+    )
+    contexts, untraded_dominants = _target_contexts(
         choices=choices,
         rules=rules,
         start=args.start,
         end=args.end,
         absent_product_days=absent_days,
+        traded_contract_days=traded_contract_days,
     )
+    if untraded_dominants:
+        untraded_manifest = Path(args.output_dir) / "dominant-untraded.csv"
+        untraded_manifest.parent.mkdir(parents=True, exist_ok=True)
+        with untraded_manifest.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["trade_date", "product", "contract"])
+            for trade_date, product, contract in untraded_dominants:
+                writer.writerow([trade_date.isoformat(), product, contract])
+        untraded_products = sorted({row[1] for row in untraded_dominants})
+        print(
+            f"untraded dominants dropped: {len(untraded_dominants)} across "
+            f"{len(untraded_products)} products ({' '.join(untraded_products)}); "
+            f"manifest={untraded_manifest}",
+            flush=True,
+        )
 
     if not contexts:
         raise ValueError("panel_contexts_empty: no reliable dominant sessions in range")

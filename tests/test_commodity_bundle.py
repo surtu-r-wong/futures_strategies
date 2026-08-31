@@ -710,7 +710,7 @@ def test_builder_keeps_shadow_panel_contexts_outside_monthly_universe():
         ),
     )
 
-    contexts = __import__(
+    contexts, _untraded = __import__(
         "scripts.commodity.build_panel", fromlist=["_target_contexts"]
     )._target_contexts(
         choices=(*rb_choices, *ta_choices),

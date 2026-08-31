@@ -923,7 +923,7 @@ def test_registered_absent_product_days_never_enter_the_panel():
     rules = [_day_only_rule()]
     absent = frozenset({("SHFE", "RB", DAYS[1])})
 
-    contexts = _target_contexts(
+    contexts, _untraded = _target_contexts(
         choices=_choices(),
         rules=rules,
         start=DAYS[0],
@@ -933,3 +933,29 @@ def test_registered_absent_product_days_never_enter_the_panel():
 
     assert DAYS[1] not in {key[0] for key in contexts}
     assert {key[0] for key in contexts} == {day for day in DAYS[1:] if day != DAYS[1]}
+
+
+def test_a_dominant_that_never_traded_that_day_is_dropped_from_the_panel():
+    """主力合约当天自己零成交 —— 没有分钟可观测，也没有仓位可动。
+
+    菜籽油 OI1307 在 2012 年逐日零成交、价格冻在 10230/9810，却因为品种当天有 6 手
+    成交而当着主力，面板于是去要一张从没交易过的合约的乘数与分钟。全历史 160,890 条
+    主力选择里这样的有 2,120 条（1.3%），集中在 WR/FU/B/SM/SF。这是 D11「发出去的
+    那一天自己必须有成交」在**合约**这一层的落实；主力链本身不动（与连续信号共用）。
+    """
+    from scripts.commodity.build_panel import _target_contexts
+
+    traded = frozenset(
+        (day, "RB2405.SHF") for day in DAYS if day != DAYS[-1]
+    )
+
+    contexts, untraded = _target_contexts(
+        choices=_choices(),
+        rules=[_day_only_rule()],
+        start=DAYS[0],
+        end=DAYS[-1],
+        traded_contract_days=traded,
+    )
+
+    assert DAYS[-1] not in {key[0] for key in contexts}
+    assert untraded == ((DAYS[-1], "RB", "RB2405.SHF"),)
