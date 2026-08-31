@@ -781,10 +781,15 @@ def test_repository_uses_only_the_session_exception_authority_contract():
     # option-launch evenings, and H (15), all reviewed on 2026-08-25.
     # 557 起于 2026-08-29：并入连续补采那轮裁决的两条 INE 节后无夜盘
     # （2018-05-02 / 2018-06-19），两条都带上交能源的公告直链。
-    assert len(authority.session_exceptions) == 557
+    # 559 起于 2026-08-31：商品复刻的宇宙比 Carry 宽，两条转录缺口随之现形 ——
+    # INE 2018-04-09 的节后无夜盘（沪郑连三所同日的行早就在），以及 2019-12-26
+    # 全市场延迟开盘里上期所漏掉的 SN。两条都不是新裁决，是同一份公告的补抄。
+    assert len(authority.session_exceptions) == 559
     # 39 起于 2026-08-29：并入连续补采那轮裁决新增的两个 day-only 品种，
     # 依据同样是交易所夜盘上线通知的逐批名单。
-    assert len(authority.day_only_regimes) == 39
+    # 43 起于 2026-08-31：MA/ZC/BU/FU 四个品种上夜盘之前的窗口，同样出自
+    # 已登记的逐批名单 —— 这四行原本不需要，是因为 Carry 的池子够不到那几年。
+    assert len(authority.day_only_regimes) == 43
     assert authority.liquidity_history_exceptions == ()
     # Only the evening of 2019-12-25 needs product-scoped rows: Shanghai wrote
     # three closes and the energy centre two, so an exchange-wide row cannot
@@ -806,6 +811,7 @@ def test_repository_uses_only_the_session_exception_authority_contract():
         ("SHFE", "PB", "22:30", "01:00"),
         ("SHFE", "RB", "22:30", "23:00"),
         ("SHFE", "RU", "22:30", "23:00"),
+        ("SHFE", "SN", "22:30", "01:00"),
         ("SHFE", "SP", "22:30", "23:00"),
         ("SHFE", "ZN", "22:30", "01:00"),
     ]
