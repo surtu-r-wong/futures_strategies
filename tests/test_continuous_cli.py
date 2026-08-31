@@ -222,3 +222,14 @@ def test_cli_exposes_the_third_contradiction_switch(tmp_path):
 
     summary = pd.read_csv(tmp_path / "lag-summary.csv")
     assert list(summary["dtnr_mode"]) == ["lag"]
+
+
+def test_cli_exposes_the_rebalance_cadence(tmp_path):
+    """D22：调仓节拍要能从命令行换。"""
+    sessions = _sessions(tmp_path)
+    panel = _panel_dir(tmp_path, months=[date(2024, 1, 1), date(2024, 2, 1)])
+
+    assert main(_argv(panel, sessions, tmp_path / "cad", "--rebalance", "entry")) == 0
+
+    summary = pd.read_csv(tmp_path / "cad-summary.csv")
+    assert list(summary["rebalance"]) == ["entry"]

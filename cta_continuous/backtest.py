@@ -99,6 +99,19 @@ FILL_MINUTES = 5
 #: 是「下一根 bar 的 slot_end 减去（15 − 5）分钟」。
 BUCKET_MINUTES = 15
 
+#: 调仓节拍（计划 D22）。收窄的是**再平衡**，不是开平仓 —— 信号翻转、掉出宇宙、
+#: 展期在任何节拍下都照常成交。
+#:
+#: - ``"slot"``：每个事件都重算权重（现状，也是「每 15 分钟计算一次」的字面读法）。
+#: - ``"daily"`` / ``"monthly"``：只在交易日 / 自然月的第一个事件上重算。
+#: - ``"entry"``：**开仓时点定死**，之后不再随信号强弱与杠杆漂移改动。
+#:
+#: 研报只说「满足开仓条件的品种等权分配资金」，没说多久重算一次权重；而 §1.6 那一档
+#: 的措辞是「+ **开仓时点**信号强弱」，字面上更像 ``"entry"``。
+#: ⚠️ 粗节拍下等权不再随时成立：新品种进场时旧仓位不缩，总杠杆会漂。这是这条读法的
+#: 代价，不是实现缺陷。
+REBALANCE_CADENCES = ("slot", "daily", "monthly", "entry")
+
 _REQUIRED_COLUMNS = (
     "product",
     "contract",
@@ -137,6 +150,7 @@ class BacktestParams:
     tnr_sign: str = "positive"
     dtnr_mode: str = "mean"
     exit_gates: str = "wide"
+    rebalance: str = "slot"
     min_observations: int = TRADING_DAYS_PER_YEAR
 
     def __post_init__(self) -> None:
@@ -151,6 +165,10 @@ class BacktestParams:
             )
         if not math.isfinite(self.cost_bps) or self.cost_bps < 0:
             raise ValueError(f"backtest_params: cost_bps 必须有限且非负；got {self.cost_bps!r}")
+        if self.rebalance not in REBALANCE_CADENCES:
+            raise ValueError(
+                f"backtest_params: rebalance 只接受 {REBALANCE_CADENCES}；got {self.rebalance!r}"
+            )
         if self.exit_gates not in EXIT_RULES:
             raise ValueError(
                 f"backtest_params: exit_gates 只接受 {EXIT_RULES}；got {self.exit_gates!r}"
@@ -388,24 +406,6 @@ class _ProductState:
     segment: int = 0
 
 
-def _cause(
-    *,
-    product: str,
-    contract: str,
-    held_contract: str | None,
-    in_universe: bool,
-    previous_direction: str,
-    direction: str,
-) -> TurnoverCause:
-    if not in_universe:
-        return TurnoverCause.UNIVERSE
-    if held_contract is not None and held_contract != contract:
-        return TurnoverCause.ROLL
-    if previous_direction != direction:
-        return TurnoverCause.SIGNAL
-    return TurnoverCause.REBALANCE
-
-
 def run_backtest(
     panel: pd.DataFrame,
     *,
@@ -443,7 +443,6 @@ def run_backtest(
     #: 品种 → （承载它权重的合约, 权重）。展期时合约变、权重不变。
     book: dict[str, tuple[str, float]] = {}
     shadow_book: dict[str, tuple[str, float]] = {}
-    previous_direction: dict[str, str] = {}
     last_price: dict[str, float] = {}
 
     deferred: list[dict[str, object]] = []
@@ -455,6 +454,7 @@ def run_backtest(
     shadow_returns: list[tuple[date, float]] = []
 
     open_day: date | None = None
+    previous_day: date | None = None
     day_last_fill = None
 
     for (fill_time, fill_day), events in schedule.groupby(
@@ -476,6 +476,10 @@ def run_backtest(
                 shadow_daily_rows=shadow_daily_rows,
                 shadow_returns=shadow_returns,
             )
+        resize_now = _resize_allowed(
+            params.rebalance, day=day, opened=open_day, previous=previous_day
+        )
+        previous_day = day
         open_day = day
         # ⚠️ 日切时刻取**当日最后一个事件时刻**，而不是「最后一次换仓的时刻」：
         # 一整天没有换仓时后者还停在前一天，`mark_close` 会因为日期对不上硬失败。
@@ -582,13 +586,34 @@ def run_backtest(
             value = state[product]
             want = desired.get(product, 0.0)
             shadow_want = shadow_desired.get(product, 0.0)
-            if held is not None and held[0] != value.contract and held[1] != 0.0:
+            # ⚠️ 成因按**权重的有无**判，不按方向标签。`Mul_vol` 还没攒够时品种已经
+            # 「有方向但权重为 0」，按标签判会把那一笔记成建仓；等杠杆真正可用时方向
+            # 没变、于是被归成再平衡 —— `rebalance="entry"` 下就永远建不了仓了。
+            carried = held[1] if held is not None else 0.0
+            shadow_carried = shadow_book.get(product, (None, 0.0))[1]
+            # ⚠️ 「跨越零」要看**两本账**。波动率自举期间主账户权重恒为 0（`Mul_vol`
+            # 还没有），只有影子在建仓；只看主账户会把影子的首次建仓判成再平衡，
+            # 于是被粗节拍挡掉 ⇒ 影子收益恒 0 ⇒ 波动率永远算不出来 ⇒ 整段回测一笔
+            # 不成交。这条只有接线才看得见。
+            crosses = ((carried == 0.0) != (want == 0.0)) or (
+                (shadow_carried == 0.0) != (shadow_want == 0.0)
+            )
+            if (
+                held is not None
+                and held[0] != value.contract
+                and carried != 0.0
+                and want != 0.0
+            ):
                 cause = TurnoverCause.ROLL
-            elif previous_direction.get(product, Direction.FLAT.value) != value.direction:
+            elif crosses:
                 cause = TurnoverCause.SIGNAL
             else:
                 cause = TurnoverCause.REBALANCE
             if held is not None and held[0] == value.contract and held[1] == want:
+                continue
+            # ⚠️ 节拍只挡**再平衡**：开仓、平仓、展期在任何节拍下都照常成交，
+            # 否则「持仓期间不改仓位」会退化成「永远不开仓」。
+            if cause is TurnoverCause.REBALANCE and not resize_now:
                 continue
             next_book[product] = (value.contract, want)
             next_shadow[product] = (value.contract, shadow_want)
@@ -617,10 +642,6 @@ def run_backtest(
         shadow.rebalance(timestamp, prices, shadow_targets, reasons)
         book = {p: v for p, v in next_book.items() if v[1] != 0.0}
         shadow_book = {p: v for p, v in next_shadow.items() if v[1] != 0.0}
-        for product in causes:
-            previous_direction[product] = (
-                state[product].direction if product in state else Direction.FLAT.value
-            )
 
         for record in event.executions:
             execution_rows.append(
@@ -690,6 +711,21 @@ def run_backtest(
         ),
         params=params,
     )
+
+
+def _resize_allowed(
+    cadence: str, *, day: date, opened: date | None, previous: date | None
+) -> bool:
+    """这一刻允不允许**再平衡**（D22）。粗节拍只在周期的第一个事件上放行。"""
+    if cadence == "slot":
+        return True
+    if cadence == "entry":
+        return False
+    if opened is not None and day == opened:
+        return False                       # 同一个交易日的后续事件
+    if cadence == "daily":
+        return True
+    return previous is None or (day.year, day.month) != (previous.year, previous.month)
 
 
 def _contract_targets(

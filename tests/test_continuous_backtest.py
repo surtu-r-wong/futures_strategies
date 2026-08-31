@@ -517,3 +517,66 @@ def test_backtest_params_rejects_a_dtnr_mode_it_does_not_know():
     with pytest.raises(ValueError) as caught:
         BacktestParams(dtnr_mode="ewm")
     assert str(caught.value).startswith("backtest_params: dtnr_mode")
+
+
+# --- D22：调仓节拍 -----------------------------------------------------------
+
+def _rebalance_result(cadence, days=None):
+    rows = _series(product="RB", contract="RB2405.SHF", days=days or ALL_DAYS)
+    rows += _series(product="HC", contract="HC2405.SHF", days=days or ALL_DAYS, close=2000.0)
+    frame = _signals(rows)
+    params = replace(FAST, rebalance=cadence)
+    return frame, run_backtest(frame, params=params, signals=frame)
+
+
+def test_slot_cadence_is_the_current_reading_and_trades_the_most():
+    """`rebalance="slot"` 是现状：每个事件都把权重重算一遍。"""
+    _, slot = _rebalance_result("slot")
+    _, entry = _rebalance_result("entry")
+
+    assert slot.daily["turnover"].sum() > entry.daily["turnover"].sum()
+
+
+def test_entry_cadence_only_trades_on_entries_exits_and_rolls():
+    """仓位在**开仓时点**定死，之后不再随信号强弱与杠杆漂移改动。
+
+    这正是研报 §1.6 那一档的措辞 —— 「+ 开仓时点信号强弱」。
+    """
+    _, result = _rebalance_result("entry")
+
+    assert not result.executions.empty
+    assert set(result.executions["cause"]) <= {
+        TurnoverCause.SIGNAL, TurnoverCause.UNIVERSE, TurnoverCause.ROLL
+    }
+    # 再平衡那一类必须一笔都没有 —— `turnover_by_cause` 是原始 groupby，没发生的
+    # 成因根本不会出现（补零留行是报告层 `report.turnover_breakdown` 的事）。
+    assert TurnoverCause.REBALANCE not in set(result.turnover_by_cause["cause"])
+
+
+def test_cadences_order_by_how_often_they_let_weights_move():
+    """slot ≥ daily ≥ monthly ≥ entry —— 节拍越粗，换手越低。"""
+    results = {
+        cadence: _rebalance_result(cadence)[1]
+        for cadence in ("slot", "daily", "monthly", "entry")
+    }
+    turnovers = {k: v.daily["turnover"].sum() for k, v in results.items()}
+    trades = {k: len(v.executions) for k, v in results.items()}
+
+    # ⚠️ 必须是**严格**大于：写成 >= 的话，「日内后续事件也放行」这种把 daily 退化成
+    # slot 的变异照样通过 —— 那条一开始就没被抓住。
+    assert turnovers["slot"] > turnovers["daily"] > turnovers["monthly"] > turnovers["entry"]
+    assert trades["slot"] > trades["daily"] > trades["monthly"] > trades["entry"]
+
+
+def test_a_coarse_cadence_still_lets_a_signal_change_trade():
+    """收窄的是**再平衡**，不是开平仓。信号翻转任何节拍下都必须成交。"""
+    _, result = _rebalance_result("monthly")
+    causes = set(result.executions["cause"])
+
+    assert TurnoverCause.SIGNAL in causes
+
+
+def test_backtest_params_rejects_a_cadence_it_does_not_know():
+    with pytest.raises(ValueError) as caught:
+        BacktestParams(rebalance="hourly")
+    assert str(caught.value).startswith("backtest_params: rebalance")

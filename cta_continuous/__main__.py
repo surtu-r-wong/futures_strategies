@@ -123,6 +123,7 @@ def _params(args, *, ema_short, ema_long, tnr_window, ma_orientation, tnr_sign):
         tnr_sign=tnr_sign,
         dtnr_mode=args.dtnr_mode,
         exit_gates=args.exit_gates,
+        rebalance=args.rebalance,
         min_observations=args.min_observations,
     )
 
@@ -185,6 +186,7 @@ def _summary_row(label: str, params: BacktestParams, result) -> dict:
         "tnr_sign": params.tnr_sign,
         "dtnr_mode": params.dtnr_mode,
         "exit_gates": params.exit_gates,
+        "rebalance": params.rebalance,
         "cost_bps": params.cost_bps,
     }
     for name in ("full", "in_sample", "out_of_sample"):
@@ -231,6 +233,13 @@ def main(argv: list[str] | None = None) -> int:
         choices=("wide", "narrow"),
         default="wide",
         help="D21：离场看四道闸任一不过（wide，D6 原样）还是只看 Lev_ATR<1 与均线反向（narrow）",
+    )
+    parser.add_argument(
+        "--rebalance",
+        choices=("slot", "daily", "monthly", "entry"),
+        default="slot",
+        help="D22：多久重算一次权重。slot=每个事件（现状）/ daily / monthly / "
+             "entry=开仓时点定死。只管再平衡，开平仓与展期任何节拍下都照常成交",
     )
     parser.add_argument("--grid", action="store_true", help="跑 D9 的 9 个网格点 + 3 个反向对照")
     parser.add_argument("--cost-sensitivity", action="store_true", help="追加研报表 8 的三档成本")
