@@ -8,6 +8,10 @@ from typing import Mapping
 
 from common.errors import EquityDepletedError
 
+#: 复利化成本的浮点噪音上限。日收益量级是 1e−2，单次运算的 ulp 约 1e−18，一天几十
+#: 个事件累计到 1e−16；真正为负的成本至少要大好几个数量级才可能出现。
+_COST_NOISE = 1e-12
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionRecord:
@@ -237,6 +241,12 @@ class EventAccount:
         gross_return = self._gross_equity / opening_gross - 1.0
         net_return = self._net_equity / opening_net - 1.0
         cost = gross_return - net_return
+        # ⚠️ 零换手的日子里 gross 与 net 走的是**同一条相对路径**（net = k × gross，
+        # k 是之前累计的成本因子），所以 `G/G₀ − 1` 与 `N/N₀ − 1` 在实数里恒等 ——
+        # 在浮点里却能差出一两个 ulp，于是这里得到一个 −1e−16 的「负成本」并硬失败。
+        # 把这一档噪音夹到 0；真正为负的成本仍然炸出去。
+        if -_COST_NOISE < cost < 0.0:
+            cost = 0.0
         gross_leverage = math.fsum(
             abs(self._weights[contract]) for contract in sorted(self._weights)
         )

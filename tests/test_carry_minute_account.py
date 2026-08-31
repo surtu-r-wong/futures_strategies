@@ -279,3 +279,43 @@ def test_initialize_and_boundary_type_are_validated() -> None:
     account.mark_close(date(2024, 1, 8), _ts(15, 0), {})
     with pytest.raises(ValueError, match="boundary_type"):
         account.drain_daily_row(date(2024, 1, 8), "")
+
+
+def test_a_zero_turnover_day_does_not_fail_on_floating_point_noise():
+    """零换手的日子里复利化成本可能是个 −1e−16，那不是负成本，是浮点噪音。
+
+    没有成交时 gross 与 net 走同一条相对路径（`net = k × gross`，k 是此前累计的
+    成本因子），所以 `G/G₀ − 1` 与 `N/N₀ − 1` 在实数里恒等；浮点里差一两个 ulp，
+    旧口径会把整段回测炸掉。下面这组价格是搜出来的**真实**触发例，不是构造的
+    近似 —— 去掉夹取它就报 `daily turnover and costs must be nonnegative`。
+
+    接线 `cta_continuous.backtest` 时碰到的：连续信号策略在闸关着的日子完全不换仓，
+    这种一天零成交的情形远比 Carry 那条线常见。
+    """
+    shanghai = ZoneInfo("Asia/Shanghai")
+    prices = (1002.0, 1000.0, 1004.0, 998.0)
+    account = EventAccount(cost_bps=1.3)
+    account.initialize({"RB2405": prices[0]})
+
+    first = datetime(2024, 3, 5, 9, 15, tzinfo=shanghai)
+    account.rebalance(
+        first, {"RB2405": prices[0]}, {"RB2405": 3.0}, {"RB2405": "entry"}
+    )
+    for offset, price in enumerate(prices[1:], start=1):
+        account.rebalance(
+            first.replace(minute=15 + offset), {"RB2405": price}, {"RB2405": 3.0}, {}
+        )
+    account.mark_close(date(2024, 3, 5), first.replace(hour=15), {"RB2405": prices[-1]})
+    account.drain_daily_row(date(2024, 3, 5), boundary_type="session")
+
+    second = datetime(2024, 3, 6, 9, 15, tzinfo=shanghai)
+    for offset, price in enumerate(prices):
+        account.rebalance(
+            second.replace(minute=15 + offset), {"RB2405": price}, {"RB2405": 3.0}, {}
+        )
+    account.mark_close(date(2024, 3, 6), second.replace(hour=15), {"RB2405": prices[-1]})
+    row = account.drain_daily_row(date(2024, 3, 6), boundary_type="session")
+
+    assert row.turnover == 0.0
+    assert row.cost == 0.0
+    assert row.net_return == pytest.approx(row.gross_return, abs=1e-15)
