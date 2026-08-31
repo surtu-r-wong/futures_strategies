@@ -36,6 +36,7 @@ from common.dominant import DominantChoice  # noqa: E402
 from common.minute.sessions import SessionRule  # noqa: E402
 from common.minute.bars import MultiplierResolution  # noqa: E402
 from scripts.commodity.build_panel import (  # noqa: E402
+    unpriceable_rolls,
     DigestingMinuteSource,
     DigestingMultiplierResolver,
     _build_panel_checkpointed,
@@ -358,6 +359,7 @@ def test_roll_fill_requests_both_raw_contracts_and_records_exact_window():
         source=source,
         pricing_basis_by_exchange={"SHFE": "amount_vwap"},
         multiplier_resolver=lambda candidate, frame: 10,
+        traded_contract_days=_traded("RB2405.SHF", "RB2410.SHF"),
     )
 
     assert len(source.requests) == 1
@@ -382,6 +384,58 @@ def test_roll_fill_requests_both_raw_contracts_and_records_exact_window():
     assert fills.loc[0, "new_pricing_basis"] == "amount_vwap"
 
 
+def _traded(*contracts):
+    """哪些 (换月日, 合约) 当天真的成交过 —— 日线量 > 0。"""
+    return frozenset((ROLL_DATES[1], contract) for contract in contracts)
+
+
+def test_a_roll_whose_leg_did_not_trade_produces_no_fill():
+    """旧腿当天零成交（或已退市连日线行都没有）——没有可执行的转移，就不发单。
+
+    全历史 3,406 次换月里有 96 次是这样，形态两种：链断（AU1912 到期十天后才换到
+    AU2006）与薄成交（WR/B/SF/SM）。连续价仍由日线收盘算出的复权因子缝合。
+    """
+    choices = _roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(ROLL_DATES[1], "RB")]
+    source = _RollSource(context.slots, {"RB2410.SHF": 200.0})
+
+    fills = build_roll_fills(
+        choices=choices,
+        contexts=contexts,
+        source=source,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+        multiplier_resolver=lambda candidate, frame: 10,
+        traded_contract_days=_traded("RB2410.SHF"),
+    )
+
+    assert fills.empty
+    assert source.requests == []
+
+
+def test_the_unpriceable_rolls_are_listed_before_any_minute_query():
+    """闸与构建侧读同一个判据：报出来的那条，正是构建侧会跳过的那条。"""
+    choices = _roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+
+    listed = unpriceable_rolls(
+        choices=choices,
+        contexts=contexts,
+        traded_contract_days=_traded("RB2410.SHF"),
+    )
+
+    assert [
+        (row["trade_date"], row["product"], row["old_contract"], row["new_contract"], row["untraded"])
+        for row in listed
+    ] == [(ROLL_DATES[1], "RB", "RB2405.SHF", "RB2410.SHF", ("RB2405.SHF",))]
+
+
 def test_roll_fill_hard_fails_when_either_raw_leg_is_unavailable():
     choices = _roll_choices()
     contexts = build_contexts(
@@ -398,6 +452,7 @@ def test_roll_fill_hard_fails_when_either_raw_leg_is_unavailable():
             source=source,
             pricing_basis_by_exchange={"SHFE": "amount_vwap"},
             multiplier_resolver=lambda candidate, frame: 10,
+            traded_contract_days=_traded("RB2405.SHF", "RB2410.SHF"),
         )
 
 
@@ -1455,6 +1510,7 @@ def _roll_multiplier_digest(old_multiplier, new_multiplier):
         source=source,
         pricing_basis_by_exchange={"SHFE": "ohlc_typical"},
         multiplier_resolver=resolver,
+        traded_contract_days=_traded("RB2405.SHF", "RB2410.SHF"),
     )
     resolver.assert_complete(bars=pd.DataFrame(), roll_fills=fills)
     return resolver.multiplier_resolutions_sha256
