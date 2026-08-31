@@ -1938,9 +1938,17 @@ def validate_audited_boundaries(
     rules: Sequence[SessionRule],
     *,
     absent_product_days: Sequence[AbsentProductDay] = (),
+    day_only_regimes: Sequence[EffectiveAuthorityRange] = (),
 ) -> None:
-    """Require every empirical boundary to occupy exactly one authoritative slot."""
+    """Require every empirical boundary to occupy exactly one authoritative slot.
+
+    The replay has to read each boundary the way the capture read it -- same
+    exchange-day open, same day-only regimes. Reading it any other way tests a
+    classification nobody published.
+    """
     registered = tuple(absent_product_days)
+    regimes = tuple(day_only_regimes)
+    opens = exchange_day_night_opens(boundaries)
     for row in boundaries.to_dict("records"):
         rule = resolve_session_rule(
             rules,
@@ -1953,7 +1961,14 @@ def validate_audited_boundaries(
             registered, row["exchange"], row["product"], row["trade_date"]
         )
         observation = classify_session_boundary(
-            row, day_session_absent=absent is not None
+            row,
+            day_session_absent=absent is not None,
+            night_session_absent=bool(
+                matching_ranges(
+                    regimes, row["exchange"], row["product"], row["trade_date"]
+                )
+            ),
+            session_start=opens.get((row["exchange"], row["trade_date"])),
         )
         actual_interval = (observation.night_start, observation.night_end)
         if expected_interval != actual_interval:
@@ -2013,6 +2028,7 @@ def publish_session_rules(
             boundaries,
             loaded_rules,
             absent_product_days=authority.absent_product_days,
+            day_only_regimes=authority.day_only_regimes,
         )
         reverse_keys = expand_rule_keys(
             loaded_rules,

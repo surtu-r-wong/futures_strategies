@@ -4296,3 +4296,105 @@ def test_a_night_short_by_more_than_one_slot_still_fails():
 
     with pytest.raises(SessionCaptureError, match="night_last"):
         classify_session_boundary(row)
+
+
+def _shfe_night_row(product, contract, *, traded_first, traded_second, flat):
+    """2014-12-29 的上期所形状：夜盘 21:00-01:00，跨过零点。"""
+    trade_date = date(2014, 12, 29)
+    previous = date(2014, 12, 26)
+    row = _captured_boundary(night_end="01:00")
+    row.update(
+        trade_date=trade_date,
+        previous_trade_date=previous,
+        exchange="SHFE",
+        product=product,
+        daily_contract=contract,
+        day_1_first=_dt(2014, 12, 29, 9, 0),
+        day_1_last=_dt(2014, 12, 29, 10, 14),
+        day_2_first=_dt(2014, 12, 29, 10, 30),
+        day_2_last=_dt(2014, 12, 29, 11, 29),
+        day_3_first=_dt(2014, 12, 29, 13, 30),
+        day_3_last=_dt(2014, 12, 29, 14, 59),
+        night_first=_night_instant(previous, "21:00"),
+        night_last=_night_instant(previous, "01:00") - timedelta(minutes=1),
+        night_traded_first=traded_first,
+        night_traded_second=traded_second,
+        night_traded_first_flat=flat,
+    )
+    return row
+
+
+def _shfe_night_rule(product):
+    return SessionRule(
+        exchange="SHFE",
+        product=product,
+        effective_start=date(2014, 12, 29),
+        effective_end=date(2014, 12, 29),
+        segments=(
+            SessionSegment(-180, 60),
+            *(SessionSegment(*item) for item in DAY_SEGMENTS),
+        ),
+        version=SESSION_RULES_VERSION,
+    )
+
+
+def test_replay_reads_the_exchange_day_open_the_capture_read():
+    """BU 上夜盘的头一晚只成交了一分钟，还落在零点之后（2014-12-27 00:03）。
+
+    复核这一步若不看同交易所当天的开盘，就会把那一分钟当成夜盘起点，然后因为它
+    不在前一交易日而整跑失败 —— 采集的主通道和复核通道读的必须是同一件事。
+    """
+    previous = date(2014, 12, 26)
+    liquid = _shfe_night_row(
+        "RB",
+        "RB1505.SHF",
+        traded_first=_night_instant(previous, "21:00"),
+        traded_second=_night_instant(previous, "21:01"),
+        flat=False,
+    )
+    thin = _shfe_night_row(
+        "BU",
+        "BU1506.SHF",
+        traded_first=_night_instant(previous, "00:03"),
+        traded_second=None,
+        flat=True,
+    )
+
+    capture_module.validate_audited_boundaries(
+        pd.DataFrame([liquid, thin]),
+        (_shfe_night_rule("RB"), _shfe_night_rule("BU")),
+    )
+
+
+def test_replay_keeps_a_day_only_product_day_only_beside_its_exchange():
+    """ZC 2015-05 的形状：夜盘还没上线，归档照样铺 21:00 的空 K 线，而同交易所
+    别的品种当晚 21:00 就开了。复核不能因此把它读成有夜盘。"""
+    previous = date(2014, 12, 26)
+    liquid = _shfe_night_row(
+        "RB",
+        "RB1505.SHF",
+        traded_first=_night_instant(previous, "21:00"),
+        traded_second=_night_instant(previous, "21:01"),
+        flat=False,
+    )
+    not_yet = _shfe_night_row(
+        "BU", "BU1506.SHF", traded_first=None, traded_second=None, flat=None
+    )
+    day_only = EffectiveAuthorityRange(
+        version=SESSION_RULES_VERSION,
+        exchange="SHFE",
+        product="BU",
+        effective_start=date(2013, 10, 9),
+        effective_end=date(2014, 12, 29),
+        reason="night session not launched yet",
+        source_url="https://www.shfe.cn/example",
+    )
+
+    capture_module.validate_audited_boundaries(
+        pd.DataFrame([liquid, not_yet]),
+        (
+            _shfe_night_rule("RB"),
+            SessionRule.day_only("SHFE", "BU", version=SESSION_RULES_VERSION),
+        ),
+        day_only_regimes=(day_only,),
+    )
