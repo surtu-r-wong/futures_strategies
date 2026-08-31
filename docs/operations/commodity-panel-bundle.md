@@ -43,6 +43,15 @@ credential. Never copy it into a linked worktree, commit it, print it, or put
 its contents on the command line. If a linked worktree has no ignored settings,
 pass the absolute path of the existing main-checkout file with `--settings`.
 
+`--session-rules` names the versioned session asset to read. It defaults to
+`config/continuous_minute_sessions.csv`, the continuous-signal asset; the
+commodity replication (Bollinger, Dow) passes
+`config/commodity_minute_sessions.csv`, whose universe is wider but whose
+coverage starts in 2012 rather than 2011. The two are **not** interchangeable —
+each covers only the product-days its own capture audited — and the bundle
+manifest records the file and its SHA-256 so a bundle always names the asset it
+was built from.
+
 The committed session authority currently ends on **2026-01-30**. An explicit
 end later than that fails. The legacy `--end 2026-01` spelling alone clamps to
 2026-01-30 because it denotes the same authority month; an explicit
