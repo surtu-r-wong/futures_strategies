@@ -1171,14 +1171,18 @@ def _roll_candidate(choice, context, *, role: str) -> MinuteCandidate:
             "roll_fill_slots: next session does not contain five authoritative slots; "
             f"{choice.trade_date} {choice.contract!r}"
         )
+    # 成交价只取头五分钟，但**请求整段**：合约乘数在元数据缺档时要靠推断，而推断
+    # 需要至少十根有成交的分钟（`infer_contract_multiplier`）。五分钟最多给五根 ——
+    # 聚丙烯上市第二周的换月就是这样把整跑打断的（PP1405 2014-03-05，
+    # eligible_rows=5 required_rows=10，日线兜底也没兜住）。
     return MinuteCandidate(
         trade_date=choice.trade_date,
         product=product,
         daily_contract=choice.contract,
         minute_symbol=minute_symbol,
         exchange=exchange,
-        window_start=slots[0],
-        window_end=slots[-1] + timedelta(minutes=1),
+        window_start=context.slots[0],
+        window_end=context.slots[-1] + timedelta(minutes=1),
         candidate_role=role,
         causal_in_pool_date=choice.selected_from,
         selection_source="daily_both_max_irreversible_roll",
@@ -1264,11 +1268,21 @@ def build_roll_fills(
                 # 成交窗口零成交 ⇒ 这次转移没人能执行，不发单。**先看证据再定价**：
                 # 一张当天没有任何分钟行的合约，连乘数都解析不出来（乘数校验要读价），
                 # 那时抛出的错与「缺数据」长得一模一样。
+                # 定价只用头五分钟；乘数解析用整段（见 `_roll_candidate`）。
+                window = (
+                    frame
+                    if frame.empty
+                    else frame.loc[
+                        frame["bar_time"].isin(list(context.slots[:FILL_MINUTES]))
+                    ].copy()
+                )
                 traded_volume = (
                     0.0
-                    if frame.empty
+                    if window.empty
                     else float(
-                        pd.to_numeric(frame["volume"], errors="coerce").fillna(0.0).sum()
+                        pd.to_numeric(window["volume"], errors="coerce")
+                        .fillna(0.0)
+                        .sum()
                     )
                 )
                 if traded_volume <= 0.0:
@@ -1283,7 +1297,7 @@ def build_roll_fills(
                 try:
                     multiplier = multiplier_resolver(candidate, frame)
                     fill = five_minute_vwap(
-                        frame,
+                        window,
                         slots=context.slots[:FILL_MINUTES],
                         contract=candidate.minute_symbol,
                         multiplier=multiplier,

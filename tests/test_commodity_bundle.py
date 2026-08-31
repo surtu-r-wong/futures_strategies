@@ -372,8 +372,9 @@ def test_roll_fill_requests_both_raw_contracts_and_records_exact_window():
         "roll_new",
     }
     assert all(candidate.window_start == context.slots[0] for candidate in request)
+    # 请求整段：乘数在元数据缺档时靠推断，而推断要十根有成交的分钟，五分钟给不够。
     assert all(
-        candidate.window_end == context.slots[4] + pd.Timedelta(minutes=1)
+        candidate.window_end == context.slots[-1] + pd.Timedelta(minutes=1)
         for candidate in request
     )
     assert fills.loc[0, "old_price"] == pytest.approx(102.0)
