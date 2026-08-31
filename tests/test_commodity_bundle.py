@@ -2025,9 +2025,18 @@ def test_a_transition_without_a_fill_is_allowed_when_the_bundle_declares_it(
     但缺多少必须由 bundle 自己申报，否则「悄悄少了一笔」和「按规矩跳过」看起来一样。
     """
     frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    roll_day = pd.Timestamp(frames["roll_fills"].loc[0, "trade_date"])
+    product = str(frames["roll_fills"].loc[0, "product"])
     frames["roll_fills"] = frames["roll_fills"].iloc[0:0].reset_index(drop=True)
 
-    write_bundle(tmp_path, **frames, inputs={"unpriceable_rolls": 1})
+    write_bundle(
+        tmp_path,
+        **frames,
+        inputs={
+            "unpriceable_rolls": 1,
+            "unpriceable_roll_keys": [f"{roll_day:%Y-%m-%d}/{product}"],
+        },
+    )
 
     assert read_bundle(tmp_path).roll_fills.empty
 

@@ -322,7 +322,9 @@ def normalise_bundle_table(table: str, frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _validate_bundle_relationships(
-    frames: Mapping[str, pd.DataFrame], *, unpriceable_rolls: int = 0
+    frames: Mapping[str, pd.DataFrame],
+    *,
+    unpriceable_roll_keys: frozenset[str] = frozenset(),
 ) -> None:
     bars = frames["bars"]
     dominants = frames["dominants"]
@@ -422,7 +424,14 @@ def _validate_bundle_relationships(
         key in actual_transitions and actual_transitions[key] != expected_transitions[key]
         for key in unfilled
     )
-    invalid_roll |= len(unfilled) != int(unpriceable_rolls)
+    # 申报的是**键**而不是条数：换月的旧腿可能落在窗口之外（燃料油 2018 重挂，旧主力
+    # 在窗口开始前就退了），那种跳过在 bundle 里根本看不见，数量永远对不上。
+    undeclared = [
+        key
+        for key in unfilled
+        if f"{key[0]:%Y-%m-%d}/{key[1]}" not in unpriceable_roll_keys
+    ]
+    invalid_roll |= bool(undeclared)
     # A fill on the first retained date can refer to a dominant just outside the
     # bundle's date window, so only its new leg can be checked locally.
     first_keys = {
@@ -438,8 +447,8 @@ def _validate_bundle_relationships(
         raise ValueError(
             "bundle_relationship: roll_dominants require every in-range dominant "
             "transition to have the matching old/new raw roll fill; "
-            f"unfilled={len(unfilled)} declared={int(unpriceable_rolls)} "
-            f"first={sorted(unfilled)[:3]}"
+            f"unfilled={len(unfilled)} undeclared={len(undeclared)} "
+            f"declared={len(unpriceable_roll_keys)} first={sorted(undeclared)[:3]}"
         )
 
 
@@ -901,8 +910,8 @@ def _write_bundle_locked(
     }
     _validate_bundle_relationships(
         normalised,
-        unpriceable_rolls=int(
-            (clean_inputs or {}).get("unpriceable_rolls", 0) or 0
+        unpriceable_roll_keys=frozenset(
+            str(key) for key in ((clean_inputs or {}).get("unpriceable_roll_keys") or ())
         ),
     )
 
@@ -1070,8 +1079,9 @@ def read_bundle(directory: str | Path) -> PanelBundle:
     }
     _validate_bundle_relationships(
         frames,
-        unpriceable_rolls=int(
-            (manifest.get("inputs") or {}).get("unpriceable_rolls", 0) or 0
+        unpriceable_roll_keys=frozenset(
+            str(key)
+            for key in ((manifest.get("inputs") or {}).get("unpriceable_roll_keys") or ())
         ),
     )
     return PanelBundle(manifest=manifest, **frames)

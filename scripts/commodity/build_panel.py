@@ -2364,6 +2364,10 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "effective_config_sha256": effective_config_sha256,
             "unpriceable_rolls": len(unpriced_rolls),
+            "unpriceable_roll_keys": [
+                f"{row['trade_date']:%Y-%m-%d}/{row['product']}"
+                for row in unpriced_rolls
+            ],
         },
         provenance={
             **source_revision,
