@@ -911,26 +911,25 @@ def test_contexts_stay_inside_the_month_they_are_asked_for():
     assert sorted(key[0] for key in contexts) == DAYS
 
 
-def test_a_registered_absent_product_day_yields_no_bars_instead_of_failing():
-    """归档确实没有那一天（供应商 2026-08-21 明确无法补），授权资产已登记。
+def test_registered_absent_product_days_never_enter_the_panel():
+    """归档本来就没有的那五个品种日在**上下文**这一层就被剔除。
 
-    面板不该为此中止：那个品种日没有 bar，影子在那天没有观测，就像品种停摆一样。
-    没登记的空帧仍然硬失败 —— 那是"数据丢了"，不是"数据本来就没有"。
+    剔在这里而不是产出 bar 那一层：bundle 的跨表关系要求每个主力品种日都有 bar，
+    "有主力行、没有 bar"会当场违约；剔掉之后它在 bundle 里整个不存在，换月顺延到
+    下一个看得见的交易日按常规定价。
     """
-    missing = DAYS[1]
-    contexts = build_contexts(_choices(), rules=[_day_only_rule()])
+    from scripts.commodity.build_panel import _target_contexts
 
-    panel = build_panel(
-        contexts=contexts,
-        source=_OmittingSource(contexts, [missing]),
-        pricing_basis_by_exchange={},
-        multiplier_resolver=lambda candidate, frame, **_: 10,
-        adjustment_factor_by_key={key: 1.0 for key in contexts},
-        continuity_segment_by_key={key: 0 for key in contexts},
-        absent_product_days=frozenset({("SHFE", "RB", missing)}),
+    rules = [_day_only_rule()]
+    absent = frozenset({("SHFE", "RB", DAYS[1])})
+
+    contexts = _target_contexts(
+        choices=_choices(),
+        rules=rules,
+        start=DAYS[0],
+        end=DAYS[-1],
+        absent_product_days=absent,
     )
 
-    assert missing not in set(pd.to_datetime(panel["trade_date"]).dt.date)
-    assert set(pd.to_datetime(panel["trade_date"]).dt.date) == {
-        day for day in DAYS[1:] if day != missing
-    }
+    assert DAYS[1] not in {key[0] for key in contexts}
+    assert {key[0] for key in contexts} == {day for day in DAYS[1:] if day != DAYS[1]}

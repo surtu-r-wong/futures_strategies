@@ -437,7 +437,9 @@ def _validate_bundle_relationships(
     if invalid_roll:
         raise ValueError(
             "bundle_relationship: roll_dominants require every in-range dominant "
-            "transition to have the matching old/new raw roll fill"
+            "transition to have the matching old/new raw roll fill; "
+            f"unfilled={len(unfilled)} declared={int(unpriceable_rolls)} "
+            f"first={sorted(unfilled)[:3]}"
         )
 
 

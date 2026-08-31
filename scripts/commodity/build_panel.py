@@ -1624,12 +1624,26 @@ def _target_contexts(
     rules,
     start: date,
     end: date,
+    absent_product_days: frozenset[tuple[str, str, date]] = frozenset(),
 ):
+    """面板覆盖哪些品种日 —— 授权登记过的「归档本来就没有这一天」在这里剔除。
+
+    剔在**上下文**这一层而不是产出 bar 那一层：bundle 的跨表关系要求每个主力品种日
+    都有 bar，所以"有主力行、没有 bar"会当场违约。剔掉之后这个品种日在 bundle 里
+    整个不存在，换月则顺延到下一个看得见的交易日按常规定价。
+    """
     contexts = {}
     for month in _months(start, end):
         selected = context_choices_for_month(choices, month_start=month)
         monthly = build_contexts(selected, rules=rules, month=month)
         for key, context in monthly.items():
+            candidate = context.candidate
+            if (
+                candidate.exchange,
+                candidate.product,
+                candidate.trade_date,
+            ) in absent_product_days:
+                continue
             if start <= key[0] <= end and _month_start(key[0]) == month:
                 contexts[key] = context
     return contexts
@@ -1933,7 +1947,6 @@ def _build_panel_checkpointed_locked(
     checkpoint_directory: str | Path,
     checkpoint_key: str,
     checkpoint_state_objects: Mapping[str, object] | None = None,
-    absent_product_days: frozenset[tuple[str, str, date]] = frozenset(),
 ) -> pd.DataFrame:
     """Stage finalized months and resume after the last atomic checkpoint.
 
@@ -1963,7 +1976,6 @@ def _build_panel_checkpointed_locked(
         continuity_segment_by_key=continuity_segment_by_key,
         resume_after=resume_after,
         initial_pending=initial_pending,
-        absent_product_days=absent_product_days,
     ):
         month_label = chunk.month_start.strftime("%Y-%m")
         generation = hashlib.sha256(
@@ -2210,6 +2222,7 @@ def main(argv: list[str] | None = None) -> int:
         rules=rules,
         start=args.start,
         end=args.end,
+        absent_product_days=absent_days,
     )
 
     if not contexts:
@@ -2322,7 +2335,6 @@ def main(argv: list[str] | None = None) -> int:
             "minute": source,
             "multiplier": multiplier_resolver,
         },
-        absent_product_days=absent_days,
     )
     dominants = _dominant_frame(choices, contexts=contexts, factor_by_key=factor_by_key)
     bars = _bundle_bars(raw_bars, contexts=contexts, dominants=dominants)
