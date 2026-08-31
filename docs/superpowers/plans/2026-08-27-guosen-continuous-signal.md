@@ -281,7 +281,7 @@ def equal_capital_weights(
     return _equal_capital_weights(active_families, universe=universe)
 ```
 
-- [ ] 搬完
+- [x] 搬完
 
 **Step 3: 净搬 `choose_dominant`**
 
@@ -290,7 +290,7 @@ def equal_capital_weights(
 **`is_concrete_index_contract` 留在股指侧**——那是 CFFEX 合成码的判据，不是通用规则。
 `index_open_momentum/pg_source.py` 原地再导出。
 
-- [ ] 搬完
+- [x] 搬完
 
 **Step 4: 全量测试 + 逐点不变验证**
 
@@ -709,3 +709,76 @@ def test_cli_exposes_the_two_contradiction_switches():
 2. **研报样本恰好止于策略失效前**。本仓已经撞上两次（[[guosen-carry-paper-direction-is-wrong]]、
    [[index-open-momentum-out-of-sample-fails]]）。所以样本外分段从 Task 7 起就是**强制输出**，
    不是复刻成功之后的可选补充。
+
+---
+
+## 实施记录（2026-08-31）
+
+**Task 6 / 7 / 8 代码全部交付**，全量 **1428 passed**（Task 5 收尾时是 1385）。
+剩下的只有 Task 8 的端到端 12 次 —— 它等重建后的面板。
+
+### 动手前先修掉的两个缺陷
+
+1. **D16 的守卫错位一天**。主力选择滞后一个交易日，「旧主力是否仍可交易」却按
+   **选择日**的合约池判。临期合约在 `selected_from` 那天还挂着、次日退市，于是面板
+   建了上下文却一根 bar 都查不到 —— 全历史六例（AU1912 / AU2012 / AU2206 / LU2209 /
+   FU2309 / FU2509）形态完全一致，每一例的 `selected_from` 恰是该合约在
+   `futures_daily` 上的最后一个交易日。改为同时按 **trade_date 当日**的池判；
+   整个品种当日无行时不判退市（`futures_daily` 有已知的整日空洞）。
+   全历史主力 155,952 → **155,936**（−16；面板宇宙内的那 6 个只是其中一部分）。
+   连续段 64、断代 1 不变。
+
+2. **跨分片的成交价接力断了**。`build_panel` 的 `pending` 是跨月存活的，但
+   `scripts/continuous/build_panel.py` **逐月各调一次**、每次从空字典开始。实测
+   181 个分片里未补上的 `fill_pending` **恰好 6,259 个 = （品种 × 分片）组合数**，
+   无一例外，即每个品种每个月最后一个交易日的收盘那根拿不到成交价（占品种日 4.94%，
+   且系统性地钉在月末）。修法是把下个分片首日的上下文一并交进 `build_panel`，用
+   `resolve_only_keys` 标出「只定价、不发 bar」。2024-02/03 两个月的实数据冒烟：
+   `fill_pending` 57 → **0**，其余列（close / volume / adj_factor / continuity_segment /
+   contract）**逐点相同**，`fill_price` 只新增 57 个、无丢失无变化。
+
+   ⚠️ 这条只有**接线**才看得见：`build_panel` 自己的用例是单次调用跨两个月的，那样
+   接力是通的。
+
+### 三条新的口径裁决（已进保真度台账）
+
+- **D17** `Mul_vol` 读**组合层影子收益**（只加 `Lev_ATR`、不乘 `Mul_vol`）。按字面读
+  第一年 `Lev=0` ⇒ 收益恒 0 ⇒ 标准差 0 ⇒ `final_leverage` 对零波动硬失败，策略永远
+  启动不了。被迫，不是选的。
+- **D18** 展期算换手并在四分解里单列；换月当根的信号缩放一并计入 ROLL（一张合约一根
+  bar 只能挂一个成因，而四类之和必须等于总换手）。
+- **D19** 拿不到成交价就顺延到下一个有价的槽并记账；掉出宇宙是唯一例外（等不到）。
+- **D20** 预热 = `max(ema_long, N + k − 1, atr_n)` 根**已成交** bar，按 `(品种, 连续段)` 各自计。
+
+### 顺手修掉的一个共用层缺陷
+
+`EventAccount.drain_daily_row` 在**零换手的日子**会硬失败：gross 与 net 走同一条相对
+路径，`G/G₀−1` 与 `N/N₀−1` 在实数里恒等、浮点里差一两个 ulp，于是复利化成本是个
+`−1.1e−16`。本策略闸门关着的日子远比 Carry 那条线多，所以这条一定会碰上。已夹取该档
+噪音，真正为负的成本仍然硬失败；回归用例的价格序列是**搜出来的真实触发例**。
+
+### 闸门几何（`docs/research/2026-08-31-continuous-gate-geometry.md`）
+
+`ΔTNR > 0` 要求 TNR 严格上升，而 TNR 上界是 1 ⇒ 光滑趋势上位移恰等于路程、`TNR ≡ 1`、
+`ΔTNR ≡ 0`，噪音闸**严格关闭**（线性 / 二次 / 几何三种趋势实测同为 0.0%，随机游走 49%）。
+「距离扩大」则相反，趋势里几乎免费（99%~100%）—— 与动手前的判断相反。所以信号天然
+断续，§6 风险 ① 的换手是**结构性**的，不是参数没调好。
+
+### 剩余项
+
+- Task 3 的 `- [ ] 全历史面板已生成`：旧面板已建成验收，但带上述缺陷 2；
+  修正后的重建在 WSL2 跑（`output/continuous/panel_84d482d/`，日志
+  `logs/panel_84d482d.log`，可续跑），届时要重跑一次验收对账。
+- Task 8 的 12 次端到端：等重建。
+- Task 0 的 `- [ ] 对照跑已确认可复现范围` / `- [ ] 产物哈希已留存` / `- [ ] 用例通过
+  变异验证` 是更早会话的记账，本次未复核，**不代跑不代勾**。
+- Task 3 的 `- [ ] 小窗口跑通，EXPLAIN 显示 chunk exclusion 生效`：今天的两月冒烟确实
+  跑通了，但没看 `EXPLAIN`，所以不勾。
+
+### ⚠️ WSL2 长跑会被静默收走
+
+宿主没有交互登录时 H9 锚不起，最后一个 `wsl.exe` 退出后 8–15 秒整个 WSL 实例被拆重建
+（`ps -p 1 -o etimes=` 归零、`/proc/uptime` 不变 —— 这对矛盾数字就是判据）。本次重建
+第一轮就是这么死在第 20 个分片的。起长跑前先查
+`(Get-Process wsl | Measure-Object).Count`，为 0 就自己从开发机挂一条
+`ssh -p 2222 ... "wsl -d ubuntu2404 -e sleep 86000"`。
