@@ -321,7 +321,9 @@ def normalise_bundle_table(table: str, frame: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
-def _validate_bundle_relationships(frames: Mapping[str, pd.DataFrame]) -> None:
+def _validate_bundle_relationships(
+    frames: Mapping[str, pd.DataFrame], *, unpriceable_rolls: int = 0
+) -> None:
     bars = frames["bars"]
     dominants = frames["dominants"]
     roll_fills = frames["roll_fills"]
@@ -408,10 +410,19 @@ def _validate_bundle_relationships(frames: Mapping[str, pd.DataFrame]) -> None:
         dominant_by_key.get(key) != transition[1]
         for key, transition in actual_transitions.items()
     )
-    invalid_roll |= any(
-        actual_transitions.get(key) != transition
+    # 成交窗口零成交的换月不发成交单（见 build_panel.build_roll_fills），所以
+    # 「每个换月都有成交单」不再成立。缺的那些必须由 bundle **自己申报**：数量对不上
+    # 就说不清是按规矩跳过的，还是悄悄少了一笔。
+    unfilled = [
+        key
         for key, transition in expected_transitions.items()
+        if actual_transitions.get(key) != transition
+    ]
+    invalid_roll |= any(
+        key in actual_transitions and actual_transitions[key] != expected_transitions[key]
+        for key in unfilled
     )
+    invalid_roll |= len(unfilled) != int(unpriceable_rolls)
     # A fill on the first retained date can refer to a dominant just outside the
     # bundle's date window, so only its new leg can be checked locally.
     first_keys = {
@@ -886,7 +897,12 @@ def _write_bundle_locked(
     normalised = {
         table: normalise_bundle_table(table, frame) for table, frame in frames.items()
     }
-    _validate_bundle_relationships(normalised)
+    _validate_bundle_relationships(
+        normalised,
+        unpriceable_rolls=int(
+            (clean_inputs or {}).get("unpriceable_rolls", 0) or 0
+        ),
+    )
 
     generation_id = uuid.uuid4().hex
     staged = {
@@ -1050,5 +1066,10 @@ def read_bundle(directory: str | Path) -> PanelBundle:
         table: normalise_bundle_table(table, pd.read_parquet(table_path))
         for table, table_path in table_paths.items()
     }
-    _validate_bundle_relationships(frames)
+    _validate_bundle_relationships(
+        frames,
+        unpriceable_rolls=int(
+            (manifest.get("inputs") or {}).get("unpriceable_rolls", 0) or 0
+        ),
+    )
     return PanelBundle(manifest=manifest, **frames)

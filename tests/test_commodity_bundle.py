@@ -1953,3 +1953,27 @@ def test_manifest_rejects_nested_secret_bearing_values_without_echoing_them(
 
     assert secret_value not in str(captured.value)
     assert not (tmp_path / "manifest.json").exists()
+
+
+def test_a_transition_without_a_fill_is_allowed_when_the_bundle_declares_it(
+    tmp_path, bundle_frames
+):
+    """成交窗口零成交的换月不发成交单，所以「每个换月都必须有成交单」不再成立 ——
+    但缺多少必须由 bundle 自己申报，否则「悄悄少了一笔」和「按规矩跳过」看起来一样。
+    """
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    frames["roll_fills"] = frames["roll_fills"].iloc[0:0].reset_index(drop=True)
+
+    write_bundle(tmp_path, **frames, inputs={"unpriceable_rolls": 1})
+
+    assert read_bundle(tmp_path).roll_fills.empty
+
+
+def test_a_transition_without_a_fill_is_refused_when_the_bundle_declares_none(
+    tmp_path, bundle_frames
+):
+    frames = {name: frame.copy() for name, frame in bundle_frames.items()}
+    frames["roll_fills"] = frames["roll_fills"].iloc[0:0].reset_index(drop=True)
+
+    with pytest.raises(ValueError, match="bundle_relationship.*roll_dominants"):
+        write_bundle(tmp_path, **frames)
