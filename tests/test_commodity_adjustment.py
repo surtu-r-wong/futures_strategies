@@ -210,3 +210,57 @@ def test_a_successor_with_no_overlapping_close_is_a_defect_not_a_break():
 
     with pytest.raises(ValueError, match="roll_close_missing"):
         adjustment_factors(choices, closes=closes)
+
+
+def _relisted_chain():
+    """真实的 FU 2018 形状（2026-08-31 从生产数据取回）：
+
+    - 老合约 `FU1804` 2018-03-30 收摊，但**让出主力之后仍在打结算价**——同批老合约
+      一直挂到 2018-06-28，逐日零成交。归档对已挂牌未成交的合约照样写收盘。
+    - 品种整段停摆：2018 年首笔 FU 成交出现在新合约上市当天 2018-07-16。
+    - 于是主力链有个几个月的缺口：老合约最后一次当主力远早于它最后一个收盘。
+    """
+    old_dominant_end = date(2018, 1, 12)
+    choices = [
+        DominantChoice(
+            trade_date=old_dominant_end, product="FU", contract="FU1804.SHF",
+            oi=100, volume=100, selected_from=date(2018, 1, 11),
+        ),
+        DominantChoice(
+            trade_date=date(2018, 7, 17), product="FU", contract="FU1901.SHF",
+            oi=9258, volume=52616, selected_from=date(2018, 7, 16),
+        ),
+    ]
+    closes = {
+        (date(2018, 1, 11), "FU1804.SHF"): 3400.0,
+        (old_dominant_end, "FU1804.SHF"): 3410.0,
+        # 让出主力之后的零成交结算价，一直打到摘牌。
+        (date(2018, 2, 28), "FU1804.SHF"): 3500.0,
+        (date(2018, 3, 30), "FU1804.SHF"): 3520.0,
+        (date(2018, 7, 16), "FU1901.SHF"): 3170.0,
+        (date(2018, 7, 17), "FU1901.SHF"): 3180.0,
+    }
+    return choices, closes
+
+
+def test_a_relisted_product_starts_a_new_segment_even_if_the_old_kept_printing():
+    """归档给已挂牌未成交的合约照打结算价，所以"让出主力后就没有收盘"不成立。"""
+    choices, closes = _relisted_chain()
+
+    factors = adjustment_factors(choices, closes=closes)
+
+    assert list(factors["continuity_segment"]) == [0, 1]
+    assert list(factors["adj_factor"]) == pytest.approx([1.0, 1.0])
+
+
+def test_a_day_to_day_roll_without_a_common_close_is_still_a_defect():
+    """主力链没有缺口 —— 品种一直在交易，那么找不到共同收盘就是缺数据。"""
+    choices, closes = _relisted_chain()
+    # 让新合约紧接着老合约的最后一个主力日接手：链连续，没有停摆。
+    choices[1] = DominantChoice(
+        trade_date=date(2018, 1, 15), product="FU", contract="FU1901.SHF",
+        oi=9258, volume=52616, selected_from=choices[0].trade_date,
+    )
+
+    with pytest.raises(ValueError, match="roll_close_missing"):
+        adjustment_factors(choices, closes=closes)
