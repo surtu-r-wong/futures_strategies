@@ -222,16 +222,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     # ⚠️ 闸在读面板之前。越界报错、不截断（§4 第 1 条）。
+    #
+    # 按**月**比，不按日：资产止于 2026-01-30，而 01-31 是周六、本来就没有交易日。
+    # 拿自然月末去比会把 `--end 2026-01` 也拒掉，白丢一个月的样本外 —— 那不是
+    # 「拒绝越界」，是把闸调过了头。真正要挡的是「要了 2026-06 却拿到 01 月的数据
+    # 还不知道」，所以判据是**请求的末月是否整个落在地平线所在月之后**。
     horizon = session_horizon(args.sessions)
-    window_end = _next_month(args.end) - pd.Timedelta(days=1).to_pytimedelta()
-    if window_end > horizon:
+    horizon_month = date(horizon.year, horizon.month, 1)
+    if args.end > horizon_month:
         print(
             f"session_horizon_exceeded: 时段规则止于 {horizon}，"
-            f"请求的窗口到 {window_end}。延长该资产是交易所公告维护工作，"
+            f"请求的末月是 {args.end:%Y-%m}。延长该资产是交易所公告维护工作，"
             "不在本计划内；这里不做静默截断。",
             file=sys.stderr,
         )
         return 2
+    month_end = _next_month(args.end) - pd.Timedelta(days=1).to_pytimedelta()
+    window_end = min(month_end, horizon)
 
     panel = load_panel(args.panel, start=args.start, end=args.end)
     print(f"面板 {len(panel):,} 行，{panel['product'].nunique()} 个品种", flush=True)

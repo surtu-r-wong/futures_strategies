@@ -103,6 +103,25 @@ def test_cli_refuses_a_window_past_the_session_rule_horizon(tmp_path, capsys):
     assert not list(tmp_path.glob("run*"))
 
 
+def test_the_boundary_month_itself_is_allowed(tmp_path):
+    """资产止于 2026-01-30，`--end 2026-01` 要放行 —— 01-31 是周六，没有交易日。
+
+    按自然月末去比会把这一个月整个拒掉，那不是拒绝越界，是把闸调过了头。窗口记录
+    里写的是**生效**末日（地平线与月末取小），所以也没有任何东西被悄悄截掉。
+    """
+    sessions = _sessions(tmp_path)
+    panel = _panel_dir(tmp_path, months=[date(2026, 1, 1)])
+
+    code = main(
+        _argv(panel, sessions, tmp_path / "edge", start="2026-01", end="2026-01")
+    )
+
+    assert code == 0
+    window = pd.read_json(tmp_path / "edge-window.json", typ="series")
+    assert window["end"] == "2026-01-30"
+    assert window["session_horizon"] == "2026-01-30"
+
+
 def test_the_horizon_comes_from_the_asset_not_a_literal(tmp_path):
     assert session_horizon(_sessions(tmp_path)) == date(2026, 1, 30)
     assert session_horizon(_sessions(tmp_path, end="2025-06-30")) == date(2025, 6, 30)
