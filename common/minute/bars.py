@@ -149,12 +149,18 @@ class MinuteDataError(ValueError):
         super().__init__(message)
 
 
-#: 「证据不足以定出乘数」的三种结局。2025-12-22 之前合约乘数没有任何元数据，只能
+#: 「证据不足以定出乘数」的四种结局。2025-12-22 之前合约乘数没有任何元数据，只能
 #: 从日线周转倒推或从分钟推断，而推断要跨多个交易日取样、对郑商所（合成 amount）
-#: 干脆无效。这三个 check 都表示**证据说不出话**，与"数据结构不对"或"口径错了"
+#: 干脆无效。这四个 check 都表示**证据说不出话**，与"数据结构不对"或"口径错了"
 #: 不同 —— 调用方据此决定兜底（同品种兄弟合约）或不覆盖该品种日，其余一律硬失败。
+#:
+#: `contract_multiplier` 是推断跑完却"没有恰好一个合格乘数"（`infer_contract_multiplier`
+#: 唯一的抛出点）：候选为空或并列，都是证据定不出来，不是与已知乘数矛盾 —— 与已知
+#: 乘数矛盾走 `metadata_multiplier`。红枣 CJ1912 2019-05-06 是前者（上市第 3 天当主力，
+#: 郑商所合成 amount 给不出候选、日线不足 10 天、兄弟合约同日上市所以池化也救不了）。
 UNRESOLVED_MULTIPLIER_CHECKS = frozenset(
     {
+        "contract_multiplier",
         "contract_multiplier_sample",
         "metadata_multiplier",
         "daily_turnover_multiplier",

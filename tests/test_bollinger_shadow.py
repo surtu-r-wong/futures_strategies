@@ -359,11 +359,30 @@ def test_last_pending_fill_cannot_create_an_execution_or_trade() -> None:
     assert result.daily.iloc[-1]["net_return"] == 0.0
 
 
-def test_required_unpriceable_fill_fails() -> None:
+def test_a_signal_whose_fill_window_never_traded_is_cancelled() -> None:
+    """那五分钟根本没人成交 ⇒ 这一笔没有对手盘，信号作废（用户 2026-09-01 裁决）。
+
+    仓位与状态都不动，下一根重新判；这一根标成 `fill_unavailable` 交给报告层计数。
+    原先是直接中止整跑 —— 实测每个探针窗口都有 1–2 个品种撞上（菜籽油 2012-12-26
+    那种死盘日，全天仍成交 196 手，只是开盘那一窗无人），全历史验收因此跑不出来。
+    """
     frame = _long_panel()
     frame.loc[300, ["fill_price", "fill_unpriceable"]] = [np.nan, True]
 
-    with pytest.raises(ValueError, match="required fill"):
+    result = run_shadow_product(frame, product="RB")
+
+    row = result.signals.iloc[300]
+    assert row["action"] == "fill_unavailable"
+    assert bool(row["action_changed"]) is False
+    assert row["state_position"] == result.signals.iloc[299]["state_position"]
+
+
+def test_a_fill_that_is_missing_without_being_declared_is_still_fatal() -> None:
+    """成交价该有却没有、又没标成"没人成交" —— 那是面板自相矛盾，仍然硬失败。"""
+    frame = _long_panel()
+    frame.loc[300, "fill_time"] = pd.NaT
+
+    with pytest.raises(ValueError, match="shadow_fill_time: timestamp is required"):
         run_shadow_product(frame, product="RB")
 
 

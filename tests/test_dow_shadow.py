@@ -318,3 +318,76 @@ def test_a_dow_switch_without_a_fill_closes_on_the_old_contract() -> None:
     assert closed.iloc[0]["exit_contract"] == "RB2405.SHF"
     assert closed.iloc[0]["exit_date"] == first["trade_date"].iloc[-1]
     assert result.signals["roll_new_contract"].isna().all()
+
+
+def test_a_signal_whose_fill_window_never_traded_is_cancelled() -> None:
+    """那五分钟根本没人成交 ⇒ 这一笔没有对手盘，信号作废（用户 2026-09-01 裁决）。
+
+    仓位与状态都不动，下一根重新判；这一根标成 `fill_unavailable` 交给报告层计数。
+    原先是直接中止整跑 —— 菜籽油 2012-12-26 那种死盘日（全天仍成交 196 手，只是
+    开盘那一窗无人）实测每个探针窗口都有 1–2 个品种撞上，全历史验收因此跑不出来。
+    """
+    plain = _run()
+    entries = plain.signals.loc[plain.signals["action"] == "dow_entry"]
+    assert not entries.empty
+    index = int(entries.index[0])
+
+    bars, rolls = _dow_panel()
+    bars.loc[index, ["fill_price", "fill_unpriceable"]] = [np.nan, True]
+    result = run_shadow_product(bars, product="RB", roll_fills=rolls)
+
+    row = result.signals.iloc[index]
+    assert row["action"] == "fill_unavailable"
+    assert bool(row["action_changed"]) is False
+    assert row["state_position"] == result.signals.iloc[index - 1]["state_position"]
+
+
+def test_a_dow_fill_missing_without_being_declared_is_still_fatal() -> None:
+    """成交价该有却没有、又没标成"没人成交" —— 那是面板自相矛盾，仍然硬失败。"""
+    plain = _run()
+    index = int(plain.signals.loc[plain.signals["action"] == "dow_entry"].index[0])
+    bars, rolls = _dow_panel()
+    bars.loc[index, "fill_time"] = pd.NaT
+
+    with pytest.raises(ValueError, match="shadow_fill_time: timestamp is required"):
+        run_shadow_product(bars, product="RB", roll_fills=rolls)
+
+
+def test_a_roll_and_the_pending_fill_it_lands_on_are_one_trade() -> None:
+    """换月与前一日收盘信号的成交撞在同一时刻 —— 它们本就是同一笔。
+
+    真实面板里两者由构造决定都是当日开盘第 5 分钟：换月成交单来自 `roll_fills`，
+    而前一日最后一根的 `fill_price` 由**当日**（也就是换月后的新合约）行情解出 ——
+    实测 RU 三次换月，前一日最后一根的 fill_price 与换月 new_price 逐位相同。
+    分开记两笔既会撞上账本「时间戳严格递增」，又会把新合约的价记到旧合约上。
+    """
+    plain = _run()
+    entries = plain.signals.loc[plain.signals["action"] == "dow_entry"].index
+    index = int(entries[entries > 250][0])
+
+    bars, rolls = _dow_panel(roll_at=index + 1)
+    roll = rolls.iloc[0]
+    bars.loc[index, "fill_time"] = roll["fill_time"]
+    bars.loc[index, "fill_price"] = float(roll["new_price"])
+
+    result = run_shadow_product(bars, product="RB", roll_fills=rolls)
+
+    opened = result.trades.loc[result.trades["entry_time"] == roll["fill_time"]]
+    assert len(opened) == 1
+    assert opened.iloc[0]["entry_contract"] == "RB2410.SHF"
+    assert opened.iloc[0]["entry_price"] == pytest.approx(float(roll["new_price"]))
+
+
+def test_a_pending_fill_that_disagrees_with_the_roll_price_is_fatal() -> None:
+    """同一时刻、同一张合约、同一段窗口，两个价对不上 ⇒ 面板自相矛盾，不许合并。"""
+    plain = _run()
+    entries = plain.signals.loc[plain.signals["action"] == "dow_entry"].index
+    index = int(entries[entries > 250][0])
+
+    bars, rolls = _dow_panel(roll_at=index + 1)
+    roll = rolls.iloc[0]
+    bars.loc[index, "fill_time"] = roll["fill_time"]
+    bars.loc[index, "fill_price"] = float(roll["new_price"]) * 1.05
+
+    with pytest.raises(ValueError, match="roll_fill_price"):
+        run_shadow_product(bars, product="RB", roll_fills=rolls)

@@ -506,20 +506,89 @@ class ShadowLedger:
         old_price: float,
         new_price: float,
     ) -> Any:
-        """Move the position to the new contract, pricing both legs at once."""
-        self.drain_until(pd.Timestamp(fill_time))
-        event = None
-        if self.current_target != 0.0:
-            event = self.account.rebalance(
-                fill_time,
-                {old_contract: old_price, new_contract: new_price},
-                {new_contract: self.current_target},
-                {old_contract: "roll_old", new_contract: "roll_new"},
+        """Move the position to the new contract, pricing both legs at once.
+
+        换月与「前一日收盘信号在今日开盘的成交」由构造决定落在**同一时刻**（当日
+        开盘第 5 分钟），而面板给那笔挂单的成交价正是**新合约**那五分钟的 VWAP ——
+        实测 RU 三次换月，前一日最后一根的 `fill_price` 与换月 `new_price` 逐位相同。
+        所以它们本就是同一笔：合并成一次调仓，旧腿按 `old_price` 平、新腿按
+        `new_price` 建目标。分开记两笔会撞上账本「时间戳严格递增」，而且会把新合约
+        的价记到旧合约名下。
+        """
+        stamp = pd.Timestamp(fill_time)
+        while self._pending and self._pending[0][0] < stamp:
+            _, _, earlier = heapq.heappop(self._pending)
+            self._execute(earlier)
+        payload = None
+        if self._pending and self._pending[0][0] == stamp:
+            _, _, payload = heapq.heappop(self._pending)
+        if payload is None:
+            event = None
+            if self.current_target != 0.0:
+                event = self.account.rebalance(
+                    fill_time,
+                    {old_contract: old_price, new_contract: new_price},
+                    {new_contract: self.current_target},
+                    {old_contract: "roll_old", new_contract: "roll_new"},
+                )
+                if self._open_trade is not None:
+                    self._open_trade["roll_count"] = (
+                        int(self._open_trade["roll_count"]) + 1
+                    )
+            self.current_contract = new_contract
+            self.note_price(new_contract, fill_time, new_price)
+            return event
+
+        contract = str(payload["contract"])
+        if contract != self.current_contract:
+            raise self._fail("fill_contract: pending fill must match active contract")
+        if not math.isclose(
+            float(payload["fill_price"]), float(new_price), rel_tol=1e-9
+        ):
+            raise self._fail(
+                "roll_fill_price: the pending fill and the roll price the same "
+                f"window; pending={payload['fill_price']!r} roll={new_price!r}"
             )
-            if self._open_trade is not None:
-                self._open_trade["roll_count"] = int(self._open_trade["roll_count"]) + 1
+        next_target = float(payload["next_target"])
+        reason = str(payload["reason"])
+        equity_before = self.account.equity
+        gross_before = self.account.gross_equity
+        execution_start = len(self.account.executions)
+        event = self.account.rebalance(
+            stamp,
+            {old_contract: old_price, new_contract: new_price},
+            {new_contract: next_target} if next_target else {},
+            {old_contract: "roll_old", new_contract: reason},
+        )
+        on_execute = payload.get("on_execute")
+        if on_execute is not None:
+            on_execute()
         self.current_contract = new_contract
-        self.note_price(new_contract, fill_time, new_price)
+        self.current_target = next_target
+        self.note_price(new_contract, stamp, new_price)
+        was_open = self._open_trade is not None
+        if was_open:
+            self._close_trade(
+                fill_time=stamp,
+                contract=old_contract,
+                fill_price=float(old_price),
+                reason=reason,
+                fields=payload.get("exit_fields") or {},
+            )
+        if next_target:
+            self._open_new_trade(
+                fill_time=stamp,
+                contract=new_contract,
+                fill_price=float(new_price),
+                direction=int(payload["direction"]),
+                next_target=next_target,
+                equity_before=equity_before if not was_open else self.account.equity,
+                gross_before=(
+                    gross_before if not was_open else self.account.gross_equity
+                ),
+                execution_start=execution_start,
+                fields=payload.get("entry_fields") or {},
+            )
         return event
 
     def close_day(self, trade_day: date, last_slot_end: object | None) -> None:

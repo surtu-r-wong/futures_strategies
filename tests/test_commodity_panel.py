@@ -1124,3 +1124,22 @@ def test_target_contexts_reports_every_product_day_the_panel_does_not_cover():
     assert contexts == {}
     assert untraded == ((DAYS[-1], "RB", "RB2405.SHF"),)
     assert uncovered == frozenset({(DAYS[1], "RB"), (DAYS[-1], "RB")})
+
+
+def test_an_inference_that_singles_out_no_multiplier_is_not_covered_either():
+    """推断跑完却一个合格乘数都没有 —— 与"取样不够"同族：证据定不出乘数。
+
+    红枣 CJ1912 2019-05-06：CJ 2019-04-30 才上市，第 3 个交易日就当主力；郑商所的
+    分钟 `amount` 是按单一整数价合成的（推断永远给不出候选），日线又不足 10 天、
+    同品种兄弟合约同日上市所以池化也救不了。这就是口径 C 说的"解不出来"。
+    """
+    _contexts, chunks = _uncovered_chunks(
+        _resolver_failing_on(DAYS[1], check="contract_multiplier"),
+        drop_unformable_days=True,
+    )
+
+    assert [
+        (row.trade_date, row.product, row.reason)
+        for chunk in chunks
+        for row in chunk.uncovered
+    ] == [(DAYS[1], "RB", "contract_multiplier")]

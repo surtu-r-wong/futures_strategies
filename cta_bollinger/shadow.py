@@ -448,8 +448,15 @@ def run_shadow_product(
                 if desired.changed:
                     if bool(row["fill_pending"]) and frame_index == traded_positions[-1]:
                         output["action"] = "fill_pending"
+                    elif bool(row["fill_unpriceable"]):
+                        # 那五分钟根本没人成交 ⇒ 这一笔没有对手盘，信号作废（用户
+                        # 2026-09-01 裁决）。仓位与状态都不动，下一根重新判；这一根
+                        # 标成 `fill_unavailable` 供报告层计数。菜籽油 2012-12-26 那种
+                        # 日子全天仍成交 196 手，只是开盘那一窗无人 —— 剔品种、剔
+                        # 品种日都盖不住它。
+                        output["action"] = "fill_unavailable"
                     else:
-                        if bool(row["fill_pending"]) or bool(row["fill_unpriceable"]):
+                        if bool(row["fill_pending"]):
                             raise ValueError(
                                 "bollinger_shadow_required fill is unavailable"
                             )

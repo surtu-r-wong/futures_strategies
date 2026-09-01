@@ -480,7 +480,15 @@ def run_shadow_product(
                 output["action"] = "fill_pending"
                 carry(output)
                 continue
-            if bool(row["fill_pending"]) or bool(row["fill_unpriceable"]):
+            if bool(row["fill_unpriceable"]):
+                # 那五分钟根本没人成交 ⇒ 这一笔没有对手盘，信号作废（用户 2026-09-01
+                # 裁决）。仓位与状态都不动，下一根重新判；这一根标成 `fill_unavailable`
+                # 交给报告层计数。菜籽油 2012-12-26 那种日子全天仍成交 196 手，只是
+                # 开盘那一窗无人 —— 剔品种、剔品种日都盖不住它。
+                output["action"] = "fill_unavailable"
+                carry(output)
+                continue
+            if bool(row["fill_pending"]):
                 raise ValueError("dow_shadow_required fill is unavailable")
             if pd.isna(row["fill_time"]) or pd.isna(row["fill_price"]):
                 raise ValueError("dow_shadow_required fill is missing")
