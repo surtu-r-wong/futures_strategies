@@ -543,15 +543,28 @@ def _validate_loaded_history_starts(
             )
 
 
-def _build_default_liquidity_audit(
+def build_audit(
     prices: pd.DataFrame,
     *,
-    history_starts: pd.DataFrame,
-    history_exceptions: Iterable[EffectiveAuthorityRange],
+    resolve_pool,
     start: date,
     end: date,
-    config: CarryConfig,
+    config: CarryConfig | None = None,
 ) -> DefaultLiquidityAudit:
+    """Build the capture envelope from an externally decided pool.
+
+    The pool is the only thing that differs between consumers. Carry ranks on
+    its own liquidity rule; the continuous strategy uses the report's turnover
+    universe. Everything else here -- representative contracts, the global
+    calendar, the audit key sets, the candidates -- is the same work either way.
+
+    ``resolve_pool`` is a callable, not a plain set, so the representative index
+    is built exactly once: deriving it walks every daily row through
+    ``minute_contract_identity``, and Carry's pool rule needs to read it.
+
+    It is called as ``resolve_pool(representative_index=..., normalized_keys=...,
+    global_calendar=...)`` and returns ``(in_pool_source_keys, history_status_by_key)``.
+    """
     _require_capture_dates(start, end)
     representative_index = _build_representative_index(prices)
     global_calendar = _ordered_calendar(prices["trade_date"].drop_duplicates().tolist())
@@ -561,54 +574,12 @@ def _build_default_liquidity_audit(
     if not normalized_keys:
         raise SessionCaptureError("requested range contains no normalized product-days")
 
-    liquidity = aggregate_product_liquidity(prices, config)
-    liquidity_by_product_date = {
-        (row.product, row.trade_date): row for row in liquidity.itertuples(index=False)
-    }
-    in_pool_source_keys = frozenset(
-        key
-        for key in representative_index
-        if bool(liquidity_by_product_date[(key[1], key[2])].in_pool)
+    in_pool_source_keys, history_status_by_key = resolve_pool(
+        representative_index=representative_index,
+        normalized_keys=normalized_keys,
+        global_calendar=global_calendar,
     )
-
-    daily_load_start = start - timedelta(days=config.prewarm_calendar_days)
-    first_by_product = _history_start_by_product(history_starts)
-    _validate_loaded_history_starts(
-        representative_index,
-        first_by_product,
-    )
-    exception_rows = tuple(history_exceptions)
-    first_target_by_identity: dict[tuple[str, str], date] = {}
-    for exchange, product, trade_date in sorted(
-        normalized_keys, key=lambda item: (item[0], item[1], item[2])
-    ):
-        first_target_by_identity.setdefault((exchange, product), trade_date)
-
-    history_status_by_key: dict[AuditKey, str] = {}
-    for (exchange, product), first_target in first_target_by_identity.items():
-        key = (exchange, product, first_target)
-        first_history = first_by_product[product]
-        liquidity_row = liquidity_by_product_date[(product, first_target)]
-        if _finite_liquidity(liquidity_row.liquidity_mean):
-            status = "finite"
-        elif first_history >= daily_load_start:
-            status = "insufficient_since_inception"
-        else:
-            if matching_ranges(exception_rows, exchange, product, first_target):
-                status = "authorized_history_gap"
-            else:
-                raise SessionCaptureError(
-                    "liquidity_history_incomplete: "
-                    f"exchange={exchange} product={product} "
-                    f"trade_date={first_target} "
-                    f"daily_load_start={daily_load_start} "
-                    f"first_trade_date={first_history}"
-                )
-        history_status_by_key[key] = status
-        if status != "finite" and key in in_pool_source_keys:
-            raise SessionCaptureError(
-                f"{status} product-day must remain out of pool: {key!r}"
-            )
+    in_pool_source_keys = frozenset(in_pool_source_keys)
 
     key_sets = build_audit_key_sets(
         normalized_keys=normalized_keys,
@@ -624,12 +595,102 @@ def _build_default_liquidity_audit(
         global_calendar=global_calendar,
     )
     return DefaultLiquidityAudit(
-        config=config,
+        config=CarryConfig() if config is None else config,
         global_calendar=global_calendar,
         key_sets=key_sets,
         in_pool_source_keys=in_pool_source_keys,
         history_status_by_key=history_status_by_key,
         candidates=candidates,
+    )
+
+
+def _carry_liquidity_pool(
+    prices: pd.DataFrame,
+    *,
+    history_starts: pd.DataFrame,
+    history_exceptions: Iterable[EffectiveAuthorityRange],
+    start: date,
+    config: CarryConfig,
+):
+    """Carry's own pool rule and history gate, unchanged, as a ``resolve_pool``."""
+
+    def resolve(*, representative_index, normalized_keys, global_calendar):
+        liquidity = aggregate_product_liquidity(prices, config)
+        liquidity_by_product_date = {
+            (row.product, row.trade_date): row
+            for row in liquidity.itertuples(index=False)
+        }
+        in_pool_source_keys = frozenset(
+            key
+            for key in representative_index
+            if bool(liquidity_by_product_date[(key[1], key[2])].in_pool)
+        )
+
+        daily_load_start = start - timedelta(days=config.prewarm_calendar_days)
+        first_by_product = _history_start_by_product(history_starts)
+        _validate_loaded_history_starts(
+            representative_index,
+            first_by_product,
+        )
+        exception_rows = tuple(history_exceptions)
+        first_target_by_identity: dict[tuple[str, str], date] = {}
+        for exchange, product, trade_date in sorted(
+            normalized_keys, key=lambda item: (item[0], item[1], item[2])
+        ):
+            first_target_by_identity.setdefault((exchange, product), trade_date)
+
+        history_status_by_key: dict[AuditKey, str] = {}
+        for (exchange, product), first_target in first_target_by_identity.items():
+            key = (exchange, product, first_target)
+            first_history = first_by_product[product]
+            liquidity_row = liquidity_by_product_date[(product, first_target)]
+            if _finite_liquidity(liquidity_row.liquidity_mean):
+                status = "finite"
+            elif first_history >= daily_load_start:
+                status = "insufficient_since_inception"
+            else:
+                if matching_ranges(exception_rows, exchange, product, first_target):
+                    status = "authorized_history_gap"
+                else:
+                    raise SessionCaptureError(
+                        "liquidity_history_incomplete: "
+                        f"exchange={exchange} product={product} "
+                        f"trade_date={first_target} "
+                        f"daily_load_start={daily_load_start} "
+                        f"first_trade_date={first_history}"
+                    )
+            history_status_by_key[key] = status
+            if status != "finite" and key in in_pool_source_keys:
+                raise SessionCaptureError(
+                    f"{status} product-day must remain out of pool: {key!r}"
+                )
+
+        return in_pool_source_keys, history_status_by_key
+
+    return resolve
+
+
+def _build_default_liquidity_audit(
+    prices: pd.DataFrame,
+    *,
+    history_starts: pd.DataFrame,
+    history_exceptions: Iterable[EffectiveAuthorityRange],
+    start: date,
+    end: date,
+    config: CarryConfig,
+) -> DefaultLiquidityAudit:
+    return build_audit(
+        prices,
+        resolve_pool=_carry_liquidity_pool(
+            prices,
+            history_starts=history_starts,
+            history_exceptions=history_exceptions,
+            start=start,
+            config=config,
+        ),
+        start=start,
+        end=end,
+        config=config,
     )
 
 
@@ -921,13 +982,35 @@ def classify_session_boundary(
     return NightObservation(labels[0], labels[1], note)
 
 
+def _audited_exception_scope(audit_keys):
+    """Index the audit keys once: exact product-days, and exchange-days."""
+    if audit_keys is None:
+        return None
+    keys = frozenset(audit_keys)
+    return keys, frozenset((key[0], key[2]) for key in keys)
+
+
 def classify_authorized_boundaries(
     boundaries: pd.DataFrame,
     authority: SessionAuthority,
     *,
     global_calendar: Sequence[date],
+    audit_keys=None,
 ) -> tuple[pd.DataFrame, tuple[AmbiguityRecord, ...], tuple[str, ...]]:
-    """Classify every boundary and reconcile each result with authority."""
+    """Classify every boundary and reconcile each result with authority.
+
+    ``audit_keys`` declares which product-days this capture audits. Given it, an
+    authority exception nobody consumed is forgiven **only** when its product-day
+    lies outside that scope, and the skip is recorded in the notes. Left as
+    ``None`` every unconsumed exception is an ambiguity, as before.
+
+    The distinction matters because the exceptions are shared across consumers
+    whose universes differ. 2019-12-26 delayed the night open market-wide and
+    SHFE wrote one exception per product; the continuous strategy has no dominant
+    gold contract that day, so it never audits AU and can never consume AU\'s row
+    -- while the row is entirely correct for Carry. An exception inside the
+    audited scope that still went unconsumed is a real anomaly and stays fatal.
+    """
     identity_columns = {"exchange", "product", "trade_date"}
     missing = sorted(identity_columns.difference(boundaries.columns))
     if missing:
@@ -1015,9 +1098,24 @@ def classify_authorized_boundaries(
             if row.trade_date in loaded_dates
         }
     )
+    audited_scope = _audited_exception_scope(audit_keys)
     for exchange, product, trade_date in relevant_keys:
         if (exchange, product, trade_date) in consumed_exception_keys:
             continue
+        if audited_scope is not None:
+            exact, exchange_days = audited_scope
+            audited = (
+                (exchange, product, trade_date) in exact
+                if product
+                else (exchange, trade_date) in exchange_days
+            )
+            if not audited:
+                notes.append(
+                    "session_exception_unaudited "
+                    f"exchange={exchange} product={product or '*'} "
+                    f"trade_date={trade_date.isoformat()}"
+                )
+                continue
         ambiguous.append(
             AmbiguityRecord(
                 trade_date=trade_date,
@@ -1539,10 +1637,23 @@ def validate_capture_request(
     backtest_start: date,
     output: Path,
     prewarm_calendar_days: int,
+    coverage_check=None,
 ) -> date:
-    """Enforce prewarm coverage and the repository asset's fixed start."""
+    """Enforce the consumer's coverage rule and the repository asset's fixed start.
+
+    Two separate concerns live here. The repository guard protects
+    ``carry_minute_sessions.csv`` from a partial capture and always applies.
+
+    The coverage rule belongs to whoever will read the asset, and they do not
+    agree. Carry warms a minute state machine, so its asset must begin 730 days
+    before it starts trading -- that is ``validate_capture_coverage``, the
+    default. The continuous panel has no such warmup: it builds bars month by
+    month from the asset's first day, and so can never satisfy Carry's rule.
+    It passes its own instead.
+    """
     _require_capture_dates(start, start)
-    required_start = validate_capture_coverage(
+    check = validate_capture_coverage if coverage_check is None else coverage_check
+    required_start = check(
         capture_start=start,
         backtest_start=backtest_start,
         prewarm_calendar_days=prewarm_calendar_days,
@@ -1864,8 +1975,18 @@ def _capture_and_publish_outcome(
     audit_report: Path,
     settings: Path | None,
     use_test: bool,
+    audit_builder=None,
+    coverage_check=None,
+    boundaries=None,
+    forgive_unaudited_exceptions: bool = False,
 ) -> _CaptureOutcome:
-    """Capture, authority-check, and atomically publish session rules."""
+    """Capture, authority-check, and atomically publish session rules.
+
+    ``audit_builder`` decides which product-days the capture audits. It is
+    called exactly as ``_build_default_liquidity_audit`` is, and defaults to it,
+    so the Carry path is unchanged. The continuous strategy injects its own so
+    the same publish path can serve a different universe.
+    """
     validate_capture_output_paths(
         output=output,
         inventory_output=inventory_output,
@@ -1878,6 +1999,7 @@ def _capture_and_publish_outcome(
         backtest_start=backtest_start,
         output=output,
         prewarm_calendar_days=config.prewarm_calendar_days,
+        coverage_check=coverage_check,
     )
     authority_paths = {
         "session_exception": SESSION_EXCEPTIONS_PATH,
@@ -1920,7 +2042,10 @@ def _capture_and_publish_outcome(
         config_path=settings,
         use_test=use_test,
     )
-    audit = _build_default_liquidity_audit(
+    build = (
+        _build_default_liquidity_audit if audit_builder is None else audit_builder
+    )
+    audit = build(
         data.prices,
         history_starts=history_starts,
         history_exceptions=authority.liquidity_history_exceptions,
@@ -1984,9 +2109,13 @@ def _capture_and_publish_outcome(
         (row.trade_date, row.exchange, row.product)
         for row in authority.absent_product_days
     )
-    boundaries = capture_session_boundaries(
-        source, audit.candidates, absent_identities=absent_identities
-    )
+    # Observing the minute table is the expensive step and the survey has
+    # already done it. Reuse that frame when it is handed over; capture fresh
+    # otherwise, which is what every existing caller does.
+    if boundaries is None:
+        boundaries = capture_session_boundaries(
+            source, audit.candidates, absent_identities=absent_identities
+        )
     absent_lines = authorized_absent_day_session_lines(
         authority.absent_product_days, consumed_absent_day_sessions(boundaries)
     )
@@ -1999,9 +2128,20 @@ def _capture_and_publish_outcome(
         raise SessionCaptureError(
             "checked_days_mismatch: boundary and yearly audited totals differ"
         )
-    classified, ambiguities, attribution_notes = classify_authorized_boundaries(
-        boundaries, authority, global_calendar=audit.global_calendar
-    )
+    # Bound once: the sibling second look below reclassifies, and two argument
+    # lists would drift. They did -- the audit scope was passed here and not
+    # there, so a run with siblings silently lost the forgiveness.
+    def _classify(frame):
+        return classify_authorized_boundaries(
+            frame,
+            authority,
+            global_calendar=audit.global_calendar,
+            audit_keys=(
+                audit.key_sets.audit_keys if forgive_unaudited_exceptions else None
+            ),
+        )
+
+    classified, ambiguities, attribution_notes = _classify(boundaries)
     # Second look: a session is a fact about the product, so a product-day the
     # first pass could not settle gets to hear from the product's other
     # contracts before it is called ambiguous. Only unsettled rows are touched,
@@ -2039,13 +2179,7 @@ def _capture_and_publish_outcome(
                 for line in widened_lines:
                     print(line)
                 log_lines = (*log_lines, *widened_lines)
-                classified, ambiguities, attribution_notes = (
-                    classify_authorized_boundaries(
-                        boundaries,
-                        authority,
-                        global_calendar=audit.global_calendar,
-                    )
-                )
+                classified, ambiguities, attribution_notes = _classify(boundaries)
     log_lines = (*log_lines, *attribution_notes)
     if ambiguities:
         for item in ambiguities:
@@ -2128,6 +2262,9 @@ def capture_and_publish(
     audit_report: Path,
     settings: Path | None,
     use_test: bool,
+    audit_builder=None,
+    coverage_check=None,
+    boundaries=None,
 ) -> tuple[int, int, int, int]:
     """Capture and publish while retaining the established four-count API."""
     return _capture_and_publish_outcome(
@@ -2139,6 +2276,9 @@ def capture_and_publish(
         audit_report=audit_report,
         settings=settings,
         use_test=use_test,
+        audit_builder=audit_builder,
+        coverage_check=coverage_check,
+        boundaries=boundaries,
     ).counts
 
 

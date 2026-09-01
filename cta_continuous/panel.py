@@ -1,0 +1,603 @@
+"""15 分钟面板与成交价缓存 —— 计划 Task 3。
+
+面板每行 = 一个 `(product, slot_end)`：15 分钟 K 线，外加**下** 5 分钟的 VWAP 成交价。
+把成交价一起缓存下来，是为了让后面 12 次网格回测不再过网 —— 本机到库是 DERP 中继，
+抖动 0.4–1.7 s 会半开断连，重复拉 7,600 万行分钟数据是这条线最容易失败的地方。
+
+## 成交价为什么必须是「下 5 分钟」
+
+研报 §5.1：成交价 = 信号触发后 5 分钟 VWAP。信号在某根 15 分钟 bar 收盘时产生，
+所以成交窗是**那根 bar 之后**的 5 个分钟槽。用当根 bar 自己的价格就是前视。
+
+「之后 5 个分钟槽」按**槽序**取，不按墙钟：上午第一段 10:15 收盘后的 5 个槽是
+10:30–10:34，中间那 15 分钟休市本来就不存在成交。只有整个交易时段的最后一根桶
+没有后续槽 —— 那一根挂起（`fill_pending`），由下一时段的前 5 分钟补上（计划 D14）。
+
+## 郑商所
+
+`amount` 是按单一整数价合成的，算不出成交价，必须走 `ohlc_typical` 计价基准
+（`config/carry_minute_pricing_basis.csv`）。基准会随每一笔成交一起记进面板 ——
+按 OHLC 定的价**不是** VWAP，不能被下游当成 VWAP 读。
+"""
+
+from __future__ import annotations
+
+import csv
+from collections import Counter
+from collections.abc import Collection, Mapping, Sequence
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+import pandas as pd
+
+from common.minute.bars import (
+    MinuteDataError,
+    aggregate_fifteen_minute_bar,
+    five_minute_vwap,
+)
+
+__all__ = [
+    "FILL_MINUTES",
+    "PANEL_COLUMNS",
+    "build_session_bars",
+    "context_choices_for_month",
+    "resolve_pending_fill",
+    "slot_frame",
+]
+
+#: 研报 §5.1：信号触发后 5 分钟 VWAP。
+FILL_MINUTES = 5
+
+PANEL_COLUMNS = (
+    "product",
+    "contract",
+    "trade_date",
+    "slot_end",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "no_trade",
+    "adj_factor",
+    "continuity_segment",
+    "fill_price",
+    "fill_pending",
+    "fill_unpriceable",
+    "pricing_basis",
+    "multiplier",
+)
+
+
+def slot_frame(frame: pd.DataFrame, slots: Sequence[datetime]) -> pd.DataFrame:
+    """只留下落在 `slots` 里的分钟行。
+
+    共享分钟层要求传进去的 frame **只**含所给槽位的行 —— 多一行就报
+    `rows_outside_slots`。这条约束是有意的：它让「这根 bar 是由哪些分钟聚出来的」
+    无从含糊。所以每个桶、每个成交窗都得自己切一次。
+    """
+    return frame.loc[frame["bar_time"].isin(tuple(slots))].copy().reset_index(drop=True)
+
+
+def build_session_bars(
+    frame: pd.DataFrame,
+    *,
+    slots: Sequence[datetime],
+    buckets: Sequence[Sequence[datetime]],
+    contract: str,
+    multiplier: int,
+    pricing_basis: str = "amount_vwap",
+    product: str | None = None,
+    trade_date: date | None = None,
+    adj_factor: float = 1.0,
+    continuity_segment: int = 0,
+) -> list[dict[str, object]]:
+    """把一个品种-日的分钟行折成 15 分钟 bar，并给每根配好它的成交价。
+
+    返回的是 `dict` 列表而不是 DataFrame：调用方要把很多天拼在一起，逐日建 frame
+    再 concat 比一次性建一张贵得多。
+    """
+    if len(buckets) * 15 != len(slots):
+        raise ValueError(
+            f"panel_bucket_cover: {len(buckets)} 个桶盖不住 {len(slots)} 个分钟槽"
+        )
+
+    rows: list[dict[str, object]] = []
+    for index, bucket in enumerate(buckets):
+        bar = aggregate_fifteen_minute_bar(
+            slot_frame(frame, bucket), slots=bucket, contract=contract
+        )
+        window = slots[(index + 1) * 15 : (index + 1) * 15 + FILL_MINUTES]
+        pending = len(window) < FILL_MINUTES
+        price: float | None = None
+        unpriceable = False
+        if not pending:
+            try:
+                price = five_minute_vwap(
+                    slot_frame(frame, window),
+                    slots=window,
+                    contract=contract,
+                    multiplier=multiplier,
+                    pricing_basis=pricing_basis,
+                ).price
+            except MinuteDataError:
+                # 成交窗零成交（或价格与区间对不上）。研报没写这种情形；这里记下
+                # 来交给回测层裁定，而不是就地换一个价 —— 换价等于凭空造成交。
+                unpriceable = True
+        rows.append(
+            {
+                "product": product,
+                "contract": contract,
+                "trade_date": trade_date,
+                "slot_end": bar.end,
+                "open": bar.open,
+                "high": bar.high,
+                "low": bar.low,
+                "close": bar.close,
+                "volume": bar.volume,
+                "no_trade": bar.no_trade,
+                "adj_factor": adj_factor,
+                "continuity_segment": continuity_segment,
+                "fill_price": price,
+                "fill_pending": pending,
+                "fill_unpriceable": unpriceable,
+                "pricing_basis": pricing_basis,
+                "multiplier": multiplier,
+            }
+        )
+    return rows
+
+
+def resolve_pending_fill(
+    frame: pd.DataFrame,
+    *,
+    slots: Sequence[datetime],
+    contract: str,
+    multiplier: int,
+    pricing_basis: str = "amount_vwap",
+) -> float | None:
+    """下一时段**前** 5 分钟的成交价，用来补上挂起的那一根（计划 D14）。
+
+    下一时段本身零成交时返回 ``None`` —— 那一笔发不出去，由回测层记账。
+    """
+    window = slots[:FILL_MINUTES]
+    if len(window) < FILL_MINUTES:
+        return None
+    try:
+        return five_minute_vwap(
+            slot_frame(frame, window),
+            slots=window,
+            contract=contract,
+            multiplier=multiplier,
+            pricing_basis=pricing_basis,
+        ).price
+    except MinuteDataError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# 逐月编排
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass  # noqa: E402
+
+from common.minute.pg_source import MinuteCandidate, minute_contract_identity  # noqa: E402
+from common.minute.sessions import (  # noqa: E402
+    SessionClockError,
+    SessionRule,
+    build_trading_slots,
+    fifteen_minute_buckets,
+    matching_session_rules,
+    resolve_session_rule,
+)
+
+
+@dataclass(frozen=True)
+class SessionContext:
+    """一个品种-日：要查哪张合约的哪段时间，以及它的分钟槽与 15 分钟桶。"""
+
+    candidate: MinuteCandidate
+    rule: SessionRule
+    slots: tuple[datetime, ...]
+    buckets: tuple[tuple[datetime, ...], ...]
+
+
+def context_choices_for_month(
+    choices: Sequence[object], *, month_start: date
+) -> tuple[object, ...]:
+    """只保留目标月选择，并按交易日、品种确定性排序。
+
+    主力选择可以用更长历史预热不可逆展期链；时段上下文却只应解析目标月。
+    生产 ``DominantChoice`` 已用 ``selected_from`` 携带每个选择的因果前态，因此无需
+    再把上月选择送进 ``build_contexts``；这样也不会要求策略不交易的旧品种日具备
+    时段规则。
+    """
+    if type(month_start) is not date or month_start.day != 1:
+        raise ValueError(
+            "panel_month: month_start 必须是某个自然月的 1 号；"
+            f"got {month_start!r}"
+        )
+    month_end = date(
+        month_start.year + month_start.month // 12,
+        month_start.month % 12 + 1,
+        1,
+    )
+    return tuple(
+        choice
+        for choice in sorted(
+            choices, key=lambda item: (item.trade_date, item.product)
+        )
+        if month_start <= choice.trade_date < month_end
+    )
+
+
+def _context_plan(
+    choices: Sequence[object],
+) -> tuple[tuple[object, date, str, str, str], ...]:
+    """每个要产出上下文的选择：`(choice, previous, product, minute_symbol, exchange)`。
+
+    `build_contexts` 与 `require_session_coverage` **共用**这一个推导，所以「闸检查的
+    键」与「实际向 `resolve_session_rule` 索取的键」不可能分叉。分叉了闸就是摆设。
+
+    夜盘属于下一个交易日，所以每个上下文都要前一交易日；每个品种的第一天没有前一日，
+    因此不产出 —— 少一天，而不是猜一个前一日。
+    """
+    ordered = sorted(choices, key=lambda c: (c.product, c.trade_date))
+    previous_by_product: dict[str, date] = {}
+    plan: list[tuple[object, date, str, str, str]] = []
+    for choice in ordered:
+        predecessor = previous_by_product.get(choice.product)
+        selected_from = getattr(choice, "selected_from", None)
+        previous = (
+            selected_from
+            if type(selected_from) is date and selected_from < choice.trade_date
+            else predecessor
+        )
+        previous_by_product[choice.product] = choice.trade_date
+        if previous is None:
+            continue
+        product, minute_symbol, exchange = minute_contract_identity(
+            choice.contract, choice.trade_date
+        )
+        plan.append((choice, previous, product, minute_symbol, exchange))
+    return tuple(plan)
+
+
+def required_session_keys(
+    choices: Sequence[object],
+) -> tuple[tuple[str, str, date], ...]:
+    """`build_contexts` 会向 `resolve_session_rule` 索取的 `(exchange, product, date)`。"""
+    return tuple(
+        (exchange, product, choice.trade_date)
+        for choice, _previous, product, _symbol, exchange in _context_plan(choices)
+    )
+
+
+def required_session_keys_by_month(
+    *,
+    choices: Sequence[object],
+    products_by_month: Mapping[date, Sequence[str]],
+) -> dict[date, tuple[tuple[str, str, date], ...]]:
+    """逐月：该月宇宙下 `build_contexts` 会索取的时段规则键。
+
+    覆盖闸与连续采集驱动**共用**这一个推导，所以「采集覆盖的集合」与「面板要求的
+    集合」在构造上相同，而不是靠两处各自写对（设计 D4）。
+    """
+    by_month: dict[date, tuple[tuple[str, str, date], ...]] = {}
+    for month, products in sorted(products_by_month.items()):
+        pool = set(products)
+        eligible = tuple(choice for choice in choices if choice.product in pool)
+        if not eligible:
+            continue
+        by_month[month] = required_session_keys(
+            context_choices_for_month(eligible, month_start=month)
+        )
+    return by_month
+
+
+def require_session_coverage(
+    *,
+    choices: Sequence[object],
+    products_by_month: Mapping[date, Sequence[str]],
+    rules: Sequence[SessionRule],
+    manifest_path: "Path | None" = None,
+) -> None:
+    """开跑前一次性核对全区间的时段规则覆盖。
+
+    ⚠️ **必须在任何一次分钟查询之前调用。** 逐月展开整个请求区间，而不是只看当月：
+    覆盖不全要一次报全，不能跑到第 N 个月才崩 —— 本函数的存在正是因为吃过这个亏
+    （2026-08-27 那轮全历史面板先崩在 `2010-12-31 DCE A`，补掉后又崩在
+    `2011-05-17 SHFE AL`，两次都是同一个覆盖问题换个地方露头）。
+
+    两种基数都拦：0 条是资产缺口，2 条是资产自相矛盾，都不能放行。
+    """
+    rows: list[tuple[date, str, str, date, int]] = []
+    by_month = required_session_keys_by_month(
+        choices=choices, products_by_month=products_by_month
+    )
+    for month, keys in by_month.items():
+        for exchange, product, trade_date in keys:
+            found = len(matching_session_rules(rules, exchange, product, trade_date))
+            if found != 1:
+                rows.append((month, exchange, product, trade_date, found))
+    if not rows:
+        return
+    if manifest_path is not None:
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with manifest_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["month", "exchange", "product", "trade_date", "found"])
+            for month, exchange, product, trade_date, found in rows:
+                writer.writerow(
+                    [
+                        f"{month:%Y-%m}",
+                        exchange,
+                        product,
+                        trade_date.isoformat(),
+                        found,
+                    ]
+                )
+    identities = {(row[1], row[2]) for row in rows}
+    by_year = Counter(row[3].year for row in rows)
+    raise SessionClockError(
+        exchange=rows[0][1],
+        product=rows[0][2],
+        trade_date=rows[0][3],
+        check="session_coverage_incomplete",
+        reason=(
+            f"{len(rows)} product-days lack exactly one session rule "
+            f"across {len(identities)} products; by year "
+            + " ".join(f"{year}:{count}" for year, count in sorted(by_year.items()))
+            + (f"; manifest={manifest_path}" if manifest_path is not None else "")
+        ),
+    )
+
+
+def build_contexts(
+    choices: Sequence[object],
+    *,
+    rules: Sequence[SessionRule],
+) -> dict[tuple[date, str], SessionContext]:
+    """把主力选择折成分钟层认的候选 + 该日的槽位与桶。
+
+    夜盘属于**下一个**交易日，所以 `build_trading_slots` 需要前一交易日。第一天没有
+    前一日可用，因此从第二天起才产出上下文 —— 少一天而不是猜一个前一日。
+
+    ⚠️ 时段规则资产止于 2026-01-30；越界时 `resolve_session_rule` 硬失败，不静默截断。
+    """
+    contexts: dict[tuple[date, str], SessionContext] = {}
+    for choice, previous, product, minute_symbol, exchange in _context_plan(choices):
+        rule = resolve_session_rule(rules, exchange, product, choice.trade_date)
+        slots = build_trading_slots(choice.trade_date, previous, rule)
+        contexts[(choice.trade_date, product)] = SessionContext(
+            candidate=MinuteCandidate(
+                trade_date=choice.trade_date,
+                product=product,
+                daily_contract=choice.contract,
+                minute_symbol=minute_symbol,
+                exchange=exchange,
+                window_start=slots[0],
+                window_end=slots[-1] + timedelta(minutes=1),
+                candidate_role="dominant",
+                causal_in_pool_date=choice.selected_from,
+                selection_source="daily_both_max_irreversible",
+            ),
+            rule=rule,
+            slots=tuple(slots),
+            buckets=fifteen_minute_buckets(slots, rule),
+        )
+    return contexts
+
+
+def _months(start: date, end: date):
+    year, month = start.year, start.month
+    while (year, month) <= (end.year, end.month):
+        lower = datetime(year, month, 1, tzinfo=slot_tz())
+        year_next, month_next = (year + 1, 1) if month == 12 else (year, month + 1)
+        yield lower, datetime(year_next, month_next, 1, tzinfo=slot_tz())
+        year, month = year_next, month_next
+
+
+def slot_tz():
+    from zoneinfo import ZoneInfo
+
+    return ZoneInfo("Asia/Shanghai")
+
+
+def build_panel(
+    *,
+    contexts: Mapping[tuple[date, str], SessionContext],
+    source,
+    pricing_basis_by_exchange: Mapping[str, str],
+    multiplier_resolver,
+    adjustment_factor_by_key: Mapping[tuple[date, str], float],
+    continuity_segment_by_key: Mapping[tuple[date, str], int],
+    resolve_only_keys: Collection[tuple[date, str]] = (),
+) -> pd.DataFrame:
+    """按月分批把面板建出来。
+
+    `multiplier_resolver(candidate, frame)` 交给调用方 —— 生产上走
+    `PublicMinuteSource.resolve_metadata_multiplier`，测试里给一个确定性替身。
+
+    **挂起的成交价跨日、跨月接力**：某个品种-日最后一根桶没有「之后 5 分钟」，它由
+    该品种**下一次出现**的那一天的前 5 分钟补上（计划 D14）。所以 `pending` 按品种
+    维护、跨月存活；月末那一根不会因为换了批次就丢掉。
+
+    ⚠️ 「跨月存活」只在**一次调用之内**成立。全历史面板是逐月各调一次、逐月落盘的
+    （续跑要求），于是每个分片的 `pending` 都从空开始 —— 实测 181 个分片里未补上的
+    `fill_pending` 恰好 6,259 个，一个不多一个不少地等于（品种 × 分片）组合数。
+    所以调用方要把下个分片首日的上下文一并交进来，并用 `resolve_only_keys` 标出：
+    这些品种日**只用来给上一根定价，不发 bar、也不把自己挂起**，它们的 bar 属于
+    下一个分片。
+    """
+    if not contexts:
+        return _empty_panel()
+
+    resolve_only = frozenset(resolve_only_keys)
+    unknown = sorted(resolve_only - set(contexts))
+    if unknown:
+        raise ValueError(
+            "panel_resolve_only_unknown: 只用于定价的品种日必须同时出现在 contexts 里；"
+            f"first={unknown[0]!r} count={len(unknown)}"
+        )
+    if not (set(contexts) - resolve_only):
+        return _empty_panel()
+
+    missing_factors = sorted(set(contexts) - set(adjustment_factor_by_key))
+    if missing_factors:
+        raise ValueError(
+            "panel_adjustment_factor_missing: 缺少品种日后复权因子；"
+            f"first={missing_factors[0]!r} count={len(missing_factors)}"
+        )
+    missing_segments = sorted(set(contexts) - set(continuity_segment_by_key))
+    if missing_segments:
+        raise ValueError(
+            "panel_continuity_segment_missing: 缺少品种日连续分段；"
+            f"first={missing_segments[0]!r} count={len(missing_segments)}"
+        )
+
+    keys = sorted(contexts)
+    by_month: dict[tuple[int, int], list[tuple[date, str]]] = {}
+    for key in keys:
+        by_month.setdefault((key[0].year, key[0].month), []).append(key)
+
+    rows: list[dict[str, object]] = []
+    pending: dict[str, int] = {}
+    multipliers: dict[str, int] = {}
+
+    for month_lower, _month_upper in _months(keys[0][0], keys[-1][0]):
+        month_keys = by_month.get((month_lower.year, month_lower.month))
+        if not month_keys:
+            continue
+        candidates = [contexts[key].candidate for key in month_keys]
+        # ⚠️ 批次边界必须由候选窗口自己给出，不能用自然月的两端：夜盘属于**下一个**
+        # 交易日，却起在前一个自然日 21:00。2023-02-01 的 CU 候选窗起于 01-31 21:00,
+        # 用月首当下界会被分钟层判成"候选窗超出批次边界"而硬失败。
+        batch_lower = min(candidate.window_start for candidate in candidates)
+        batch_upper = max(candidate.window_end for candidate in candidates)
+        frames = list(source.iter_month(candidates, batch_lower, batch_upper))
+        if not frames:
+            continue
+        month = pd.concat(frames, ignore_index=True)
+
+        for key in month_keys:
+            context = contexts[key]
+            candidate = context.candidate
+            symbol = candidate.minute_symbol
+            # ⚠️ 只按 symbol 过滤是不够的：同一张合约连着几天当主力时，某一天的夜盘
+            # 与前一天的日盘落在同一个自然日上。分钟层随行返回 `trade_date`（由候选
+            # 表 join 出来的**归属交易日**），必须拿它来切。
+            frame = month.loc[
+                (month["trade_date"] == candidate.trade_date)
+                & (month["daily_contract"] == candidate.daily_contract)
+            ]
+            if frame.empty:
+                continue
+            basis = pricing_basis_by_exchange.get(candidate.exchange, "amount_vwap")
+            if symbol not in multipliers:
+                multipliers[symbol] = multiplier_resolver(candidate, frame)
+            multiplier = multipliers[symbol]
+
+            product = candidate.product
+            continuity_segment = int(continuity_segment_by_key[key])
+            waiting = pending.pop(product, None)
+            if waiting is not None:
+                if rows[waiting]["continuity_segment"] == continuity_segment:
+                    rows[waiting]["fill_price"] = resolve_pending_fill(
+                        frame,
+                        slots=context.slots,
+                        contract=symbol,
+                        multiplier=multiplier,
+                        pricing_basis=basis,
+                    )
+                else:
+                    rows[waiting]["fill_price"] = None
+                rows[waiting]["fill_pending"] = False
+                rows[waiting]["fill_unpriceable"] = rows[waiting]["fill_price"] is None
+
+            if key in resolve_only:
+                # 只用来给上一分片的月末那一根定价。它的 bar 属于下一个分片，这里
+                # 发出来就重复了；也不能把自己挂起 —— 那会让下一分片去补一根不
+                # 存在的 bar。
+                continue
+
+            day_rows = build_session_bars(
+                frame,
+                slots=context.slots,
+                buckets=context.buckets,
+                contract=symbol,
+                multiplier=multiplier,
+                pricing_basis=basis,
+                product=product,
+                trade_date=candidate.trade_date,
+                adj_factor=adjustment_factor_by_key[key],
+                continuity_segment=continuity_segment,
+            )
+            rows.extend(day_rows)
+            pending[product] = len(rows) - 1
+
+    return normalise_panel(pd.DataFrame(rows, columns=list(PANEL_COLUMNS)))
+
+
+#: 无成交 bar 的 O/H/L/C 与发不出的成交价都是 ``None``，落进 DataFrame 会变成
+#: object 列。fastparquet 推不出 object 列的类型（本仓没装 pyarrow），而且 object
+#: 列在下游做算术时会静默退化成逐元素 Python 运算。所以面板出厂前一律定死列类型。
+_FLOAT_COLUMNS = (
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "adj_factor",
+    "fill_price",
+)
+_BOOL_COLUMNS = ("no_trade", "fill_pending", "fill_unpriceable")
+_TEXT_COLUMNS = ("product", "contract", "pricing_basis")
+_INT_COLUMNS = ("continuity_segment", "multiplier")
+
+
+def _empty_panel() -> pd.DataFrame:
+    """返回列顺序与类型均已定死的空面板。"""
+    dtype_by_column = {
+        **{column: "float64" for column in _FLOAT_COLUMNS},
+        **{column: "bool" for column in _BOOL_COLUMNS},
+        **{column: "string" for column in _TEXT_COLUMNS},
+        **{column: "int64" for column in _INT_COLUMNS},
+        "trade_date": "datetime64[ns]",
+        "slot_end": "datetime64[ns, Asia/Shanghai]",
+    }
+    return pd.DataFrame(
+        {
+            column: pd.Series(dtype=dtype_by_column[column])
+            for column in PANEL_COLUMNS
+        }
+    )
+
+
+def normalise_panel(frame: pd.DataFrame) -> pd.DataFrame:
+    """把面板的列类型定死，使它既能写 parquet 也能被下游安全地做算术。
+
+    `trade_date` 存成 `datetime64[ns]`（当日零点）而不是 `datetime.date` 对象：
+    date 对象在 pandas 里是 object 列，fastparquet 直接拒绝写。需要 date 的调用方
+    用 `.dt.date`。
+    """
+    if frame.empty:
+        return _empty_panel()
+
+    out = frame.copy()
+    # ⚠️ 单位必须显式钉成 ns。`pd.to_datetime` 喂 `datetime.date` 会给出
+    # `datetime64[s]`，fastparquet 把它按 ms 写出去、再读回来就报
+    # "Cannot losslessly cast '1709596 ms' to s" —— 写得出、读不回，是最坏的一种。
+    out["trade_date"] = pd.to_datetime(out["trade_date"]).astype("datetime64[ns]")
+    out["slot_end"] = pd.to_datetime(out["slot_end"]).dt.tz_convert(
+        "Asia/Shanghai"
+    ).astype("datetime64[ns, Asia/Shanghai]")
+    for column in _FLOAT_COLUMNS:
+        out[column] = pd.to_numeric(out[column], errors="coerce").astype("float64")
+    for column in _BOOL_COLUMNS:
+        out[column] = out[column].astype("bool")
+    for column in _TEXT_COLUMNS:
+        out[column] = out[column].astype("string")
+    for column in _INT_COLUMNS:
+        out[column] = pd.to_numeric(out[column]).astype("int64")
+    return out

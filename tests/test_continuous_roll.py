@@ -1,0 +1,406 @@
+"""主力合约与后复权连续价（计划 Task 2）。
+
+研报附录一：主力 = **成交量与持仓量均达到最大**的合约，且**主力不可逆**；
+展期用后复权，`AdjFactor_i = AdjFactor_{i−1} × Close_{i−1,old} / Close_{i−1,new}`。
+"""
+
+from datetime import date
+
+import pandas as pd
+import pytest
+
+from common.dominant import DominantChoice
+from cta_continuous.continuous import (
+    adjustment_factors,
+    choose_dominant_commodity,
+    continuous_close,
+)
+
+
+def _pool(rows):
+    return pd.DataFrame(rows, columns=["trade_date", "symbol", "oi", "volume"])
+
+
+D = [date(2024, 3, day) for day in (1, 4, 5, 6, 7, 8)]
+
+
+def test_dominant_requires_both_volume_and_oi_max():
+    """单项最大不算主力。研报写的是「均达到最大」。
+
+    起手就没有双最大合约时，**没有主力可言** —— 不是退而求其次挑持仓量最大的那张。
+    """
+    frame = _pool(
+        [
+            (D[0], "RB2405.SHF", 100, 100),   # 持仓量最大
+            (D[0], "RB2410.SHF", 90, 300),    # 成交量最大
+            (D[1], "RB2405.SHF", 100, 100),
+            (D[1], "RB2410.SHF", 90, 300),
+        ]
+    )
+    assert choose_dominant_commodity(frame, products=("RB",)) == ()
+
+
+def test_dominant_appears_on_the_first_session_with_a_both_max_contract():
+    frame = _pool(
+        [
+            (D[0], "RB2405.SHF", 100, 100),
+            (D[0], "RB2410.SHF", 90, 300),    # 谁都不是双最大
+            (D[1], "RB2405.SHF", 100, 300),   # 这一天开始有了
+            (D[1], "RB2410.SHF", 90, 100),
+            (D[2], "RB2405.SHF", 100, 300),
+            (D[2], "RB2410.SHF", 90, 100),
+        ]
+    )
+    choices = choose_dominant_commodity(frame, products=("RB",))
+    assert [(c.trade_date, c.contract) for c in choices] == [(D[2], "RB2405.SHF")]
+
+
+def test_dominant_keeps_the_previous_contract_when_nobody_is_both_max():
+    """D11：双最大不成立时不切换，沿用上一主力。"""
+    frame = _pool(
+        [
+            (D[0], "RB2405.SHF", 100, 300),   # 双最大 → 主力
+            (D[0], "RB2410.SHF", 90, 100),
+            (D[1], "RB2405.SHF", 90, 300),    # 持仓量输了、成交量赢了
+            (D[1], "RB2410.SHF", 100, 100),   # 反过来
+            (D[2], "RB2405.SHF", 90, 300),
+            (D[2], "RB2410.SHF", 100, 100),
+        ]
+    )
+    choices = choose_dominant_commodity(frame, products=("RB",))
+    assert [c.contract for c in choices] == ["RB2405.SHF", "RB2405.SHF"]
+
+
+def test_dominant_goes_missing_when_the_held_contract_leaves_the_daily_pool():
+    """D11 只允许沿用仍可交易的旧主力；合约消失后不得伪造零量主力日。
+
+    ⚠️ `days[1]` 曾被期望为 `RB2405.SHF` —— 那正是 D16 守卫错位一天的产物：选择日
+    `days[0]` 的池子里还有 RB2405，交易日 `days[1]` 已经没有了。断言与本 docstring
+    自相矛盾，修守卫时一并纠正。
+    """
+    days = [date(2024, 3, day) for day in (1, 4, 5, 6)]
+    frame = _pool(
+        [
+            (days[0], "RB2405.SHF", 100, 300),
+            (days[0], "RB2410.SHF", 90, 100),
+            # 旧主力从池中消失，两个新合约又各占一个最大值：没有双最大。
+            (days[1], "RB2410.SHF", 100, 100),
+            (days[1], "RB2501.SHF", 90, 300),
+            (days[2], "RB2410.SHF", 100, 300),
+            (days[2], "RB2501.SHF", 90, 100),
+            (days[3], "RB2410.SHF", 100, 300),
+            (days[3], "RB2501.SHF", 90, 100),
+        ]
+    )
+
+    choices = choose_dominant_commodity(frame, products=("RB",))
+
+    assert [(c.trade_date, c.contract) for c in choices] == [(days[3], "RB2410.SHF")]
+
+
+def test_dominant_drops_a_held_contract_that_expires_before_the_trading_day():
+    """D16 的守卫错位一天：主力选择滞后一日，「仍可交易」却按**选择日**的池判。
+
+    实证六例形态完全一致（AU1912 / AU2012 / AU2206 / LU2209 / FU2309 / FU2509）：
+    `selected_from` 恰是该合约在 `futures_daily` 上的最后一个交易日，次日退市，
+    面板于是建了上下文却一根 bar 都查不到。交割到期日是交易所事先公布的日历事实，
+    拿它判「当日还能不能交易」不构成未来函数。
+    """
+    days = [date(2024, 3, day) for day in (1, 4, 5)]
+    frame = _pool(
+        [
+            (days[0], "RB2405.SHF", 100, 300),   # 双最大 → 主力
+            (days[0], "RB2410.SHF", 90, 100),
+            # RB2405 在 days[1] 退市；当天又没有双最大，旧口径会沿用一张已退市的合约。
+            (days[1], "RB2410.SHF", 100, 100),
+            (days[1], "RB2501.SHF", 90, 300),
+            (days[2], "RB2410.SHF", 100, 100),
+            (days[2], "RB2501.SHF", 90, 300),
+        ]
+    )
+
+    assert choose_dominant_commodity(frame, products=("RB",)) == ()
+
+
+def test_dominant_holds_through_a_day_the_product_is_missing_from_entirely():
+    """整个品种当日无行 ≠ 旧主力退市。
+
+    `futures_daily` 有已知的整日空洞（2026-03 缺 6 个交易日）。把「当日查不到这张
+    合约」一律当成退市，会让一个数据缺口静默地缩小宇宙 —— 那是最难发现的一类错。
+    只有在该品种当日**确实有行情、而这张合约不在其中**时才判退市。
+    """
+    days = [date(2024, 3, day) for day in (1, 4, 5)]
+    frame = _pool(
+        [
+            (days[0], "RB2405.SHF", 100, 300),
+            (days[0], "RB2410.SHF", 90, 100),
+            (days[1], "CU2405.SHF", 10, 10),     # 当日只有别的品种，RB 整体缺失
+            (days[2], "RB2405.SHF", 100, 300),
+            (days[2], "RB2410.SHF", 90, 100),
+        ]
+    )
+
+    choices = choose_dominant_commodity(frame, products=("RB",))
+
+    # days[1] 照常成交；days[2] 的选择日是 days[1]，那天 RB 无行 ⇒ 本来就发不出选择。
+    assert [(c.trade_date, c.contract) for c in choices] == [(days[1], "RB2405.SHF")]
+
+
+def test_dominant_never_rolls_backwards():
+    """研报：主力不可逆，一经确定不可反复。交割月只许非递减。"""
+    frame = _pool(
+        [
+            (D[0], "RB2405.SHF", 90, 100),
+            (D[0], "RB2410.SHF", 100, 300),   # 双最大 → 主力是 2410
+            (D[1], "RB2405.SHF", 100, 300),   # 近月双最大，但那是回头路
+            (D[1], "RB2410.SHF", 90, 100),
+            (D[2], "RB2405.SHF", 100, 300),
+            (D[2], "RB2410.SHF", 90, 100),
+        ]
+    )
+    choices = choose_dominant_commodity(frame, products=("RB",))
+    assert [c.contract for c in choices] == ["RB2410.SHF", "RB2410.SHF"]
+
+
+def test_dominant_decides_today_from_the_previous_session():
+    """持仓量当日收盘才知道；拿当日的量决定当日交易哪张合约是回看。"""
+    frame = _pool(
+        [
+            (D[0], "RB2405.SHF", 100, 300),
+            (D[0], "RB2410.SHF", 90, 100),
+            (D[1], "RB2405.SHF", 90, 100),
+            (D[1], "RB2410.SHF", 100, 300),   # 换月发生在 D[1] 收盘
+            (D[2], "RB2405.SHF", 90, 100),
+            (D[2], "RB2410.SHF", 100, 300),
+        ]
+    )
+    choices = choose_dominant_commodity(frame, products=("RB",))
+    assert choices[0].trade_date == D[1] and choices[0].contract == "RB2405.SHF"
+    assert choices[0].selected_from == D[0]
+    assert choices[1].trade_date == D[2] and choices[1].contract == "RB2410.SHF"
+
+
+def test_czce_three_digit_codes_compare_as_the_same_delivery_month():
+    """不可逆判据要比交割月；郑商所三位码不归一就比不出 TA701 与 TA1701 是同一个月。
+
+    ⚠️ 日期必须落在三位码确实展开成 `17xx` 的年代。原夹具用 2024 年的日期，
+    `TA701` 归一成 `CZC:TA:2701`、`TA1701` 归一成 `CZC:TA:1701` —— 两个不同的月，
+    这条用例于是从未验到它 docstring 里声称的那件事。
+    """
+    czce = [date(2016, 12, day) for day in (1, 2)]
+    frame = _pool(
+        [
+            (czce[0], "TA701.CZC", 100, 300),
+            (czce[0], "TA705.CZC", 90, 100),
+            (czce[1], "TA1701.CZC", 100, 300),
+            (czce[1], "TA1705.CZC", 90, 100),
+        ]
+    )
+    choices = choose_dominant_commodity(frame, products=("TA",))
+    assert [c.contract for c in choices] == ["TA701.CZC"]
+
+
+# --- 后复权 ---------------------------------------------------------------
+
+def _chain():
+    """两次展期：D0/D1 用 C1，D2/D3 用 C2，D4 起用 C3。"""
+    return (
+        [
+            _choice(D[0], "RB2405.SHF"),
+            _choice(D[1], "RB2405.SHF"),
+            _choice(D[2], "RB2410.SHF"),
+            _choice(D[3], "RB2410.SHF"),
+            _choice(D[4], "RB2501.SHF"),
+        ],
+        {
+            (D[0], "RB2405.SHF"): 90.0,
+            (D[1], "RB2405.SHF"): 100.0,
+            (D[1], "RB2410.SHF"): 125.0,
+            (D[2], "RB2410.SHF"): 130.0,
+            (D[3], "RB2410.SHF"): 200.0,
+            (D[3], "RB2501.SHF"): 250.0,
+            (D[4], "RB2501.SHF"): 260.0,
+        },
+    )
+
+
+def _choice(trade_date, contract):
+    return DominantChoice(
+        trade_date=trade_date,
+        product="RB",
+        contract=contract,
+        oi=1,
+        volume=1,
+        selected_from=trade_date,
+    )
+
+
+def test_adjust_factor_chains_across_two_rolls():
+    """手算：第一段 1；第二段 100/125 = 0.8；第三段 0.8 × 200/250 = 0.64。"""
+    choices, closes = _chain()
+    factors = adjustment_factors(choices, closes=closes)
+    assert list(factors["adj_factor"]) == pytest.approx([1.0, 1.0, 0.8, 0.8, 0.64])
+    assert list(factors["continuity_segment"]) == [0, 0, 0, 0, 0]
+
+
+def test_first_dominant_gets_factor_one():
+    choices, closes = _chain()
+    factors = adjustment_factors(choices, closes=closes)
+    assert factors.iloc[0]["adj_factor"] == 1.0
+
+
+def test_adjusted_series_has_no_roll_gap():
+    """展期当日的连续收益率 = 新合约自己的收益率，不是两张合约之间的跳空。"""
+    choices, closes = _chain()
+    factors = adjustment_factors(choices, closes=closes)
+    series = continuous_close(factors, closes=closes)
+    before = series.loc[series["trade_date"] == D[1], "close"].iloc[0]
+    after = series.loc[series["trade_date"] == D[2], "close"].iloc[0]
+    own_return = 130.0 / 125.0 - 1.0            # 新合约自己走的那一段
+    assert after / before - 1.0 == pytest.approx(own_return)
+
+
+def test_adjustment_refuses_to_default_a_missing_roll_close():
+    """缺前一日收盘价时必须报错。悄悄取 1.0 会造出一个假的无跳空序列。"""
+    choices, closes = _chain()
+    closes[(D[0], "RB2501.SHF")] = 249.0
+    closes.pop((D[3], "RB2501.SHF"))
+    with pytest.raises(ValueError) as exc_info:
+        adjustment_factors(choices, closes=closes)
+    message = str(exc_info.value)
+    assert "roll_close_missing" in message
+    assert f"not_after={choices[-1].selected_from}" in message
+    assert choices[-2].contract in message
+    assert choices[-1].contract in message
+
+
+def test_adjustment_resets_factor_for_disjoint_contract_histories():
+    first = DominantChoice(
+        date(2018, 2, 27), "FU", "FU1803.SHF", 1, 1, date(2018, 2, 26)
+    )
+    overlapping = DominantChoice(
+        date(2018, 3, 1), "FU", "FU1804.SHF", 1, 1, date(2018, 2, 28)
+    )
+    disjoint = DominantChoice(
+        date(2018, 7, 17), "FU", "FU1901.SHF", 1, 1, date(2018, 7, 16)
+    )
+    factors = adjustment_factors(
+        (first, overlapping, disjoint),
+        closes={
+            (date(2018, 2, 28), "FU1803.SHF"): 3300.0,
+            (date(2018, 2, 28), "FU1804.SHF"): 3200.0,
+            (date(2018, 3, 30), "FU1804.SHF"): 3200.0,
+            (date(2018, 7, 16), "FU1901.SHF"): 2800.0,
+        },
+    )
+    assert list(factors["adj_factor"]) == pytest.approx(
+        [1.0, 3300.0 / 3200.0, 1.0]
+    )
+    assert list(factors["continuity_segment"]) == [0, 0, 1]
+
+
+@pytest.mark.parametrize(
+    "closes",
+    [
+        {(date(2020, 1, 23), "FU2005.SHF"): 2200.0},
+        {
+            (date(2020, 1, 25), "FU2001.SHF"): 2250.0,
+            (date(2020, 1, 23), "FU2005.SHF"): 2200.0,
+        },
+        {
+            (date(2020, 1, 25), "FU2001.SHF"): 2250.0,
+            (date(2020, 1, 25), "FU2005.SHF"): 2200.0,
+        },
+    ],
+    ids=["empty-old-history", "reverse-disjoint", "common-only-after-selection"],
+)
+def test_adjustment_rejects_histories_that_do_not_prove_a_forward_break(closes):
+    choices = (
+        DominantChoice(
+            date(2020, 1, 20), "FU", "FU2001.SHF", 1, 1, date(2020, 1, 19)
+        ),
+        DominantChoice(
+            date(2020, 1, 27), "FU", "FU2005.SHF", 1, 1, date(2020, 1, 24)
+        ),
+    )
+
+    with pytest.raises(ValueError, match="roll_close_missing"):
+        adjustment_factors(choices, closes=closes)
+
+
+def test_adjustment_resets_segment_for_each_product_and_returns_exact_columns():
+    choices = (
+        DominantChoice(
+            date(2018, 3, 30), "FU", "FU1804.SHF", 1, 1, date(2018, 3, 29)
+        ),
+        DominantChoice(
+            date(2018, 7, 17), "FU", "FU1901.SHF", 1, 1, date(2018, 7, 16)
+        ),
+        DominantChoice(
+            date(2018, 3, 30), "RB", "RB1810.SHF", 1, 1, date(2018, 3, 29)
+        ),
+    )
+    factors = adjustment_factors(
+        choices,
+        closes={
+            (date(2018, 3, 30), "FU1804.SHF"): 3200.0,
+            (date(2018, 7, 16), "FU1901.SHF"): 2800.0,
+            (date(2018, 3, 30), "RB1810.SHF"): 3700.0,
+        },
+    )
+
+    assert list(factors["product"]) == ["FU", "FU", "RB"]
+    assert list(factors["continuity_segment"]) == [0, 1, 0]
+    assert list(factors.columns) == [
+        "product",
+        "trade_date",
+        "contract",
+        "adj_factor",
+        "continuity_segment",
+    ]
+
+
+def test_adjustment_uses_the_latest_common_close_before_a_dominant_gap():
+    """旧主力退市造成空档时，以换月前最近的新旧同日收盘衔接，不拿 1.0 顶替。"""
+    old_day = date(2019, 12, 16)
+    old_choice = DominantChoice(
+        trade_date=date(2019, 12, 17),
+        product="AU",
+        contract="AU1912.SHF",
+        oi=1,
+        volume=1,
+        selected_from=old_day,
+    )
+    new_choice = DominantChoice(
+        trade_date=date(2019, 12, 30),
+        product="AU",
+        contract="AU2006.SHF",
+        oi=1,
+        volume=1,
+        selected_from=date(2019, 12, 27),
+    )
+
+    factors = adjustment_factors(
+        (old_choice, new_choice),
+        closes={
+            (date(2019, 12, 13), "AU1912.SHF"): 331.0,
+            (date(2019, 12, 13), "AU2006.SHF"): 334.62,
+            (old_day, "AU1912.SHF"): 333.0,
+            (old_day, "AU2006.SHF"): 338.24,
+        },
+    )
+
+    assert list(factors["adj_factor"]) == pytest.approx([1.0, 333.0 / 338.24])
+
+
+def test_czce_symbol_alias_change_is_not_a_roll():
+    """TA701 与 TA1701 是同一合约；代码位数变化不能产生虚假复权跳点。"""
+    choices = (
+        DominantChoice(date(2016, 1, 18), "TA", "TA701.CZC", 1, 1, date(2016, 1, 15)),
+        DominantChoice(date(2016, 1, 19), "TA", "TA1701.CZC", 1, 1, date(2016, 1, 18)),
+    )
+
+    factors = adjustment_factors(choices, closes={})
+
+    assert list(factors["adj_factor"]) == [1.0, 1.0]
+    assert list(factors["continuity_segment"]) == [0, 0]

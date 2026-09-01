@@ -499,13 +499,19 @@ def load_session_rules(
     return tuple(rules)
 
 
-def resolve_session_rule(
+def matching_session_rules(
     rules: Sequence[SessionRule],
     exchange: str,
     product: str,
     trade_date: date,
-) -> SessionRule:
-    matches = tuple(
+) -> tuple[SessionRule, ...]:
+    """Every rule covering this product-day, in the order the rules were given.
+
+    ``resolve_session_rule`` demands exactly one; a coverage gate wants to count
+    them without raising. Both go through here so the two can never disagree on
+    what "covered" means.
+    """
+    return tuple(
         rule
         for rule in rules
         if rule.exchange == exchange
@@ -513,6 +519,15 @@ def resolve_session_rule(
         and rule.effective_start <= trade_date
         and (rule.effective_end is None or trade_date <= rule.effective_end)
     )
+
+
+def resolve_session_rule(
+    rules: Sequence[SessionRule],
+    exchange: str,
+    product: str,
+    trade_date: date,
+) -> SessionRule:
+    matches = matching_session_rules(rules, exchange, product, trade_date)
     if len(matches) != 1:
         raise SessionClockError(
             exchange=exchange,
