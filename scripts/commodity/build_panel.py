@@ -195,6 +195,16 @@ def _months(start: date, end: date):
         current = _next_month(current)
 
 
+#: 郑商所日线代码的数字部分（`OI701.CZC` 三位、`OI1701.CZC` 四位）。
+_DAILY_CODE_DIGITS = re.compile(r"([0-9]+)\.")
+
+
+def _daily_code_rank(symbol: str) -> tuple[int, str]:
+    """四位代码优先 —— 与分钟表的符号一致。"""
+    match = _DAILY_CODE_DIGITS.search(symbol)
+    return (len(match.group(1)) if match else 0, symbol)
+
+
 def _copy_daily(cursor, *, end: date) -> pd.DataFrame:
     buffer = io.StringIO()
     upper = end + timedelta(days=1)
@@ -212,6 +222,57 @@ def _copy_daily(cursor, *, end: date) -> pd.DataFrame:
         raise ValueError(f"panel_daily_columns: missing={sorted(missing)!r}")
     frame["trade_date"] = pd.to_datetime(frame["trade_date"], errors="raise").dt.date
     return frame.loc[:, _DAILY_COLUMNS]
+
+
+def _drop_duplicate_daily_spellings(frame: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """同一张郑商所合约同时以三位和四位代码入库时，只留一行。
+
+    `futures_daily` 在 2015-2017 有 2565 对这样的记录，数值逐列相同（OI 2016-07-14
+    的 `OI701.CZC` 与 `OI1701.CZC` 成交量、持仓、成交额、收盘全部一致）。主力选择在
+    两个拼写之间逐日翻转，于是 bundle 按**字符串**比对把每次翻转都当成一次换月，而
+    builder 按**分钟合约身份**比对认为合约没变 —— 两边对不上，整跑在写 bundle 的
+    最后一步作废（w1617 探针实测 185 条"没有成交单的换月"，全在 OI/SF 这些郑商所品种）。
+
+    按分钟合约身份去重、保留四位代码那一份（与分钟表的符号一致）。两份数值对不上就
+    **硬失败**：那不是"同一条记录的两种拼法"，是另一个缺陷。
+    """
+    symbols = frame["symbol"].astype(str)
+    czce = symbols.str.endswith(".CZC")
+    if not czce.any():
+        return frame, 0
+    subset = frame.loc[czce]
+    keys: list[tuple[object, str] | None] = []
+    for symbol, trade_date in zip(subset["symbol"].astype(str), subset["trade_date"]):
+        try:
+            keys.append((trade_date, minute_contract_identity(symbol, trade_date)[1]))
+        except (KeyError, TypeError, ValueError):
+            keys.append(None)
+    identity = pd.Series(keys, index=subset.index)
+    resolved = identity.loc[identity.notna()]
+    duplicated = resolved.duplicated(keep=False)
+    if not duplicated.any():
+        return frame, 0
+    dropped: list[object] = []
+    for key, group in subset.loc[resolved.loc[duplicated].index].groupby(
+        resolved.loc[duplicated], sort=False
+    ):
+        for column in ("oi", "volume", "turnover", "close"):
+            values = pd.to_numeric(group[column], errors="coerce")
+            if values.nunique(dropna=False) != 1:
+                raise ValueError(
+                    "panel_daily_duplicate: two spellings disagree; "
+                    f"key={key!r} column={column!r} "
+                    f"symbols={sorted(group['symbol'].astype(str))!r}"
+                )
+        keep = max(group["symbol"].astype(str), key=_daily_code_rank)
+        dropped.extend(
+            index
+            for index, symbol in zip(group.index, group["symbol"].astype(str))
+            if symbol != keep
+        )
+    if not dropped:
+        return frame, 0
+    return frame.drop(index=dropped).reset_index(drop=True), len(dropped)
 
 
 def _frame_sha256(frame: pd.DataFrame) -> str:
@@ -2399,6 +2460,12 @@ def main(argv: list[str] | None = None) -> int:
         cursor.execute("SET statement_timeout='900s'")
         daily = _copy_daily(cursor, end=args.end)
     print(f"daily rows: {len(daily):,}", flush=True)
+    daily, duplicate_spellings = _drop_duplicate_daily_spellings(daily)
+    if duplicate_spellings:
+        print(
+            f"duplicate CZCE spellings dropped: {duplicate_spellings:,} rows",
+            flush=True,
+        )
 
     turnover = product_daily_turnover(
         daily.loc[:, ["symbol", "trade_date", "turnover"]]
@@ -2702,6 +2769,7 @@ def main(argv: list[str] | None = None) -> int:
             "daily_relation": "public.futures_daily",
             "minute_relation": "public.futures_minute",
             "daily_rows": len(daily),
+            "duplicate_daily_spellings_dropped": duplicate_spellings,
             "daily_sha256": daily_sha256,
             "minute_candidates_sha256": contexts_sha256,
             "minute_content_sha256": source.minute_content_sha256,

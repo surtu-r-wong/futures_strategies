@@ -409,6 +409,15 @@ def run_shadow_product(
                         roll_cost=event.cost,
                     )
             elif previous_contract is None:
+                # 这是这个品种在面板里的第一根（或断代后重来的第一根）。首日那笔换月
+                # 成交单指向窗口之外的主力，没人能消费它 —— bundle 自己就允许这种
+                # 形态（`first_keys`），所以记成"已用"，而不是当作漏用把整跑打断。
+                # 实测 PF 2024-01-05（PF402→PF403）就落在 PF 进面板的第一天。
+                opening = rolls.loc[
+                    (rolls["trade_date"] == trade_date)
+                    & (rolls["new_contract"] == contract)
+                ]
+                used_rolls.update(int(index) for index in opening.index)
                 ledger.current_contract = contract
             previous_contract = contract
             previous_pricing_basis = str(row["pricing_basis"])

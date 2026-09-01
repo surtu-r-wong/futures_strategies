@@ -1143,3 +1143,57 @@ def test_an_inference_that_singles_out_no_multiplier_is_not_covered_either():
         for chunk in chunks
         for row in chunk.uncovered
     ] == [(DAYS[1], "RB", "contract_multiplier")]
+
+
+def _duplicate_daily_frame(**overrides):
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {
+            "symbol": ["OI701.CZC", "OI1701.CZC", "OI1609.CZC"],
+            "trade_date": [date(2016, 7, 14)] * 3,
+            "oi": [228930.0, 228930.0, 138710.0],
+            "volume": [191798.0, 191798.0, 79672.0],
+            "turnover": [1.2e9, 1.2e9, 5.0e8],
+            "close": [6000.0, 6000.0, 5100.0],
+        }
+    )
+    for column, values in overrides.items():
+        frame[column] = values
+    return frame
+
+
+def test_a_contract_stored_under_two_spellings_becomes_one_row():
+    """郑商所 2015-2017 的重复行：同一张合约同时以三位和四位代码入库、数值逐列相同。
+
+    主力选择在两个拼写之间逐日翻转（OI 2016-07 实测逐日翻），于是 bundle 按字符串
+    比对把每次翻转都当成一次换月 —— w1617 探针实测 185 条"没有成交单的换月"，整跑
+    在写 bundle 的最后一步作废。按**分钟合约身份**去重、保留四位那份（与分钟表的
+    符号一致）。
+    """
+    from scripts.commodity.build_panel import _drop_duplicate_daily_spellings
+
+    kept, dropped = _drop_duplicate_daily_spellings(_duplicate_daily_frame())
+
+    assert dropped == 1
+    assert list(kept["symbol"]) == ["OI1701.CZC", "OI1609.CZC"]
+
+
+def test_two_spellings_that_disagree_are_not_the_same_record():
+    """数值对不上就不是"同一条记录的两种拼法"，而是另一个缺陷 —— 不许随手扔掉一份。"""
+    from scripts.commodity.build_panel import _drop_duplicate_daily_spellings
+
+    with pytest.raises(ValueError, match="panel_daily_duplicate"):
+        _drop_duplicate_daily_spellings(
+            _duplicate_daily_frame(volume=[191798.0, 191799.0, 79672.0])
+        )
+
+
+def test_a_frame_without_duplicate_spellings_is_returned_unchanged():
+    from scripts.commodity.build_panel import _drop_duplicate_daily_spellings
+
+    frame = _duplicate_daily_frame().iloc[1:].reset_index(drop=True)
+    kept, dropped = _drop_duplicate_daily_spellings(frame)
+
+    assert dropped == 0
+    assert list(kept["symbol"]) == list(frame["symbol"])

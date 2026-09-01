@@ -391,3 +391,51 @@ def test_a_pending_fill_that_disagrees_with_the_roll_price_is_fatal() -> None:
 
     with pytest.raises(ValueError, match="roll_fill_price"):
         run_shadow_product(bars, product="RB", roll_fills=rolls)
+
+
+def _first_day_roll(bars: pd.DataFrame) -> pd.DataFrame:
+    """保留区间首日的换月成交单 —— 旧主力在窗口之外。"""
+    first = bars.iloc[0]
+    return pd.DataFrame(
+        [
+            {
+                "trade_date": first["trade_date"],
+                "product": "RB",
+                "old_contract": "RB2401.SHF",
+                "new_contract": str(first["contract"]),
+                "fill_time": first["slot_end"] - pd.Timedelta(minutes=5),
+                "old_price": float(first["close"]) * 0.99,
+                "new_price": float(first["close"]),
+                "old_pricing_basis": "amount_vwap",
+                "new_pricing_basis": "amount_vwap",
+            }
+        ]
+    )
+
+
+def test_a_roll_fill_on_the_products_first_panel_day_is_not_an_unused_fill() -> None:
+    """首日那笔换月成交单没人能消费 —— 它指向窗口之外的主力，不是"漏用"。
+
+    bundle 自己就允许这种形态（`first_keys`：保留区间首日的成交单可以指向窗口外的
+    主力），而影子层的完整性检查原先要求每一笔都被某次合约切换用掉，于是整跑中止。
+    实测 PF 2024-01-05（PF402→PF403）就落在 PF 进面板的第一天；全历史里每个品种的
+    起点都是它自己的影子回看起点，必然还会撞上。
+    """
+    bars, _rolls = _dow_panel()
+
+    result = run_shadow_product(bars, product="RB", roll_fills=_first_day_roll(bars))
+
+    assert not result.signals.empty
+    assert result.signals["roll_event"].sum() == 0
+
+
+def test_a_later_fill_for_the_same_contract_is_still_an_unused_fill() -> None:
+    """首日那条只赦免**首日那一笔** —— 同一张合约、别的日子的成交单仍然是漏用。"""
+    bars, _rolls = _dow_panel()
+    stray = _first_day_roll(bars)
+    later = bars.iloc[100]
+    stray.loc[0, "trade_date"] = later["trade_date"]
+    stray.loc[0, "fill_time"] = later["slot_end"] - pd.Timedelta(minutes=5)
+
+    with pytest.raises(ValueError, match="roll_mismatch"):
+        run_shadow_product(bars, product="RB", roll_fills=stray)

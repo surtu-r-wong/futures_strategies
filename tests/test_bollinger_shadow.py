@@ -597,3 +597,32 @@ def test_a_continuity_break_needs_no_roll_fill() -> None:
     result = run_shadow_product(_broken_panel(), product="RB", **_SMALL)
 
     assert result.signals["roll_new_contract"].isna().all()
+
+
+def test_a_roll_fill_on_the_products_first_panel_day_is_not_an_unused_fill() -> None:
+    """首日那笔换月成交单没人能消费 —— 它指向窗口之外的主力，不是"漏用"。
+
+    bundle 自己就允许这种形态（`first_keys`），影子层的完整性检查原先要求每一笔都被
+    某次合约切换用掉，于是整跑中止（实测 PF 2024-01-05 落在它进面板的第一天）。
+    """
+    frame = _long_panel()
+    first = frame.iloc[0]
+    rolls = pd.DataFrame(
+        [
+            {
+                "trade_date": first["trade_date"],
+                "product": "RB",
+                "old_contract": "RB2401.SHF",
+                "new_contract": str(first["contract"]),
+                "fill_time": first["slot_end"] - pd.Timedelta(minutes=5),
+                "old_price": float(first["close"]) * 0.99,
+                "new_price": float(first["close"]),
+                "old_pricing_basis": "amount_vwap",
+                "new_pricing_basis": "amount_vwap",
+            }
+        ]
+    )
+
+    result = run_shadow_product(frame, product="RB", roll_fills=rolls)
+
+    assert not result.signals.empty
