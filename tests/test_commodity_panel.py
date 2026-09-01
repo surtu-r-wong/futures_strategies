@@ -923,7 +923,7 @@ def test_registered_absent_product_days_never_enter_the_panel():
     rules = [_day_only_rule()]
     absent = frozenset({("SHFE", "RB", DAYS[1])})
 
-    contexts, _untraded = _target_contexts(
+    contexts, _untraded, _uncovered = _target_contexts(
         choices=_choices(),
         rules=rules,
         start=DAYS[0],
@@ -949,7 +949,7 @@ def test_a_dominant_that_never_traded_that_day_is_dropped_from_the_panel():
         (day, "RB2405.SHF") for day in DAYS if day != DAYS[-1]
     )
 
-    contexts, untraded = _target_contexts(
+    contexts, untraded, _uncovered = _target_contexts(
         choices=_choices(),
         rules=[_day_only_rule()],
         start=DAYS[0],
@@ -959,3 +959,168 @@ def test_a_dominant_that_never_traded_that_day_is_dropped_from_the_panel():
 
     assert DAYS[-1] not in {key[0] for key in contexts}
     assert untraded == ((DAYS[-1], "RB", "RB2405.SHF"),)
+
+
+FOUR_DAYS = [date(2024, 3, 4), date(2024, 3, 5), date(2024, 3, 6), date(2024, 3, 7)]
+
+
+def _four_day_choices(contract="RB2405.SHF"):
+    from common.dominant import DominantChoice
+
+    return [
+        DominantChoice(
+            trade_date=day,
+            product="RB",
+            contract=contract,
+            oi=1,
+            volume=1,
+            selected_from=day,
+        )
+        for day in FOUR_DAYS
+    ]
+
+
+class _DatedSource:
+    """按交易日给不同价位的替身 —— 用来认出成交价究竟取自哪一天。"""
+
+    def __init__(self, contexts, prices):
+        self.contexts = contexts
+        self.prices = dict(prices)
+
+    def iter_month(self, candidates, lower, upper):
+        frames = [
+            _frame(
+                self.contexts[(candidate.trade_date, candidate.product)].slots,
+                price=self.prices[candidate.trade_date],
+                symbol=candidate.minute_symbol,
+                trade_date=candidate.trade_date,
+                daily_contract=candidate.daily_contract,
+            )
+            for candidate in candidates
+        ]
+        if frames:
+            yield pd.concat(frames, ignore_index=True)
+
+
+def _resolver_failing_on(day, *, check="contract_multiplier_sample"):
+    from common.minute.bars import MinuteDataError
+
+    def resolve(candidate, frame, **_):
+        if candidate.trade_date == day:
+            raise MinuteDataError(
+                trade_date=candidate.trade_date,
+                product=candidate.product,
+                contract=candidate.daily_contract,
+                check=check,
+                reason="synthetic",
+            )
+        return 10
+
+    return resolve
+
+
+def _uncovered_chunks(resolver, *, drop_unformable_days):
+    contexts = build_contexts(_choices(), rules=[_day_only_rule()])
+    return contexts, list(
+        iter_panel_months(
+            contexts=contexts,
+            source=_FakeSource(contexts),
+            pricing_basis_by_exchange={},
+            multiplier_resolver=resolver,
+            adjustment_factor_by_key={key: 1.0 for key in contexts},
+            continuity_segment_by_key={key: 0 for key in contexts},
+            drop_unformable_days=drop_unformable_days,
+        )
+    )
+
+
+def test_a_product_day_whose_multiplier_cannot_be_settled_is_not_covered():
+    """乘数解不出来 ⇒ 这一天形不成 bar ⇒ 面板不覆盖（用户 2026-09-01 裁决 C）。
+
+    2025-12-22 之前任何合约的乘数都没有元数据，只能推断；品种改代码或刚上市那段是
+    「证据真空」—— 自己的分钟不够取样、同品种兄弟合约也还没真正交易过。菜籽油
+    OI1309 2012-09-20 当天成交 2 手，日线池化与分钟推断都给不出候选。合成一个乘数
+    就是编价格，所以这里既不合成也不中止：这一天不进面板，清单落盘可查。
+    """
+    _contexts, chunks = _uncovered_chunks(
+        _resolver_failing_on(DAYS[1]), drop_unformable_days=True
+    )
+
+    assert [
+        (row.trade_date, row.product, row.contract, row.reason)
+        for chunk in chunks
+        for row in chunk.uncovered
+    ] == [(DAYS[1], "RB", "RB2405.SHF", "contract_multiplier_sample")]
+    bars = pd.concat(
+        [chunk.bars for chunk in chunks] + [chunks[-1].pending], ignore_index=True
+    )
+    assert set(pd.to_datetime(bars["trade_date"]).dt.date) == {DAYS[2]}
+
+
+def test_an_unsettleable_multiplier_stays_fatal_when_days_may_not_be_dropped():
+    """默认仍然硬失败 —— 「不覆盖」是调用方明确声明的口径，不是随手的容错。"""
+    from common.minute.bars import MinuteDataError
+
+    with pytest.raises(MinuteDataError, match="contract_multiplier_sample"):
+        _uncovered_chunks(_resolver_failing_on(DAYS[1]), drop_unformable_days=False)
+
+
+def test_a_multiplier_failure_of_another_kind_is_fatal_even_when_days_may_be_dropped():
+    """只有「证据不足以定出乘数」这三种结局算不覆盖；其余仍是缺数据或口径错误。"""
+    from common.minute.bars import MinuteDataError
+
+    with pytest.raises(MinuteDataError, match="minute_contract"):
+        _uncovered_chunks(
+            _resolver_failing_on(DAYS[1], check="minute_contract"),
+            drop_unformable_days=True,
+        )
+
+
+def test_a_pending_fill_crosses_an_uncovered_day_to_the_next_covered_session():
+    """挂着的成交价要等到**下一个被覆盖的**时段 —— 不覆盖那天没有任何可执行价。"""
+    contexts = build_contexts(_four_day_choices(), rules=[_day_only_rule()])
+    prices = {day: 100.0 + 1000.0 * index for index, day in enumerate(FOUR_DAYS)}
+    chunks = list(
+        iter_panel_months(
+            contexts=contexts,
+            source=_DatedSource(contexts, prices),
+            pricing_basis_by_exchange={},
+            multiplier_resolver=_resolver_failing_on(FOUR_DAYS[2]),
+            adjustment_factor_by_key={key: 1.0 for key in contexts},
+            continuity_segment_by_key={key: 0 for key in contexts},
+            drop_unformable_days=True,
+        )
+    )
+
+    panel = pd.concat(
+        [chunk.bars for chunk in chunks] + [chunks[-1].pending], ignore_index=True
+    )
+    last_of_first_covered_day = panel.loc[
+        pd.to_datetime(panel["trade_date"]).dt.date == FOUR_DAYS[1]
+    ].iloc[-1]
+    expected = sum(prices[FOUR_DAYS[3]] + offset for offset in range(5)) / 5
+    assert last_of_first_covered_day["fill_price"] == pytest.approx(expected)
+    assert (
+        last_of_first_covered_day["fill_time"]
+        == contexts[(FOUR_DAYS[3], "RB")].slots[4]
+    )
+
+
+def test_target_contexts_reports_every_product_day_the_panel_does_not_cover():
+    """三种「不覆盖」共用一个集合 —— 换月阶段据此认前态，不能只认其中一种。"""
+    from scripts.commodity.build_panel import _target_contexts
+
+    contexts, untraded, uncovered = _target_contexts(
+        choices=_choices(),
+        rules=[_day_only_rule()],
+        start=DAYS[0],
+        end=DAYS[-1],
+        absent_product_days=frozenset({("SHFE", "RB", DAYS[1])}),
+        traded_contract_days=frozenset(
+            (day, "RB2405.SHF") for day in DAYS if day != DAYS[-1]
+        ),
+    )
+
+    assert contexts == {}
+    assert untraded == ((DAYS[-1], "RB", "RB2405.SHF"),)
+    assert uncovered == frozenset({(DAYS[1], "RB"), (DAYS[-1], "RB")})

@@ -24,11 +24,13 @@ from common.commodity.bundle import (  # noqa: E402
     TABLE_FILES,
     TABLE_SCHEMAS,
     PanelBundle,
+    normalise_bundle_table,
     read_bundle,
     write_bundle,
 )
 from common.commodity.panel import (  # noqa: E402
     PanelMonthChunk,
+    UncoveredProductDay,
     build_contexts,
     build_panel as build_commodity_panel,
     normalise_panel,
@@ -710,7 +712,7 @@ def test_builder_keeps_shadow_panel_contexts_outside_monthly_universe():
         ),
     )
 
-    contexts, _untraded = __import__(
+    contexts, _untraded, _uncovered = __import__(
         "scripts.commodity.build_panel", fromlist=["_target_contexts"]
     )._target_contexts(
         choices=(*rb_choices, *ta_choices),
@@ -918,7 +920,7 @@ def test_month_checkpoint_resumes_after_later_failure_without_rebuilding_complet
         yield february
 
     monkeypatch.setattr(builder_module, "iter_panel_months", resume)
-    rebuilt = _build_panel_checkpointed(
+    rebuilt, _uncovered = _build_panel_checkpointed(
         contexts={},
         source=object(),
         pricing_basis_by_exchange={},
@@ -997,7 +999,7 @@ def test_checkpoint_recovers_after_child_exit_during_first_month_file(
     monkeypatch.setattr(
         builder_module, "iter_panel_months", lambda **kwargs: iter((chunk,))
     )
-    recovered = builder_module._build_panel_checkpointed(
+    recovered, _recovered_uncovered = builder_module._build_panel_checkpointed(
         contexts={},
         source=object(),
         pricing_basis_by_exchange={},
@@ -2179,3 +2181,283 @@ def test_the_wide_sample_is_cut_to_this_contract_before_inference():
     )
 
     assert set(seen["inference_frame"]["symbol"]) == {"OI1307"}
+
+
+UNCOVERED_ROLL_DATES = (
+    pd.Timestamp("2024-03-05").date(),
+    pd.Timestamp("2024-03-06").date(),
+    pd.Timestamp("2024-03-07").date(),
+)
+
+
+def _uncovered_roll_choices():
+    """03-05 旧主力、03-06 换月当天、03-07 新主力仍在位。"""
+    contracts = ("RB2405.SHF", "RB2410.SHF", "RB2410.SHF")
+    return tuple(
+        DominantChoice(
+            trade_date=day,
+            product="RB",
+            contract=contract,
+            oi=100 + index,
+            volume=90 + index,
+            selected_from=day,
+        )
+        for index, (day, contract) in enumerate(zip(UNCOVERED_ROLL_DATES, contracts))
+    )
+
+
+def test_a_roll_on_a_day_the_panel_does_not_cover_moves_to_the_next_covered_day():
+    """换月正好落在面板不覆盖的那一天 —— 成交单要发在下一个覆盖日。
+
+    bundle 的换月期望是从 `dominants` 表反推的，而那张表只有被覆盖的品种日：剔掉
+    03-06 之后它看到的是 03-05 的 RB2405 直接接 03-07 的 RB2410，于是要求 03-07 有
+    一张 RB2405→RB2410 的成交单。旧实现里前态照样取自被剔掉的那天，03-07 看上去
+    「合约没变」，一张单也发不出 —— 全历史 build 会在写 bundle 的最后一步报
+    `undeclared` 而整跑作废（BR 2026-01-07/08 连着两天被剔，01-08 正是换月日）。
+    """
+    choices = _uncovered_roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    uncovered = frozenset({(UNCOVERED_ROLL_DATES[1], "RB")})
+    covered = {key: value for key, value in contexts.items() if key not in uncovered}
+    context = contexts[(UNCOVERED_ROLL_DATES[2], "RB")]
+    source = _RollSource(
+        context.slots,
+        {"RB2405.SHF": 100.0, "RB2410.SHF": 200.0},
+    )
+
+    fills, skipped = build_roll_fills(
+        choices=choices,
+        contexts=covered,
+        uncovered=uncovered,
+        source=source,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+        multiplier_resolver=lambda candidate, frame, **_: 10,
+    )
+
+    assert skipped == ()
+    assert [
+        (row.trade_date, row.product, row.old_contract, row.new_contract)
+        for row in fills.itertuples(index=False)
+    ] == [
+        (
+            pd.Timestamp(UNCOVERED_ROLL_DATES[2]),
+            "RB",
+            "RB2405.SHF",
+            "RB2410.SHF",
+        )
+    ]
+
+
+def test_month_checkpoint_carries_uncovered_product_days_across_a_resume(
+    tmp_path, bundle_frames, monkeypatch
+):
+    """不覆盖的品种日是产出的一部分，必须与 bar 一起过 checkpoint。
+
+    否则续跑之后清单只剩后半段，而面板覆盖口径是靠它裁的 —— 少一条就会有一个
+    「有主力行、没有 bar」的品种日活到写 bundle 那一刻。
+    """
+    import scripts.commodity.build_panel as builder_module
+
+    template = normalise_panel(bundle_frames["bars"])
+    january = PanelMonthChunk(
+        month_start=pd.Timestamp("2024-01-01").date(),
+        bars=template.iloc[:1].copy(),
+        pending=template.iloc[1:2].reset_index(drop=True),
+        uncovered=(
+            UncoveredProductDay(
+                trade_date=pd.Timestamp("2024-01-09").date(),
+                product="OI",
+                contract="OI1309.CZC",
+                reason="contract_multiplier_sample",
+            ),
+        ),
+    )
+    february = PanelMonthChunk(
+        month_start=pd.Timestamp("2024-02-01").date(),
+        bars=template.iloc[1:2].reset_index(drop=True),
+        pending=template.iloc[:1].reset_index(drop=True),
+        uncovered=(
+            UncoveredProductDay(
+                trade_date=pd.Timestamp("2024-02-05").date(),
+                product="AP",
+                contract="AP805.CZC",
+                reason="metadata_multiplier",
+            ),
+        ),
+    )
+
+    def fail_later(**kwargs):
+        yield january
+        raise RuntimeError("later-month failure")
+
+    monkeypatch.setattr(builder_module, "iter_panel_months", fail_later)
+    checkpoint = tmp_path / "uncovered-checkpoint"
+    arguments = dict(
+        contexts={},
+        source=object(),
+        pricing_basis_by_exchange={},
+        multiplier_resolver=lambda candidate, frame, **_: 10,
+        adjustment_factor_by_key={},
+        continuity_segment_by_key={},
+        checkpoint_directory=checkpoint,
+        checkpoint_key="d" * 64,
+    )
+    with pytest.raises(RuntimeError, match="later-month failure"):
+        _build_panel_checkpointed(**arguments)
+
+    def resume(**kwargs):
+        yield february
+
+    monkeypatch.setattr(builder_module, "iter_panel_months", resume)
+    _bars, uncovered = _build_panel_checkpointed(**arguments)
+
+    assert uncovered == (*january.uncovered, *february.uncovered)
+
+
+def test_the_roll_manifest_describes_only_the_latest_pricing_pass(tmp_path):
+    """覆盖定稿后换月会重算 —— 上一遍留下的清单必须跟着消失。
+
+    否则落盘的 CSV 与 bundle manifest 申报的 `unpriceable_roll_keys` 各说各话，而这
+    两者对不上正是「悄悄少了一笔」与「按规矩跳过」唯一的区分手段。
+    """
+    from scripts.commodity.build_panel import _write_roll_manifest
+
+    skipped = (
+        {
+            "trade_date": ROLL_DATES[1],
+            "product": "RB",
+            "old_contract": "RB2405.SHF",
+            "new_contract": "RB2410.SHF",
+            "unpriceable_leg": "RB2405.SHF",
+        },
+    )
+    manifest = _write_roll_manifest(tmp_path, skipped)
+
+    assert manifest.read_text(encoding="utf-8").splitlines()[1:] == [
+        "2024-03-06,RB,RB2405.SHF,RB2410.SHF,RB2405.SHF"
+    ]
+    assert _write_roll_manifest(tmp_path, ()) is None
+    assert not manifest.exists()
+
+
+UNCOVERED_ROLL_WEEK = (
+    pd.Timestamp("2024-03-05").date(),
+    pd.Timestamp("2024-03-06").date(),
+    pd.Timestamp("2024-03-07").date(),
+    pd.Timestamp("2024-03-08").date(),
+)
+
+
+class _SessionSource:
+    """每个候选都按**它自己那天**的时段出行 —— 面板要的是逐日的帧。"""
+
+    def __init__(self, contexts, prices):
+        self.contexts = contexts
+        self.prices = dict(prices)
+
+    def iter_month(self, candidates, lower, upper):
+        frames = []
+        for candidate in candidates:
+            context = self.contexts[(candidate.trade_date, candidate.product)]
+            frames.append(
+                _roll_minute_frame(
+                    candidate, context.slots, self.prices[candidate.daily_contract]
+                )
+            )
+        if frames:
+            yield pd.concat(frames, ignore_index=True)
+
+
+def _uncovered_week_choices():
+    """03-06 起换到新主力，而 03-07 那天面板不覆盖（BR 2026-01-08 的形状）。"""
+    contracts = ("RB2405.SHF", "RB2405.SHF", "RB2410.SHF", "RB2410.SHF")
+    return tuple(
+        DominantChoice(
+            trade_date=day,
+            product="RB",
+            contract=contract,
+            oi=100 + index,
+            volume=90 + index,
+            selected_from=day,
+        )
+        for index, (day, contract) in enumerate(zip(UNCOVERED_ROLL_WEEK, contracts))
+    )
+
+
+def _uncovered_week_bundle(*, uncovered):
+    from scripts.commodity.build_panel import _dominant_frame
+
+    choices = _uncovered_week_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    covered = {
+        key: context
+        for key, context in contexts.items()
+        if key not in frozenset({(UNCOVERED_ROLL_WEEK[2], "RB")})
+    }
+    prices = {"RB2405.SHF": 100.0, "RB2410.SHF": 200.0}
+    fills, skipped = build_roll_fills(
+        choices=choices,
+        contexts=covered,
+        uncovered=uncovered,
+        source=_SessionSource(contexts, prices),
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+        multiplier_resolver=lambda candidate, frame, **_: 10,
+    )
+    assert skipped == ()
+    raw_bars = build_commodity_panel(
+        contexts=covered,
+        source=_SessionSource(contexts, prices),
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+        multiplier_resolver=lambda candidate, frame, **_: 10,
+        adjustment_factor_by_key={key: 1.0 for key in covered},
+        continuity_segment_by_key={key: 0 for key in covered},
+    )
+    factors = {key: 1.0 for key in covered}
+    dominants = _dominant_frame(choices, contexts=covered, factor_by_key=factors)
+    return {
+        "bars": _bundle_bars(raw_bars, contexts=covered, dominants=dominants),
+        "universes": normalise_bundle_table(
+            "universes",
+            pd.DataFrame(
+                {
+                    "month_start": [pd.Timestamp("2024-03-01").date()],
+                    "product": ["RB"],
+                }
+            ),
+        ),
+        "dominants": dominants,
+        "roll_fills": fills,
+    }
+
+
+def test_a_roll_that_fell_on_an_uncovered_day_still_writes_a_valid_bundle(tmp_path):
+    """整条链走一遍：剔掉换月当天之后，bundle 仍要收得下这四张表。
+
+    零件各自的单测都绿过，串起来才现形 —— 旧实现在这里发不出成交单，写 bundle 的
+    最后一步报 `bundle_relationship ... undeclared`，八小时的全历史跑到此作废。
+    """
+    written = write_bundle(
+        tmp_path,
+        **_uncovered_week_bundle(uncovered=frozenset({(UNCOVERED_ROLL_WEEK[2], "RB")})),
+    )
+
+    assert [
+        (row.trade_date, row.old_contract, row.new_contract)
+        for row in written.roll_fills.itertuples(index=False)
+    ] == [(pd.Timestamp(UNCOVERED_ROLL_WEEK[3]), "RB2405.SHF", "RB2410.SHF")]
+    assert set(pd.to_datetime(written.dominants["trade_date"]).dt.date) == {
+        UNCOVERED_ROLL_WEEK[1],
+        UNCOVERED_ROLL_WEEK[3],
+    }
+
+
+def test_a_roll_lost_on_an_uncovered_day_is_refused_by_the_bundle(tmp_path):
+    """前态仍取自被剔掉的那天 ⇒ 换月在链上凭空消失 ⇒ bundle 当场拒收。"""
+    with pytest.raises(ValueError, match="bundle_relationship"):
+        write_bundle(tmp_path, **_uncovered_week_bundle(uncovered=frozenset()))

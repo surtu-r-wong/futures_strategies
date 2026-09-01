@@ -149,6 +149,19 @@ class MinuteDataError(ValueError):
         super().__init__(message)
 
 
+#: 「证据不足以定出乘数」的三种结局。2025-12-22 之前合约乘数没有任何元数据，只能
+#: 从日线周转倒推或从分钟推断，而推断要跨多个交易日取样、对郑商所（合成 amount）
+#: 干脆无效。这三个 check 都表示**证据说不出话**，与"数据结构不对"或"口径错了"
+#: 不同 —— 调用方据此决定兜底（同品种兄弟合约）或不覆盖该品种日，其余一律硬失败。
+UNRESOLVED_MULTIPLIER_CHECKS = frozenset(
+    {
+        "contract_multiplier_sample",
+        "metadata_multiplier",
+        "daily_turnover_multiplier",
+    }
+)
+
+
 @dataclass(frozen=True)
 class _ClockContext:
     trade_date: date | None

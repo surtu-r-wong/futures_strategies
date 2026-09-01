@@ -33,6 +33,7 @@ from pathlib import Path
 import pandas as pd
 
 from common.minute.bars import (
+    UNRESOLVED_MULTIPLIER_CHECKS,
     MinuteDataError,
     aggregate_fifteen_minute_bar,
     five_minute_vwap,
@@ -284,12 +285,23 @@ class SessionContext:
 
 
 @dataclass(frozen=True)
+class UncoveredProductDay:
+    """一个形不成 bar 的品种日：乘数定不出来 ⇒ 定不出价 ⇒ 面板不覆盖。"""
+
+    trade_date: date
+    product: str
+    contract: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class PanelMonthChunk:
     """Finalized bars plus the small pending-fill state after one month."""
 
     month_start: date
     bars: pd.DataFrame
     pending: pd.DataFrame
+    uncovered: tuple[UncoveredProductDay, ...] = ()
 
 
 def context_choices_for_month(
@@ -509,11 +521,17 @@ def iter_panel_months(
     continuity_segment_by_key: Mapping[tuple[date, str], int],
     resume_after: date | None = None,
     initial_pending: pd.DataFrame | None = None,
+    drop_unformable_days: bool = False,
 ):
     """Yield finalized monthly bars and the small resumable pending state.
 
     ⚠️ 授权资产登记过的「归档本来就没有这一天」在**上下文构造**时就被剔除了
     （`build_panel._target_contexts`），所以这里见到的空帧一律是"数据丢了"，硬失败。
+
+    ``drop_unformable_days`` 声明面板的覆盖口径：乘数在这一天定不出来时，这个品种日
+    **形不成 bar**，于是面板不覆盖它 —— 不产出行、记进 ``chunk.uncovered``、由调用方
+    落盘。合成一个乘数就是编价格，中止则让整段历史因为一个死盘品种而做不出来。默认
+    仍然硬失败：不覆盖是调用方明确声明的口径，不是随手的容错。
     """
     if not contexts:
         return
@@ -598,15 +616,33 @@ def iter_panel_months(
                 else month
             )
 
+        uncovered: list[UncoveredProductDay] = []
         for key in month_keys:
             context = contexts[key]
             candidate = context.candidate
             symbol = candidate.minute_symbol
             frame = context_frames[key]
             basis = pricing_basis_by_exchange.get(candidate.exchange, "amount_vwap")
-            multiplier = multiplier_resolver(
-                candidate, frame, inference_frame=inference_frames[key]
-            )
+            try:
+                multiplier = multiplier_resolver(
+                    candidate, frame, inference_frame=inference_frames[key]
+                )
+            except MinuteDataError as exc:
+                if not drop_unformable_days or (
+                    exc.check not in UNRESOLVED_MULTIPLIER_CHECKS
+                ):
+                    raise
+                # 证据说不出乘数 ⇒ 这一天的每一根 bar 都定不出价。挂着的成交价不动，
+                # 它会在下一个**被覆盖的**时段上兑现。
+                uncovered.append(
+                    UncoveredProductDay(
+                        trade_date=candidate.trade_date,
+                        product=candidate.product,
+                        contract=candidate.daily_contract,
+                        reason=exc.check,
+                    )
+                )
+                continue
 
             product = candidate.product
             waiting = pending.pop(product, None)
@@ -659,6 +695,7 @@ def iter_panel_months(
             month_start=month_start,
             bars=bars,
             pending=pending_frame,
+            uncovered=tuple(uncovered),
         )
 
 

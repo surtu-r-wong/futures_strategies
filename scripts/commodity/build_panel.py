@@ -42,6 +42,7 @@ from common.commodity.dominant import choose_dominant_commodity  # noqa: E402
 from common.commodity.panel import (
     require_session_coverage,  # noqa: E402
     FILL_MINUTES,
+    UncoveredProductDay,
     build_contexts,
     context_choices_for_month,
     iter_panel_months,
@@ -56,6 +57,7 @@ from common.commodity.universe import (  # noqa: E402
 from common.config import load_config, resolve_settings_path  # noqa: E402
 from common.db import get_connection, pg_config_from  # noqa: E402
 from common.minute.bars import (  # noqa: E402
+    UNRESOLVED_MULTIPLIER_CHECKS,
     infer_contract_multiplier,
     MinuteDataError,
     _range_diagnostics,
@@ -958,7 +960,7 @@ def _metadata_multiplier_resolution(
             pricing_basis=pricing_basis_by_exchange[candidate.exchange],
         )
     except MinuteDataError as exc:
-        if getattr(exc, "check", None) not in _UNRESOLVED_MULTIPLIER:
+        if getattr(exc, "check", None) not in UNRESOLVED_MULTIPLIER_CHECKS:
             raise
         resolved = _sibling_multiplier(sample, candidate)
         if resolved is None:
@@ -1207,32 +1209,31 @@ def _contract_changed(previous, current) -> bool:
 
 
 def _roll_events(
-    choices: Sequence[object], contexts: Mapping[tuple[date, str], object]
+    choices: Sequence[object],
+    contexts: Mapping[tuple[date, str], object],
+    *,
+    uncovered: frozenset[tuple[date, str]] = frozenset(),
 ):
+    """面板看得见的那条链上的换月 —— 不覆盖的品种日既不发事件，也不当前态。
+
+    bundle 的换月期望是从 `dominants` 反推的，而那张表只有被覆盖的品种日。前态若仍
+    取自一个剔掉的日子，链在**这里**看是"合约没变"，在 bundle 看却是换了 —— 那次
+    换月于是一张成交单都发不出，整跑在写 bundle 的最后一步作废。转移顺延到下一个
+    看得见的交易日按常规定价；旧腿那时若已退市，照旧走「窗口零成交 ⇒ 不发单」。
+    """
     previous_by_product: dict[str, object] = {}
     events = []
     for current in sorted(choices, key=lambda item: (item.trade_date, item.product)):
+        key = (current.trade_date, current.product)
+        if key in uncovered:
+            continue
         previous = previous_by_product.get(current.product)
         previous_by_product[current.product] = current
-        if previous is None or (current.trade_date, current.product) not in contexts:
+        if previous is None or key not in contexts:
             continue
         if _contract_changed(previous, current):
-            events.append(
-                (previous, current, contexts[(current.trade_date, current.product)])
-            )
+            events.append((previous, current, contexts[key]))
     return events
-
-
-#: 换月阶段解析不出乘数的三种结局。元数据缺档时只能靠分钟推断，而推断要跨多个交易日
-#: 取样；换月只请求换月当天，因此这里注定推不出来 —— 与「窗口零成交」一样，结果是这条
-#: 腿定不出价。bars 阶段用整月的行做同样的解析，那里仍然硬失败。
-_UNRESOLVED_MULTIPLIER = frozenset(
-    {
-        "contract_multiplier_sample",
-        "metadata_multiplier",
-        "daily_turnover_multiplier",
-    }
-)
 
 
 def _roll_candidate(choice, context, *, role: str) -> MinuteCandidate:
@@ -1270,6 +1271,7 @@ def build_roll_fills(
     source,
     pricing_basis_by_exchange: Mapping[str, str],
     multiplier_resolver,
+    uncovered: frozenset[tuple[date, str]] = frozenset(),
 ) -> tuple[pd.DataFrame, tuple[dict[str, object], ...]]:
     """Price both concrete legs of every in-scope roll in one bounded batch/month.
 
@@ -1282,7 +1284,7 @@ def build_roll_fills(
     其余任何定价失败仍然硬失败（乘数、定价基准、分钟行结构）—— 那是缺数据或口径
     错误，不是「没有市场」。
     """
-    events = _roll_events(choices, contexts)
+    events = _roll_events(choices, contexts, uncovered=uncovered)
     if not events:
         return (
             normalise_bundle_table(
@@ -1371,7 +1373,7 @@ def build_roll_fills(
                 try:
                     multiplier = multiplier_resolver(candidate, frame)
                 except MinuteDataError as exc:
-                    if getattr(exc, "check", None) not in _UNRESOLVED_MULTIPLIER:
+                    if getattr(exc, "check", None) not in UNRESOLVED_MULTIPLIER_CHECKS:
                         raise ValueError(
                             "roll_fill_unpriceable: both raw dominant legs are "
                             f"required; {current.trade_date} {current.product} "
@@ -1381,8 +1383,9 @@ def build_roll_fills(
                     # 乘数定不出来 ⇒ 这条腿定不出价，与「窗口零成交」同一个结果：
                     # 不发单。元数据缺档时乘数只能从分钟推断，而推断要跨**多个交易日**
                     # 取样（`_select_multiplier_sample`），换月却只请求当天一段 ——
-                    # 聚丙烯上市第二周的换月就卡在这里。真正的把关在 bars 阶段：
-                    # 同一张合约在它当主力的那些天必须解析出乘数，否则整跑照样失败。
+                    # 聚丙烯上市第二周的换月就卡在这里（PP1405 在 bars 阶段用整月
+                    # 的行解析得出来，所以只是这一次转移发不出单）。bars 阶段用同样
+                    # 的证据再解析一次：那里仍解不出来的，整个品种日不进面板。
                     unpriceable = {
                         "trade_date": current.trade_date,
                         "product": current.product,
@@ -1434,6 +1437,48 @@ def build_roll_fills(
         ),
         tuple(sorted(skipped, key=lambda row: (row["trade_date"], row["product"]))),
     )
+
+
+def _write_roll_manifest(output_dir: Path, skipped: Sequence[Mapping[str, object]]):
+    """跳过的换月一次报全 —— 条数与键都要能与 bundle 的申报对上。
+
+    清单描述的是**这一次**换月的结果：覆盖定稿后换月会重算，上一遍留下的文件必须
+    跟着消失，否则落盘的清单与 manifest 申报的条数各说各话。
+    """
+    manifest = output_dir / "roll-fill-unpriceable.csv"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    if not skipped:
+        manifest.unlink(missing_ok=True)
+        print("unpriceable rolls: 0", flush=True)
+        return None
+    with manifest.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            [
+                "trade_date",
+                "product",
+                "old_contract",
+                "new_contract",
+                "unpriceable_leg",
+            ]
+        )
+        for row in skipped:
+            writer.writerow(
+                [
+                    row["trade_date"].isoformat(),
+                    row["product"],
+                    row["old_contract"],
+                    row["new_contract"],
+                    row["unpriceable_leg"],
+                ]
+            )
+    products = sorted({row["product"] for row in skipped})
+    print(
+        f"unpriceable rolls: {len(skipped)} across {len(products)} products "
+        f"({' '.join(products)}); manifest={manifest}",
+        flush=True,
+    )
+    return manifest
 
 
 def _bundle_bars(
@@ -1642,19 +1687,29 @@ def _target_contexts(
        主力选择里这样的有 2,120 条（1.3%），集中在 WR/FU/B/SM/SF 这些薄或已死的品种。
        这是 D11「发出去的那一天自己必须有成交」在**合约**这一层的落实 —— 主力链本身
        不动（它与连续信号那条线共用，那份面板已验收）。
+
+    第三个返回值是**不覆盖的品种日键集**。换月阶段要拿它认前态：bundle 的换月期望是
+    从 `dominants`（只有被覆盖的品种日）反推的，前态若取自一个剔掉的日子，换月就会
+    在链上凭空消失。
     """
     contexts = {}
     untraded: list[tuple[date, str, str]] = []
+    uncovered: set[tuple[date, str]] = set()
     for month in _months(start, end):
         selected = context_choices_for_month(choices, month_start=month)
         monthly = build_contexts(selected, rules=rules, month=month)
         for key, context in monthly.items():
             candidate = context.candidate
+            # 窗口之外的那些不是「不覆盖」，是不在范围 —— 换月的前态照旧认它们
+            # （bundle 允许保留区间首日的成交单指向窗口外的主力）。
+            in_scope = start <= key[0] <= end and _month_start(key[0]) == month
             if (
                 candidate.exchange,
                 candidate.product,
                 candidate.trade_date,
             ) in absent_product_days:
+                if in_scope:
+                    uncovered.add((candidate.trade_date, candidate.product))
                 continue
             if (
                 traded_contract_days is not None
@@ -1664,10 +1719,12 @@ def _target_contexts(
                 untraded.append(
                     (candidate.trade_date, candidate.product, candidate.daily_contract)
                 )
+                if in_scope:
+                    uncovered.add((candidate.trade_date, candidate.product))
                 continue
-            if start <= key[0] <= end and _month_start(key[0]) == month:
+            if in_scope:
                 contexts[key] = context
-    return contexts, tuple(sorted(untraded))
+    return contexts, tuple(sorted(untraded)), frozenset(uncovered)
 
 
 def _contexts_sha256(contexts: Mapping[tuple[date, str], object]) -> str:
@@ -1698,7 +1755,7 @@ def _reliable_end(rules) -> date:
     return max(ends)
 
 
-_CHECKPOINT_VERSION = 1
+_CHECKPOINT_VERSION = 2
 _CHECKPOINT_MANIFEST = "checkpoint.json"
 _CHECKPOINT_SHA256 = re.compile(r"[0-9a-f]{64}")
 _CHECKPOINT_LOCKS_GUARD = threading.Lock()
@@ -1727,6 +1784,47 @@ def _checkpoint_frame(frame: pd.DataFrame, path: Path) -> dict[str, str]:
     with path.open("rb") as handle:
         os.fsync(handle.fileno())
     return {"filename": path.name, "sha256": _file_sha256(path)}
+
+
+def _checkpoint_uncovered(rows) -> list[dict[str, str]]:
+    return [
+        {
+            "trade_date": row.trade_date.isoformat(),
+            "product": str(row.product),
+            "contract": str(row.contract),
+            "reason": str(row.reason),
+        }
+        for row in rows
+    ]
+
+
+def _restore_checkpoint_uncovered(payload: object) -> tuple[UncoveredProductDay, ...]:
+    if type(payload) is not list:
+        raise ValueError("panel_checkpoint_invalid: uncovered inventory")
+    restored = []
+    for row in payload:
+        if type(row) is not dict or set(row) != {
+            "trade_date",
+            "product",
+            "contract",
+            "reason",
+        }:
+            raise ValueError("panel_checkpoint_invalid: uncovered entry shape")
+        if any(type(value) is not str for value in row.values()):
+            raise ValueError("panel_checkpoint_invalid: uncovered entry value")
+        try:
+            trade_date = date.fromisoformat(row["trade_date"])
+        except ValueError as exc:
+            raise ValueError("panel_checkpoint_invalid: uncovered entry date") from exc
+        restored.append(
+            UncoveredProductDay(
+                trade_date=trade_date,
+                product=row["product"],
+                contract=row["contract"],
+                reason=row["reason"],
+            )
+        )
+    return tuple(restored)
 
 
 def _checkpoint_manifest_write(directory: Path, payload: Mapping[str, object]) -> None:
@@ -1932,8 +2030,10 @@ def _checkpoint_open(
             "month_start",
             "bars",
             "pending",
+            "uncovered",
         }:
             raise ValueError("panel_checkpoint_invalid: completed entry shape")
+        _restore_checkpoint_uncovered(entry["uncovered"])
         try:
             month_start = date.fromisoformat(entry["month_start"])
         except (TypeError, ValueError) as exc:
@@ -1968,12 +2068,16 @@ def _build_panel_checkpointed_locked(
     checkpoint_directory: str | Path,
     checkpoint_key: str,
     checkpoint_state_objects: Mapping[str, object] | None = None,
-) -> pd.DataFrame:
+    drop_unformable_days: bool = False,
+) -> tuple[pd.DataFrame, tuple[UncoveredProductDay, ...]]:
     """Stage finalized months and resume after the last atomic checkpoint.
 
     Only the current month's rows and one pending row per product live in the
     panel iterator. Final concatenation reads staged Parquet after all source
     work succeeds, preserving the legacy DataFrame result for bundle validation.
+
+    不覆盖的品种日与 bar 一起过 checkpoint：它决定面板的覆盖口径，续跑之后少一条就会
+    有一个「有主力行、没有 bar」的品种日活到写 bundle 那一刻。
     """
     directory = Path(checkpoint_directory)
     states = dict(checkpoint_state_objects or {})
@@ -1997,6 +2101,7 @@ def _build_panel_checkpointed_locked(
         continuity_segment_by_key=continuity_segment_by_key,
         resume_after=resume_after,
         initial_pending=initial_pending,
+        drop_unformable_days=drop_unformable_days,
     ):
         month_label = chunk.month_start.strftime("%Y-%m")
         generation = hashlib.sha256(
@@ -2020,6 +2125,7 @@ def _build_panel_checkpointed_locked(
             "month_start": chunk.month_start.isoformat(),
             "bars": bars_declaration,
             "pending": pending_declaration,
+            "uncovered": _checkpoint_uncovered(chunk.uncovered),
         }
         next_states = {
             name: state.checkpoint_state() for name, state in sorted(states.items())
@@ -2046,6 +2152,11 @@ def _build_panel_checkpointed_locked(
         )
         for entry in payload["completed"]
     ]
+    uncovered = tuple(
+        row
+        for entry in payload["completed"]
+        for row in _restore_checkpoint_uncovered(entry["uncovered"])
+    )
     if payload["pending"] is not None:
         frames.append(
             normalise_panel(
@@ -2055,11 +2166,16 @@ def _build_panel_checkpointed_locked(
             )
         )
     if not frames:
-        return normalise_panel(pd.DataFrame(columns=list(TABLE_SCHEMAS["bars"])))
-    return normalise_panel(pd.concat(frames, ignore_index=True))
+        return (
+            normalise_panel(pd.DataFrame(columns=list(TABLE_SCHEMAS["bars"]))),
+            uncovered,
+        )
+    return normalise_panel(pd.concat(frames, ignore_index=True)), uncovered
 
 
-def _build_panel_checkpointed(**kwargs) -> pd.DataFrame:
+def _build_panel_checkpointed(
+    **kwargs,
+) -> tuple[pd.DataFrame, tuple[UncoveredProductDay, ...]]:
     directory = Path(kwargs["checkpoint_directory"])
     with _panel_checkpoint_lock(directory):
         return _build_panel_checkpointed_locked(**kwargs)
@@ -2245,7 +2361,7 @@ def main(argv: list[str] | None = None) -> int:
         ].itertuples(index=False, name=None)
         if float(volume or 0.0) > 0.0
     )
-    contexts, untraded_dominants = _target_contexts(
+    contexts, untraded_dominants, uncovered_keys = _target_contexts(
         choices=choices,
         rules=rules,
         start=args.start,
@@ -2321,51 +2437,26 @@ def main(argv: list[str] | None = None) -> int:
     ).hexdigest()
     checkpoint_directory = args.output_dir / ".panel-checkpoint"
 
-    source.set_phase("roll_fills")
-    multiplier_resolver.set_phase("roll_fills")
-    roll_fills, unpriced_rolls = build_roll_fills(
-        choices=choices,
-        contexts=contexts,
-        source=source,
-        pricing_basis_by_exchange=basis_by_exchange,
-        multiplier_resolver=multiplier_resolver,
-    )
-    # 换月阶段一次跑完全部换月，所以跳过的那些在长跑的分钟阶段之前就报全了 ——
-    # 不再一次炸一条。清单落 CSV，计数进 manifest。
-    if unpriced_rolls:
-        roll_manifest = Path(args.output_dir) / "roll-fill-unpriceable.csv"
-        roll_manifest.parent.mkdir(parents=True, exist_ok=True)
-        with roll_manifest.open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(
-                [
-                    "trade_date",
-                    "product",
-                    "old_contract",
-                    "new_contract",
-                    "unpriceable_leg",
-                ]
-            )
-            for row in unpriced_rolls:
-                writer.writerow(
-                    [
-                        row["trade_date"].isoformat(),
-                        row["product"],
-                        row["old_contract"],
-                        row["new_contract"],
-                        row["unpriceable_leg"],
-                    ]
-                )
-        rolled_products = sorted({row["product"] for row in unpriced_rolls})
-        print(
-            f"unpriceable rolls: {len(unpriced_rolls)} across "
-            f"{len(rolled_products)} products ({' '.join(rolled_products)}); "
-            f"manifest={roll_manifest}",
-            flush=True,
+    def _price_rolls():
+        source.set_phase("roll_fills")
+        multiplier_resolver.set_phase("roll_fills")
+        fills, skipped = build_roll_fills(
+            choices=choices,
+            contexts=contexts,
+            source=source,
+            pricing_basis_by_exchange=basis_by_exchange,
+            multiplier_resolver=multiplier_resolver,
+            uncovered=uncovered_keys,
         )
+        # 换月阶段一次跑完全部换月，所以跳过的那些在长跑的分钟阶段之前就报全了 ——
+        # 不再一次炸一条。清单落 CSV，计数进 manifest。
+        _write_roll_manifest(Path(args.output_dir), skipped)
+        return fills, skipped
+
+    roll_fills, unpriced_rolls = _price_rolls()
     source.set_phase("bars")
     multiplier_resolver.set_phase("bars")
-    raw_bars = _build_panel_checkpointed(
+    raw_bars, unformable = _build_panel_checkpointed(
         contexts=contexts,
         source=source,
         pricing_basis_by_exchange=basis_by_exchange,
@@ -2379,7 +2470,53 @@ def main(argv: list[str] | None = None) -> int:
             "minute": source,
             "multiplier": multiplier_resolver,
         },
+        drop_unformable_days=True,
     )
+    # 乘数解不出来的品种日形不成 bar，面板不覆盖（用户 2026-09-01 裁决 C）。覆盖是
+    # 这一刻才定稿的，所以换月要按定稿后的链重算一遍：bundle 的换月期望是从
+    # `dominants` 反推的，剔掉的那天若正好是换月日，转移会顺延到下一个覆盖日。
+    unformable_manifest = Path(args.output_dir) / "bar-unformable.csv"
+    unformable_manifest.parent.mkdir(parents=True, exist_ok=True)
+    if not unformable:
+        # 清单描述这一次的产出：上一次尝试留下的文件不能还躺在输出目录里。
+        unformable_manifest.unlink(missing_ok=True)
+    else:
+        with unformable_manifest.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["trade_date", "product", "contract", "reason"])
+            for row in unformable:
+                writer.writerow(
+                    [
+                        row.trade_date.isoformat(),
+                        row.product,
+                        row.contract,
+                        row.reason,
+                    ]
+                )
+        unformable_products = sorted({row.product for row in unformable})
+        print(
+            f"unformable product-days dropped: {len(unformable)} across "
+            f"{len(unformable_products)} products "
+            f"({' '.join(unformable_products)}); manifest={unformable_manifest}",
+            flush=True,
+        )
+        unformable_keys = frozenset((row.trade_date, row.product) for row in unformable)
+        contexts = {
+            key: context
+            for key, context in contexts.items()
+            if key not in unformable_keys
+        }
+        if not contexts:
+            raise ValueError(
+                "panel_contexts_empty: every dominant session is unformable"
+            )
+        uncovered_keys = uncovered_keys | unformable_keys
+        roll_fills, unpriced_rolls = _price_rolls()
+        print(
+            f"rolls repriced on the covered chain: {len(roll_fills)} filled, "
+            f"{len(unpriced_rolls)} skipped",
+            flush=True,
+        )
     dominants = _dominant_frame(choices, contexts=contexts, factor_by_key=factor_by_key)
     bars = _bundle_bars(raw_bars, contexts=contexts, dominants=dominants)
     universes = _universe_frame(products_by_month)
@@ -2411,6 +2548,12 @@ def main(argv: list[str] | None = None) -> int:
             "unpriceable_roll_keys": [
                 f"{row['trade_date']:%Y-%m-%d}/{row['product']}"
                 for row in unpriced_rolls
+            ],
+            # 面板不覆盖的品种日：形不成 bar（乘数解不出来）的那一类。归档缺日与
+            # 未成交主力两类由各自的资产/清单申报，都不在 bundle 的换月校验里。
+            "unformable_product_days": len(unformable),
+            "unformable_product_day_keys": [
+                f"{row.trade_date:%Y-%m-%d}/{row.product}" for row in unformable
             ],
         },
         provenance={
