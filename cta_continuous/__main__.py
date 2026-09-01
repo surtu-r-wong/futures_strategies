@@ -124,6 +124,7 @@ def _params(args, *, ema_short, ema_long, tnr_window, ma_orientation, tnr_sign):
         dtnr_mode=args.dtnr_mode,
         exit_gates=args.exit_gates,
         rebalance=args.rebalance,
+        signal_tier=args.signal_tier,
         min_observations=args.min_observations,
     )
 
@@ -187,6 +188,7 @@ def _summary_row(label: str, params: BacktestParams, result) -> dict:
         "dtnr_mode": params.dtnr_mode,
         "exit_gates": params.exit_gates,
         "rebalance": params.rebalance,
+        "signal_tier": params.signal_tier,
         "cost_bps": params.cost_bps,
     }
     for name in ("full", "in_sample", "out_of_sample"):
@@ -240,6 +242,14 @@ def main(argv: list[str] | None = None) -> int:
         default="slot",
         help="D22：多久重算一次权重。slot=每个事件（现状）/ daily / monthly / "
              "entry=开仓时点定死。只管再平衡，开平仓与展期任何节拍下都照常成交",
+    )
+    parser.add_argument(
+        "--signal-tier",
+        choices=("full", "crossover"),
+        default="full",
+        help="D23：跑哪一档。full=最终策略（四道闸 + U2P 强弱 + Lev_ATR×Mul_vol）/ "
+             "crossover=§2.1 的基线档（只有均线方向与距离走阔，满仓 ±1，无空仓、无杠杆），"
+             "即研报自报 13.06% / 夏普 1.03 的那一行",
     )
     parser.add_argument("--grid", action="store_true", help="跑 D9 的 9 个网格点 + 3 个反向对照")
     parser.add_argument("--cost-sensitivity", action="store_true", help="追加研报表 8 的三档成本")

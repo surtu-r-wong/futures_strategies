@@ -295,3 +295,89 @@ def test_position_path_rejects_an_exit_rule_it_does_not_know():
     with pytest.raises(ValueError) as caught:
         _path(_bars(2), exit_gates="trailing")
     assert str(caught.value).startswith("exit_gates:")
+
+
+# --- 研报基线档：EMA 均线穿越（§2.1） ---------------------------------------
+#
+# 「当短均线上穿长均线且二者距离走阔时，我们即选择开多仓（Signal=1）；当短均线下穿
+# 长均线且二者距离走阔时，即选择开空仓（Signal=-1）。策略没有空仓状态，在开仓之后，
+# 直到反向信号出现，则反手开仓。」——「每次均线穿越的过程不加以区分，均满仓开仓。」
+#
+# 这一档是研报**自报 13.06% / 夏普 1.03** 的对照基准，不含它自称的三级改进，所以
+# 也不该有 Lev_ATR 闸、ΔTNR 闸与 U2P 强弱。
+
+
+def _crossover(bars, **kwargs):
+    from cta_continuous.signals import crossover_path
+
+    return crossover_path(
+        short_above_long=[b["short_above_long"] for b in bars],
+        widening=[b["widening"] for b in bars],
+        **kwargs,
+    )
+
+
+def test_crossover_waits_for_the_gap_to_widen_before_the_first_entry():
+    bars = _bars(3, {0: {"widening": False}, 1: {"widening": False}})
+
+    path = _crossover(bars)
+
+    assert [signal.direction for signal in path] == [
+        Direction.FLAT, Direction.FLAT, Direction.LONG,
+    ]
+
+
+def test_crossover_opens_every_position_at_full_size():
+    """§2.1：「每次均线穿越的过程不加以区分，均满仓开仓」—— 没有信号强弱。"""
+    path = _crossover(_bars(3))
+
+    assert [signal.value for signal in path] == [1.0, 1.0, 1.0]
+
+
+def test_crossover_holds_through_a_narrowing_gap():
+    """「策略没有空仓状态」：走阔只是开仓触发，不走阔不构成离场。"""
+    bars = _bars(4, {2: {"widening": False}, 3: {"widening": False}})
+
+    path = _crossover(bars)
+
+    assert [signal.direction for signal in path] == [Direction.LONG] * 4
+
+
+def test_crossover_needs_a_widening_gap_to_flip():
+    """反手要的是**反向信号**，而反向信号同样要求距离走阔。"""
+    bars = _bars(3, {1: {"short_above_long": False, "widening": False},
+                     2: {"short_above_long": False}})
+
+    path = _crossover(bars)
+
+    assert path[0].direction is Direction.LONG
+    assert path[1].direction is Direction.LONG
+    assert path[2].direction is Direction.SHORT
+
+
+def test_crossover_reverses_straight_into_a_full_short():
+    bars = _bars(2, {1: {"short_above_long": False}})
+
+    path = _crossover(bars)
+
+    assert path[1].direction is Direction.SHORT
+    assert path[1].value == -1.0
+
+
+def test_crossover_takes_no_atr_or_noise_gate_arguments():
+    """基线不含研报自称的任何改进；那两道闸在签名里根本不该出现。"""
+    import inspect
+
+    from cta_continuous.signals import crossover_path
+
+    parameters = inspect.signature(crossover_path).parameters
+    assert "atr_leverage" not in parameters
+    assert "delta_tnr" not in parameters
+    assert "u2p" not in parameters
+
+
+def test_crossover_respects_the_ma_orientation_switch():
+    """D2 的对照口径对基线一样要能跑到。"""
+    path = _crossover(_bars(2), ma_orientation="reversed")
+
+    assert [signal.direction for signal in path] == [Direction.SHORT] * 2

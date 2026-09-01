@@ -580,3 +580,84 @@ def test_backtest_params_rejects_a_cadence_it_does_not_know():
     with pytest.raises(ValueError) as caught:
         BacktestParams(rebalance="hourly")
     assert str(caught.value).startswith("backtest_params: rebalance")
+
+
+# --- 研报基线档：EMA 均线穿越（§2.1，自报 13.06% / 夏普 1.03） ---------------
+
+
+def test_backtest_params_reject_a_signal_tier_they_do_not_know():
+    with pytest.raises(ValueError) as caught:
+        BacktestParams(signal_tier="momentum")
+
+    assert str(caught.value).startswith("backtest_params: signal_tier")
+
+
+def test_the_crossover_tier_holds_where_the_full_tier_goes_flat():
+    """基线没有空仓状态：闸不过的那几根，全档空仓、基线继续满仓持有。
+
+    同一条锯齿上，全档只在 i=8/10/12 三根开仓（上面那条用例钉死），基线从预热一满
+    就一路持有到底，且仓位恒为 ±1（「均满仓开仓」）。
+    """
+    params = replace(SIGNAL_PARAMS, signal_tier="crossover")
+
+    signals = product_signals(_price_panel(_zigzag(14)), params=params)
+
+    assert list(signals["direction"][:8]) == ["flat"] * 8
+    assert list(signals["direction"][8:]) == ["long"] * 6
+    assert [float(value) for value in signals["signal"][8:]] == [1.0] * 6
+
+
+def test_the_crossover_tier_is_not_scaled_by_leverage():
+    """基线不含 Lev_ATR 与 Mul_vol：权重就是等权份额乘 ±1。"""
+    rows = _series(product="RB", contract="RB2405.SHF", days=ALL_DAYS)
+    rows += _series(product="HC", contract="HC2405.SHF", days=ALL_DAYS, close=2000.0)
+    frame = _signals(rows)
+    params = replace(FAST, signal_tier="crossover")
+
+    result = run_backtest(frame, params=params, signals=frame)
+
+    positions = result.positions
+    assert set(positions["leverage"].round(12)) == {1.0}
+    assert positions["weight"].round(12).equals(
+        (positions["capital_share"] * positions["signal"]).round(12)
+    )
+
+
+def test_the_crossover_tier_does_not_wait_for_the_volatility_bootstrap():
+    """`Mul_vol` 的 252 日自举属于研报第三级改进；基线不该被它吃掉起手的一年。"""
+    rows = _series(product="RB", contract="RB2405.SHF", days=ALL_DAYS)
+    frame = _signals(rows)
+    never = replace(FAST, min_observations=10**6)
+
+    full = run_backtest(frame, params=never, signals=frame)
+    baseline = run_backtest(frame, params=replace(never, signal_tier="crossover"),
+                            signals=frame)
+
+    assert set(full.positions["weight"].round(12)) == {0.0}
+    assert (baseline.positions["weight"].abs() > 0.0).all()
+
+
+def test_the_crossover_tier_ignores_atr_leverage_everywhere():
+    """基线档不含 `Lev_ATR`：把它整列换掉，结果不该有任何一处变化。
+
+    ⚠️ 只看权重不够。`Lev_ATR` 还从**影子账**那条路径渗进换手成因分类
+    （影子跨零也算 SIGNAL），而成因决定粗节拍下这一笔放不放行。
+    """
+    params = replace(FAST, signal_tier="crossover", rebalance="entry")
+
+    def _run(atr_leverage):
+        rows = _series(product="RB", contract="RB2405.SHF", days=ALL_DAYS,
+                       atr_leverage=atr_leverage)
+        rows += _series(product="HC", contract="HC2405.SHF", days=ALL_DAYS,
+                        close=2000.0, atr_leverage=atr_leverage)
+        frame = _signals(rows)
+        return run_backtest(frame, params=params, signals=frame)
+
+    geared = _run(4.0)
+    ungeared = _run(0.0)
+
+    assert geared.daily.equals(ungeared.daily)
+    assert geared.executions.drop(columns=["cause"]).equals(
+        ungeared.executions.drop(columns=["cause"])
+    )
+    assert list(geared.executions["cause"]) == list(ungeared.executions["cause"])

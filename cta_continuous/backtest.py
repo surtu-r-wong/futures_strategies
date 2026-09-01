@@ -78,6 +78,7 @@ from cta_continuous.signals import (
     EXIT_RULES,
     Direction,
     gate_flags,
+    crossover_path,
     position_path,
 )
 
@@ -111,6 +112,13 @@ BUCKET_MINUTES = 15
 #: ⚠️ 粗节拍下等权不再随时成立：新品种进场时旧仓位不缩，总杠杆会漂。这是这条读法的
 #: 代价，不是实现缺陷。
 REBALANCE_CADENCES = ("slot", "daily", "monthly", "entry")
+
+#: 跑研报的哪一档（D23）。
+#:
+#: - ``"full"``：最终策略 —— 四道闸 + U2P 强弱 + `Lev_ATR` × `Mul_vol`。
+#: - ``"crossover"``：§2.1 的**基线档** —— 只有均线方向与距离走阔，满仓 ±1，
+#:   没有空仓状态，不乘任何杠杆。研报自报 13.06% / 夏普 1.03 的那一行。
+SIGNAL_TIERS = ("full", "crossover")
 
 _REQUIRED_COLUMNS = (
     "product",
@@ -151,6 +159,7 @@ class BacktestParams:
     dtnr_mode: str = "mean"
     exit_gates: str = "wide"
     rebalance: str = "slot"
+    signal_tier: str = "full"
     min_observations: int = TRADING_DAYS_PER_YEAR
 
     def __post_init__(self) -> None:
@@ -168,6 +177,10 @@ class BacktestParams:
         if self.rebalance not in REBALANCE_CADENCES:
             raise ValueError(
                 f"backtest_params: rebalance 只接受 {REBALANCE_CADENCES}；got {self.rebalance!r}"
+            )
+        if self.signal_tier not in SIGNAL_TIERS:
+            raise ValueError(
+                f"backtest_params: signal_tier 只接受 {SIGNAL_TIERS}；got {self.signal_tier!r}"
             )
         if self.exit_gates not in EXIT_RULES:
             raise ValueError(
@@ -274,21 +287,30 @@ def _segment_signals(frame: pd.DataFrame, *, params: BacktestParams) -> pd.DataF
     warm_flags = [
         index >= warmup and not math.isnan(dtnr[index]) for index in range(closes.size)
     ]
-    signals_path = position_path(
-        short_above_long=[bool(short[i] > long[i]) for i in range(closes.size)],
-        widening=[bool(widening[i]) and warm_flags[i] for i in range(closes.size)],
-        atr_leverage=[
-            leverages[i] if warm_flags[i] else 0.0 for i in range(closes.size)
-        ],
-        delta_tnr=[
-            float(dtnr[i]) if warm_flags[i] else float("-inf")
-            for i in range(closes.size)
-        ],
-        u2p=list(path),
-        tnr_sign=params.tnr_sign,
-        ma_orientation=params.ma_orientation,
-        exit_gates=params.exit_gates,
-    )
+    if params.signal_tier == "crossover":
+        # 基线档不看 Lev_ATR 与 ΔTNR，但**预热照旧**：两档必须从同一根 bar 起跑，
+        # 否则它们之间差的就不止研报说的那三样改进了。
+        signals_path = crossover_path(
+            short_above_long=[bool(short[i] > long[i]) for i in range(closes.size)],
+            widening=[bool(widening[i]) and warm_flags[i] for i in range(closes.size)],
+            ma_orientation=params.ma_orientation,
+        )
+    else:
+        signals_path = position_path(
+            short_above_long=[bool(short[i] > long[i]) for i in range(closes.size)],
+            widening=[bool(widening[i]) and warm_flags[i] for i in range(closes.size)],
+            atr_leverage=[
+                leverages[i] if warm_flags[i] else 0.0 for i in range(closes.size)
+            ],
+            delta_tnr=[
+                float(dtnr[i]) if warm_flags[i] else float("-inf")
+                for i in range(closes.size)
+            ],
+            u2p=list(path),
+            tnr_sign=params.tnr_sign,
+            ma_orientation=params.ma_orientation,
+            exit_gates=params.exit_gates,
+        )
     directions = [signal.direction.value for signal in signals_path]
     values = [signal.value for signal in signals_path]
 
@@ -544,13 +566,18 @@ def run_backtest(
         shadow_desired: dict[str, float] = {}
         for product in active:
             value = state[product]
-            leverage = (
-                0.0
-                if realized is None or not math.isfinite(value.close_adj)
-                else final_leverage(
-                    close=value.close_adj, atr=value.atr, realized_vol=realized
+            if params.signal_tier == "crossover":
+                # 基线档「均满仓开仓」：等权份额就是仓位，不乘 Lev_ATR、也不乘
+                # Mul_vol —— 连它那 252 日自举期一并不适用，否则会白丢起手一年。
+                leverage = 1.0
+            else:
+                leverage = (
+                    0.0
+                    if realized is None or not math.isfinite(value.close_adj)
+                    else final_leverage(
+                        close=value.close_adj, atr=value.atr, realized_vol=realized
+                    )
                 )
-            )
             desired[product] = share * leverage * value.signal
             shadow_desired[product] = share * value.atr_leverage * value.signal
             position_rows.append(

@@ -38,6 +38,7 @@ __all__ = [
     "EXIT_RULES",
     "ProbabilityPath",
     "Signal",
+    "crossover_path",
     "U2P_THRESHOLD",
     "gate_flags",
     "position_path",
@@ -253,4 +254,49 @@ def position_path(
             continue
         held = Direction.FLAT
         out.append(Signal(Direction.FLAT, 0.0))
+    return tuple(out)
+
+
+def crossover_path(
+    *,
+    short_above_long: Sequence[bool],
+    widening: Sequence[bool],
+    ma_orientation: str = "paper",
+) -> tuple[Signal, ...]:
+    """研报 §2.1 的**基线档**：EMA 均线穿越，满仓，没有空仓状态。
+
+        「当短均线上穿长均线且二者距离走阔时，我们即选择开多仓（Signal=1）；当短均线
+        下穿长均线且二者距离走阔时，即选择开空仓（Signal=-1）。策略没有空仓状态，
+        在开仓之后，直到反向信号出现，则反手开仓。」
+
+    它是研报自报 **13.06% / 夏普 1.03** 那一行的口径，不含研报自称的三级改进
+    （开仓时点信号强弱、信号持续度、已实现波动调整），所以这里既没有 `Lev_ATR`
+    与 ΔTNR 两道闸，也没有 U2P 强弱 —— 仓位只有 ±1。
+
+    「上穿」照 D5 判**状态**而非穿越事件：判据与 `position_path` 同源，否则两档之间
+    差的就不止是研报说的那三样了。
+    """
+    if ma_orientation not in ("paper", "reversed"):
+        raise ValueError(
+            "ma_orientation: 只接受 'paper'（§2.1 正文）或 'reversed'（§5.1 汇总框）；"
+            f"got {ma_orientation!r}"
+        )
+    if len(short_above_long) != len(widening):
+        raise ValueError(
+            "crossover_path_length: 两条序列长度必须相同；"
+            f"got {len(short_above_long)} 与 {len(widening)}"
+        )
+
+    out: list[Signal] = []
+    held = Direction.FLAT
+    for index in range(len(widening)):
+        bullish = (
+            bool(short_above_long[index])
+            if ma_orientation == "paper"
+            else not bool(short_above_long[index])
+        )
+        if widening[index]:
+            held = Direction.LONG if bullish else Direction.SHORT
+        value = 0.0 if held is Direction.FLAT else (1.0 if held is Direction.LONG else -1.0)
+        out.append(Signal(held, value))
     return tuple(out)

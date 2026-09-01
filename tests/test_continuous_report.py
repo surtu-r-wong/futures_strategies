@@ -103,10 +103,20 @@ def test_fidelity_ledger_lists_every_decision():
     assert list(ledger.columns) == ["id", "question", "ruling", "basis"]
     ids = list(ledger["id"])
     assert ids == [f"D{n}" for n in range(1, len(DECISIONS) + 1)]
-    assert len(ids) == 22
+    assert len(ids) == 23
     assert ledger["question"].str.len().min() > 0
     assert ledger["ruling"].str.len().min() > 0
     assert ledger["basis"].str.len().min() > 0
+
+
+def test_the_ledger_records_how_the_paper_baseline_is_built():
+    """基线档是研报自报 13.06% / 夏普 1.03 的对照基准，读者要能查到它怎么复刻的。"""
+    ledger = fidelity_ledger()
+
+    row = ledger.loc[ledger["id"] == "D23"].iloc[0]
+    assert "基线" in row["question"]
+    assert "满仓" in row["ruling"]
+    assert "§2.1" in row["basis"]
 
 
 def test_the_ledger_names_the_decisions_the_paper_contradicts_itself_on():

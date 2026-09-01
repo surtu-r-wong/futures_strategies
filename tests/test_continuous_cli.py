@@ -233,3 +233,16 @@ def test_cli_exposes_the_rebalance_cadence(tmp_path):
 
     summary = pd.read_csv(tmp_path / "cad-summary.csv")
     assert list(summary["rebalance"]) == ["entry"]
+
+
+def test_cli_exposes_the_paper_baseline_tier(tmp_path):
+    """D23：研报自报 13.06% / 夏普 1.03 的基线档要能直接从命令行跑到。"""
+    sessions = _sessions(tmp_path)
+    panel = _panel_dir(tmp_path, months=[date(2024, 1, 1), date(2024, 2, 1)])
+
+    assert main(
+        _argv(panel, sessions, tmp_path / "base", "--signal-tier", "crossover")
+    ) == 0
+
+    summary = pd.read_csv(tmp_path / "base-summary.csv")
+    assert list(summary["signal_tier"]) == ["crossover"]
