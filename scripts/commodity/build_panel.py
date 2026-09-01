@@ -7,6 +7,7 @@ Signal consumers apply the cached adjustment factor exactly once.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import csv
 from contextlib import contextmanager
 from dataclasses import fields, is_dataclass, replace
@@ -952,6 +953,42 @@ def _canonical_resolution_evidence(resolution: object) -> dict[str, object]:
     }
 
 
+def _day_vwap_corroborates(
+    frame: pd.DataFrame,
+    *,
+    minute_symbol: str,
+    multiplier: int,
+) -> float | None:
+    """整日总量反推的价落在当日价带内吗？落在里面就轮不到怀疑乘数。
+
+    豆油 Y2005 2020-02-03（春节后首个交易日、普遍跌停）：224 根成交 bar 里 68 根锁死，
+    逐 bar 反推价超出各自 [low, high]（中位相对误差 1.2e-3、最大 1.27e-2），逐 bar 通过率
+    只有 0.446；但当日总量反推 6060.77 稳稳落在当日 [6040, 6102] 内，日线记录也一致。
+
+    错乘数会差一个数量级，绝不可能落在带内 —— 所以当日总量佐证得了乘数，而逐 bar 的
+    成交额噪声由 `five_minute_vwap` 自己的区间校验逐窗口拒掉（记成 `fill_unpriceable`）。
+    """
+    traded = frame.loc[
+        (frame["symbol"] == minute_symbol)
+        & (pd.to_numeric(frame["volume"], errors="coerce") > 0)
+    ]
+    if traded.empty:
+        return None
+    volume = float(pd.to_numeric(traded["volume"], errors="coerce").fillna(0.0).sum())
+    amount = float(pd.to_numeric(traded["amount"], errors="coerce").fillna(0.0).sum())
+    low = float(pd.to_numeric(traded["low"], errors="coerce").min())
+    high = float(pd.to_numeric(traded["high"], errors="coerce").max())
+    if not (volume > 0.0 and amount > 0.0) or not math.isfinite(low + high):
+        return None
+    price = amount / volume / multiplier
+    if not math.isfinite(price):
+        return None
+    slack = 1e-6 * max(1.0, abs(low), abs(high))
+    if low - slack <= price <= high + slack:
+        return price
+    return None
+
+
 def _amount_disagrees_with_daily(
     frame: pd.DataFrame,
     *,
@@ -1206,31 +1243,54 @@ class CachingMetadataMultiplierResolver:
                         else 1.0
                     )
                     if pass_rate < 0.60:
+                        # 逐 bar 对不上时，先问当日总量，再问日线。两条都说不通才是
+                        # 乘数错了。记下来的两种形态都不合成任何价格：这一天的成交价
+                        # 照旧由 `five_minute_vwap` 的区间校验逐窗口裁决。
+                        declared = self._daily_turnover.get(
+                            (candidate.daily_contract, candidate.trade_date)
+                        )
+                        day_price = _day_vwap_corroborates(
+                            frame,
+                            minute_symbol=candidate.minute_symbol,
+                            multiplier=multiplier,
+                        )
                         observed = _amount_disagrees_with_daily(
                             frame,
                             minute_symbol=candidate.minute_symbol,
-                            declared_turnover=self._daily_turnover.get(
-                                (candidate.daily_contract, candidate.trade_date)
-                            ),
+                            declared_turnover=declared,
                         )
-                        if observed is None:
+                        if day_price is None and observed is None:
                             raise ValueError(
                                 "panel_multiplier_cached_conflict: local day evidence "
                                 f"contradicts contract={candidate.daily_contract!r} "
                                 f"trade_date={candidate.trade_date.isoformat()}"
                             ) from exc
-                        # 日线否掉的是这天的成交额，不是乘数。乘数照用，这一天的
-                        # 成交价由 `five_minute_vwap` 自己的区间校验拒掉。
                         self._amount_disagreements[
                             (candidate.daily_contract, candidate.trade_date)
                         ] = {
                             "trade_date": candidate.trade_date,
                             "product": candidate.product,
                             "contract": candidate.daily_contract,
-                            "minute_amount": observed,
-                            "daily_turnover": self._daily_turnover[
-                                (candidate.daily_contract, candidate.trade_date)
-                            ],
+                            "basis": (
+                                "day_vwap"
+                                if day_price is not None
+                                else "daily_turnover"
+                            ),
+                            "pass_rate": float(pass_rate),
+                            "minute_amount": (
+                                observed
+                                if observed is not None
+                                else float(
+                                    pd.to_numeric(traded["amount"], errors="coerce")
+                                    .fillna(0.0)
+                                    .sum()
+                                )
+                            ),
+                            "daily_turnover": (
+                                float(declared)
+                                if declared is not None
+                                else float("nan")
+                            ),
                         }
         return resolution
 
@@ -1276,6 +1336,8 @@ class CachingMetadataMultiplierResolver:
                     "trade_date": row["trade_date"].isoformat(),
                     "product": str(row["product"]),
                     "contract": str(row["contract"]),
+                    "basis": str(row["basis"]),
+                    "pass_rate": repr(float(row["pass_rate"])),
                     "minute_amount": repr(float(row["minute_amount"])),
                     "daily_turnover": repr(float(row["daily_turnover"])),
                 }
@@ -1297,6 +1359,8 @@ class CachingMetadataMultiplierResolver:
                 "trade_date",
                 "product",
                 "contract",
+                "basis",
+                "pass_rate",
                 "minute_amount",
                 "daily_turnover",
             }:
@@ -1306,6 +1370,8 @@ class CachingMetadataMultiplierResolver:
                 "trade_date": trade_date,
                 "product": str(row["product"]),
                 "contract": str(row["contract"]),
+                "basis": str(row["basis"]),
+                "pass_rate": float(row["pass_rate"]),
                 "minute_amount": float(row["minute_amount"]),
                 "daily_turnover": float(row["daily_turnover"]),
             }
@@ -2723,7 +2789,7 @@ def main(argv: list[str] | None = None) -> int:
     # 分钟成交额与日线对不上的品种日：bar 照常，成交价由区间校验拒掉。清单落盘，
     # 因为「安静时段没人成交」与「这天的成交额列坏了」是两回事。
     amount_disagreements = metadata_multiplier_resolver.amount_disagreements
-    amount_manifest = Path(args.output_dir) / "minute-amount-disagrees-with-daily.csv"
+    amount_manifest = Path(args.output_dir) / "minute-amount-anomalies.csv"
     amount_manifest.parent.mkdir(parents=True, exist_ok=True)
     if not amount_disagreements:
         amount_manifest.unlink(missing_ok=True)
@@ -2731,7 +2797,15 @@ def main(argv: list[str] | None = None) -> int:
         with amount_manifest.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(
-                ["trade_date", "product", "contract", "minute_amount", "daily_turnover"]
+                [
+                    "trade_date",
+                    "product",
+                    "contract",
+                    "basis",
+                    "bar_pass_rate",
+                    "minute_amount",
+                    "daily_turnover",
+                ]
             )
             for row in amount_disagreements:
                 writer.writerow(
@@ -2739,15 +2813,18 @@ def main(argv: list[str] | None = None) -> int:
                         row["trade_date"].isoformat(),
                         row["product"],
                         row["contract"],
+                        row["basis"],
+                        repr(float(row["pass_rate"])),
                         repr(float(row["minute_amount"])),
                         repr(float(row["daily_turnover"])),
                     ]
                 )
         disagreeing_products = sorted({row["product"] for row in amount_disagreements})
+        by_basis = Counter(str(row["basis"]) for row in amount_disagreements)
         print(
-            f"minute amount disagrees with daily: {len(amount_disagreements)} "
-            f"product-days across {len(disagreeing_products)} products "
-            f"({' '.join(disagreeing_products)}); manifest={amount_manifest}",
+            f"minute amount anomalies: {len(amount_disagreements)} product-days across "
+            f"{len(disagreeing_products)} products ({' '.join(disagreeing_products)}); "
+            f"basis={dict(sorted(by_basis.items()))}; manifest={amount_manifest}",
             flush=True,
         )
     dominants = _dominant_frame(choices, contexts=contexts, factor_by_key=factor_by_key)
@@ -2785,8 +2862,8 @@ def main(argv: list[str] | None = None) -> int:
             ],
             # 面板不覆盖的品种日：形不成 bar（乘数解不出来）的那一类。归档缺日与
             # 未成交主力两类由各自的资产/清单申报，都不在 bundle 的换月校验里。
-            "amount_disagrees_with_daily": len(amount_disagreements),
-            "amount_disagrees_with_daily_keys": [
+            "minute_amount_anomalies": len(amount_disagreements),
+            "minute_amount_anomaly_keys": [
                 f"{row['trade_date']:%Y-%m-%d}/{row['product']}"
                 for row in amount_disagreements
             ],

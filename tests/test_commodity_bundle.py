@@ -2602,3 +2602,23 @@ def test_a_roll_leg_whose_amount_disagrees_with_the_daily_record_books_no_fill()
 def test_a_roll_leg_priced_out_of_range_without_that_evidence_is_still_fatal():
     with pytest.raises(ValueError, match="roll_fill_unpriceable"):
         _roll_with_corrupt_amount({})
+
+
+def test_a_day_whose_own_vwap_fits_its_range_corroborates_the_multiplier():
+    """逐 bar 的成交额噪声不算"乘数被否定" —— 看当日总量。
+
+    豆油 Y2005 2020-02-03（春节后首个交易日，普遍跌停）：224 根成交 bar 里 68 根锁死，
+    逐 bar 反推价超出各自 [low,high]（中位相对误差 1.2e-3、最大 1.27e-2），逐 bar 通过率
+    只有 0.446；但**当日总量**反推 6060.77 稳稳落在当日 [6040, 6102] 内，日线记录也一致。
+    错乘数会差一个数量级，绝不可能落在带内 —— 所以当日总量佐证得了乘数，而逐 bar 的
+    噪声由 `five_minute_vwap` 自己的区间校验逐窗口拒掉（记成 `fill_unpriceable`）。
+    """
+    build, day, honest = _cached_conflict_setup()
+    resolver, candidate, corrupt = build({("RB2410.SHF", day): honest})
+    # 逐 bar 抬高/压低同样多：每一根都落到自己的 [low, high] 之外，而当日总量不变。
+    noisy = corrupt.copy()
+    noisy["amount"] = noisy["amount"] * 6.0 + [10.0, -10.0, 10.0, -10.0, 0.0]
+
+    assert float(noisy["amount"].sum()) == pytest.approx(honest)
+    assert resolver(candidate, noisy).multiplier == 10
+    assert [row["basis"] for row in resolver.amount_disagreements] == ["day_vwap"]
