@@ -142,7 +142,7 @@ def test_fidelity_contains_every_registered_rule() -> None:
     # fidelity_frame orders case-insensitively, so D comes before F.
     assert FIDELITY_RULE_IDS == (
         "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8",
-        "F1", "F10", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9",
+        "F1", "F10", "F11", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9",
     )
 
 
@@ -197,3 +197,30 @@ def test_the_faithful_run_keeps_the_latched_reading(tmp_path, result) -> None:
     fidelity = pd.read_excel(paths.xlsx, sheet_name="fidelity").set_index("rule_id")
     assert fidelity.loc["D6", "status"] == "preregistered_default"
     assert "锁存" in fidelity.loc["D6", "implementation"]
+
+
+def test_data_quality_counts_signals_cancelled_by_an_unavailable_fill() -> None:
+    """保真度 F11 的那个数：策略真正想调仓、却没有对手盘的次数。
+
+    与 `fill_unpriceable`（"这根 bar 的成交窗没人成交"）差着数量级 —— 后者在
+    菜籽油 2012 那种死盘上有 688 根，而真正被作废的信号只有个位数。验收文档要写
+    的是这一个。
+    """
+    import pandas as pd
+
+    from common.commodity.backtest import _data_quality
+
+    frame = pd.DataFrame(
+        {
+            "no_trade": [False, False, False, False],
+            "action": ["dow_entry", "fill_unavailable", "hold", "fill_unavailable"],
+        }
+    )
+
+    quality = _data_quality({"RB": frame}, [], {})
+
+    row = quality.loc[
+        quality["metric"] == "signals_cancelled_by_unavailable_fill"
+    ].iloc[0]
+    assert float(row["value"]) == 2.0
+    assert row["product"] == "RB"

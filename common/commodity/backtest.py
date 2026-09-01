@@ -1079,6 +1079,16 @@ def _data_quality(
                         "value": float(frame[column].sum()),
                     }
                 )
+        if "action" in frame.columns:
+            # `fill_unpriceable` 数的是"这根 bar 的成交窗没人成交"；这里数的是
+            # **策略真正想调仓却没成交**的次数（保真度 F11），两者差着数量级。
+            rows.append(
+                {
+                    "metric": "signals_cancelled_by_unavailable_fill",
+                    "product": product,
+                    "value": float((frame["action"] == "fill_unavailable").sum()),
+                }
+            )
         if "pricing_basis" in frame.columns:
             counts = frame.loc[~frame["no_trade"], "pricing_basis"].value_counts()
             for basis, count in counts.items():

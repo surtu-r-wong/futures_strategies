@@ -150,6 +150,22 @@ SHARED_FIDELITY_ROWS: tuple[dict[str, str], ...] = (
             "清单见 bundle 目录的 roll-fill-unpriceable.csv"
         ),
     },
+    {
+        "rule_id": "F11",
+        "paper_text": "信号触发后按下一个五分钟窗口的均价成交",
+        "implementation": (
+            "该窗口零成交时这次调仓不成交：仓位与状态都不变，下一根重新判定，"
+            "计入 data_quality 的 signals_cancelled_by_unavailable_fill"
+        ),
+        "basis": (
+            "研报未写没有对手盘时怎么办。那五分钟没人成交，这次转移完不成；顺延到"
+            "下一个成交窗口需要一个「最多顺延多久」的阈值，而剔品种或剔品种日都盖"
+            "不住它 —— 菜籽油 2012-12-26 全天仍成交 196 手，只是开盘那一窗无人"
+        ),
+        "status": "known_degradation",
+        "variant": "none",
+        "impact": "薄成交品种的部分信号不会成交；总数按品种记在 data_quality",
+    },
 )
 
 REPORT_SHEETS = (
