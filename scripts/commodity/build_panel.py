@@ -199,6 +199,9 @@ def _months(start: date, end: date):
 #: 郑商所日线代码的数字部分（`OI701.CZC` 三位、`OI1701.CZC` 四位）。
 _DAILY_CODE_DIGITS = re.compile(r"([0-9]+)\.")
 
+# 两个数据源把同一笔成交额各自舍入到元，最多差 1 元；再宽就不是舍入了。
+_TURNOVER_ROUNDING_YUAN = 1.0
+
 
 def _daily_code_rank(symbol: str) -> tuple[int, str]:
     """四位代码优先 —— 与分钟表的符号一致。"""
@@ -254,26 +257,73 @@ def _drop_duplicate_daily_spellings(frame: pd.DataFrame) -> tuple[pd.DataFrame, 
     if not duplicated.any():
         return frame, 0
     dropped: list[object] = []
+    repaired_closes: dict[object, float] = {}
     for key, group in subset.loc[resolved.loc[duplicated].index].groupby(
         resolved.loc[duplicated], sort=False
     ):
+        symbols = group["symbol"].astype(str)
+        traded = pd.to_numeric(group["volume"], errors="coerce").fillna(0.0).gt(0).any()
+        closes = pd.to_numeric(group["close"], errors="coerce")
+        real_closes = closes.loc[closes != 0].dropna() if traded else closes
         for column in ("oi", "volume", "turnover", "close"):
             values = pd.to_numeric(group[column], errors="coerce")
-            if values.nunique(dropna=False) != 1:
+            if column == "close":
+                # 有成交量的那天收盘价不可能是 0 —— 那一侧没有值可比，不是"对不上"。
+                values = real_closes
+            if (
+                column == "turnover"
+                and values.notna().all()
+                and float(values.max() - values.min()) <= _TURNOVER_ROUNDING_YUAN
+            ):
+                continue
+            if values.nunique(dropna=False) > 1:
                 raise ValueError(
                     "panel_daily_duplicate: two spellings disagree; "
                     f"key={key!r} column={column!r} "
-                    f"symbols={sorted(group['symbol'].astype(str))!r}"
+                    f"symbols={sorted(symbols)!r}"
                 )
-        keep = max(group["symbol"].astype(str), key=_daily_code_rank)
-        dropped.extend(
-            index
-            for index, symbol in zip(group.index, group["symbol"].astype(str))
-            if symbol != keep
+        keep = max(symbols, key=_daily_code_rank)
+        kept_index = next(
+            index for index, symbol in zip(group.index, symbols) if symbol == keep
         )
-    if not dropped:
+        # 留哪一份不由证据决定 —— 永远留四位那份，否则主力链又会在两个拼写之间
+        # 逐日翻转。空洞落在它身上时补值，而不是改留另一行。
+        kept_close = closes.loc[kept_index]
+        if (
+            traded
+            and not real_closes.empty
+            and (pd.isna(kept_close) or kept_close == 0)
+        ):
+            repaired_closes[kept_index] = float(real_closes.iloc[0])
+        dropped.extend(
+            index for index, symbol in zip(group.index, symbols) if symbol != keep
+        )
+    if not dropped and not repaired_closes:
         return frame, 0
-    return frame.drop(index=dropped).reset_index(drop=True), len(dropped)
+    kept_frame = frame.drop(index=dropped) if dropped else frame.copy()
+    for index, close in repaired_closes.items():
+        kept_frame.loc[index, "close"] = close
+    return kept_frame.reset_index(drop=True), len(dropped)
+
+
+def _closes_by_key(daily: pd.DataFrame) -> dict[tuple[date, str], float]:
+    """`(trade_date, symbol) -> 收盘价`，剔掉 0。
+
+    0 从来不是一个期货价格。交易所源在合约**最后交易日**只发结算价、不发收盘价，
+    落库成 `close=0` —— `SR005.CZC` 2020-05-19 成交 5,194 手、成交额 2.8 亿、持仓 0，
+    收盘价记 0（按成交额反算实际约 5,399.65）。全表 321 行是这个形状，其中 2 行的
+    持仓量是同品种当日最高，够得着被选成主力、进而被拿去算展期比率。
+
+    让 0 进来会算出一个假的跳空；剔掉之后 `adjustment_factors` 会自己回看上一个
+    新旧合约都有收盘的日子，找不到才按既有规则硬失败。
+    """
+    usable = daily.loc[daily["close"].notna() & (daily["close"] != 0)]
+    return {
+        (trade_date, str(symbol)): float(close)
+        for trade_date, symbol, close in usable.loc[
+            :, ["trade_date", "symbol", "close"]
+        ].itertuples(index=False, name=None)
+    }
 
 
 def _frame_sha256(frame: pd.DataFrame) -> str:
@@ -2611,12 +2661,7 @@ def main(argv: list[str] | None = None) -> int:
         f"({before - len(choices):,} dropped as unreadable pre-warmup history)",
         flush=True,
     )
-    closes = {
-        (trade_date, str(symbol)): float(close)
-        for trade_date, symbol, close in daily.loc[
-            daily["close"].notna(), ["trade_date", "symbol", "close"]
-        ].itertuples(index=False, name=None)
-    }
+    closes = _closes_by_key(daily)
     factors = adjustment_factors(choices, closes=closes)
     segment_by_key = {
         (row.trade_date, row.product): int(row.continuity_segment)

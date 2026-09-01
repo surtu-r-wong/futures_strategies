@@ -1197,3 +1197,97 @@ def test_a_frame_without_duplicate_spellings_is_returned_unchanged():
 
     assert dropped == 0
     assert list(kept["symbol"]) == list(frame["symbol"])
+
+
+def test_two_sources_rounding_the_same_turnover_to_the_yuan_is_not_a_disagreement():
+    """两个数据源把同一笔成交额各自舍入到元，差 1.00 元 —— 那是舍入，不是两条记录。
+
+    2026-09-01 上游把一份 `source='exchange'` 的数据并排灌进 `futures_daily`，
+    郑商所合约以三位代码入库、与既有的四位代码并存。实测 20,185 组孪生里有 491 组
+    的成交额差 **≤1.00 元**（`SM1701.CZC` / `SM701.CZC` 2016-09-19：
+    233,546,699 vs 233,546,700，相对差 4e-9）。逐列严格相等的守卫会为这 1 元
+    中止整跑 —— 而 2.3 亿分之一的差额不可能意味着"这是另一张合约"。
+    """
+    from scripts.commodity.build_panel import _drop_duplicate_daily_spellings
+
+    kept, dropped = _drop_duplicate_daily_spellings(
+        _duplicate_daily_frame(turnover=[233546700.0, 233546699.0, 5.0e8])
+    )
+
+    assert dropped == 1
+    assert list(kept["symbol"]) == ["OI1701.CZC", "OI1609.CZC"]
+    # 留四位那份，成交额就用它自己的值 —— 不在两个源之间做平均或挑选。
+    assert kept.loc[kept["symbol"] == "OI1701.CZC", "turnover"].iloc[0] == 233546699.0
+
+
+def test_a_turnover_gap_wider_than_rounding_is_still_a_disagreement():
+    """容差只放过舍入。差到 2 元就不是同一笔成交额的两种写法了，照旧硬失败。"""
+    from scripts.commodity.build_panel import _drop_duplicate_daily_spellings
+
+    with pytest.raises(ValueError, match="panel_daily_duplicate"):
+        _drop_duplicate_daily_spellings(
+            _duplicate_daily_frame(turnover=[233546700.0, 233546698.0, 5.0e8])
+        )
+
+
+def test_a_zero_close_on_a_day_that_traded_is_not_a_value():
+    """当天成交了 191,798 手却记收盘价 0 —— 那不是一个价，是个空洞。
+
+    同一批数据带进来 321 行 `close=0 且 volume>0`。孪生对里有 12 组正是一侧为 0、
+    另一侧是真价（`TA1511.CZC` 4612 vs `TA511.CZC` 0）。把 0 当成一个"对不上的值"
+    会让守卫中止整跑；但有成交量的那天收盘价不可能是 0，这一侧根本没有值可对。
+    """
+    from scripts.commodity.build_panel import _drop_duplicate_daily_spellings
+
+    kept, dropped = _drop_duplicate_daily_spellings(
+        _duplicate_daily_frame(close=[0.0, 6000.0, 5100.0])
+    )
+
+    assert dropped == 1
+    assert list(kept["symbol"]) == ["OI1701.CZC", "OI1609.CZC"]
+    assert kept.loc[kept["symbol"] == "OI1701.CZC", "close"].iloc[0] == 6000.0
+
+
+def test_the_kept_spelling_takes_the_real_close_from_its_twin():
+    """空洞落在四位那份时，补值 —— 但**不能**改留哪一份。
+
+    留四位代码是为了主力链稳定：两份数值并列会让主力选择在两个拼写之间逐日翻转，
+    bundle 按字符串反推就得到一串"没有成交单的换月"。所以哪怕真价在三位那份上，
+    留下的仍是四位那行，只把收盘价这个空洞从孪生记录补上。
+    """
+    from scripts.commodity.build_panel import _drop_duplicate_daily_spellings
+
+    kept, dropped = _drop_duplicate_daily_spellings(
+        _duplicate_daily_frame(close=[6000.0, 0.0, 5100.0])
+    )
+
+    assert dropped == 1
+    assert list(kept["symbol"]) == ["OI1701.CZC", "OI1609.CZC"]
+    assert kept.loc[kept["symbol"] == "OI1701.CZC", "close"].iloc[0] == 6000.0
+
+
+def test_a_close_of_zero_is_not_a_price():
+    """0 从来不是一个期货价格 —— 它进不了复权因子要用的收盘价表。
+
+    交易所源在合约**最后交易日**只发结算价、不发收盘价，落库成 `close=0`：
+    `SR005.CZC` 2020-05-19 成交 5,194 手、成交额 2.8 亿、持仓 0，收盘价记 0
+    （按成交额反算实际约 5,399.65）。全表这样的行有 321 个，其中 2 个的持仓量
+    是同品种当日最高 —— 够得着被选成主力，进而被用去算展期比率。
+
+    `closes` 此前只滤 `notna()`，0 会照单全收，于是复权因子可能拿 0 去做分母或分子。
+    宁可让展期去找上一个双方都有收盘的日子（`adjustment_factors` 本来就会回看），
+    也不能拿 0 算出一个假的跳空。
+    """
+    import pandas as pd
+
+    from scripts.commodity.build_panel import _closes_by_key
+
+    daily = pd.DataFrame(
+        {
+            "symbol": ["SR005.CZC", "SR009.CZC", "SR007.CZC"],
+            "trade_date": [date(2020, 5, 19)] * 3,
+            "close": [0.0, 4991.0, float("nan")],
+        }
+    )
+
+    assert _closes_by_key(daily) == {(date(2020, 5, 19), "SR009.CZC"): 4991.0}
