@@ -2622,3 +2622,29 @@ def test_a_day_whose_own_vwap_fits_its_range_corroborates_the_multiplier():
     assert float(noisy["amount"].sum()) == pytest.approx(honest)
     assert resolver(candidate, noisy).multiplier == 10
     assert [row["basis"] for row in resolver.amount_disagreements] == ["day_vwap"]
+
+
+def test_a_session_locked_at_one_price_cannot_check_a_multiplier():
+    """整日只有一个成交价的交易日，检验不了乘数 —— 区间退化成一个点。
+
+    碳酸锂 LC2511 2025-08-11 全天涨停锁死：日线 high=low=close=81,000，而
+    `turnover/volume` 记的是 80,905.94（低 0.116%），分钟与日线**一致地**这么记。
+    「逐 bar 落在区间内」与「当日总量落在价带内」两条都无从谈起 —— 这一天既佐证不了
+    也否定不了乘数，乘数由有区间的那些天负责。这与 `five_minute_vwap` 里既有的
+    「`high == low` 时直接取该价，因为只有一个价成交过」是同一个道理。
+    """
+    build, day, _honest = _cached_conflict_setup()
+    probe, _candidate, corrupt = build({})
+    locked = corrupt.copy()
+    for column in ("open", "high", "low", "close"):
+        locked[column] = 200.0
+    # 成交额按锁死价算，但带上归档那 0.116% 的偏差 —— 逐 bar 与当日总量都对不上区间。
+    locked["amount"] = locked["volume"] * 10.0 * 200.0 * 0.99884
+    del probe
+    # 日线与分钟**一致**：唯一的出路只能是"这一天检验不了乘数"。
+    resolver, candidate, _ = build(
+        {("RB2410.SHF", day): float(locked["amount"].sum())}
+    )
+
+    assert resolver(candidate, locked).multiplier == 10
+    assert [row["basis"] for row in resolver.amount_disagreements] == ["locked_session"]

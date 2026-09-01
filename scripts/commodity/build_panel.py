@@ -953,6 +953,32 @@ def _canonical_resolution_evidence(resolution: object) -> dict[str, object]:
     }
 
 
+def _session_locked_at_one_price(
+    frame: pd.DataFrame,
+    *,
+    minute_symbol: str,
+) -> float | None:
+    """整日只有一个成交价吗？是的话，这一天检验不了乘数。
+
+    碳酸锂 LC2511 2025-08-11 全天涨停锁死：日线 high=low=close=81,000，而
+    `turnover/volume` 记的是 80,905.94（低 0.116%），分钟与日线**一致地**这么记。
+    区间退化成一个点之后，「落在区间内」既佐证不了也否定不了乘数 —— 与
+    `five_minute_vwap` 里「`high == low` 时直接取该价，因为只有一个价成交过」同理。
+    乘数由有区间的那些天负责验证：错乘数在那些天上一天都过不去。
+    """
+    traded = frame.loc[
+        (frame["symbol"] == minute_symbol)
+        & (pd.to_numeric(frame["volume"], errors="coerce") > 0)
+    ]
+    if traded.empty:
+        return None
+    low = float(pd.to_numeric(traded["low"], errors="coerce").min())
+    high = float(pd.to_numeric(traded["high"], errors="coerce").max())
+    if not math.isfinite(low + high) or low <= 0.0 or low != high:
+        return None
+    return low
+
+
 def _day_vwap_corroborates(
     frame: pd.DataFrame,
     *,
@@ -1249,6 +1275,9 @@ class CachingMetadataMultiplierResolver:
                         declared = self._daily_turnover.get(
                             (candidate.daily_contract, candidate.trade_date)
                         )
+                        locked = _session_locked_at_one_price(
+                            frame, minute_symbol=candidate.minute_symbol
+                        )
                         day_price = _day_vwap_corroborates(
                             frame,
                             minute_symbol=candidate.minute_symbol,
@@ -1259,7 +1288,7 @@ class CachingMetadataMultiplierResolver:
                             minute_symbol=candidate.minute_symbol,
                             declared_turnover=declared,
                         )
-                        if day_price is None and observed is None:
+                        if locked is None and day_price is None and observed is None:
                             raise ValueError(
                                 "panel_multiplier_cached_conflict: local day evidence "
                                 f"contradicts contract={candidate.daily_contract!r} "
@@ -1272,7 +1301,9 @@ class CachingMetadataMultiplierResolver:
                             "product": candidate.product,
                             "contract": candidate.daily_contract,
                             "basis": (
-                                "day_vwap"
+                                "locked_session"
+                                if locked is not None
+                                else "day_vwap"
                                 if day_price is not None
                                 else "daily_turnover"
                             ),
