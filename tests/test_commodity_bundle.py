@@ -2461,3 +2461,144 @@ def test_a_roll_lost_on_an_uncovered_day_is_refused_by_the_bundle(tmp_path):
     """前态仍取自被剔掉的那天 ⇒ 换月在链上凭空消失 ⇒ bundle 当场拒收。"""
     with pytest.raises(ValueError, match="bundle_relationship"):
         write_bundle(tmp_path, **_uncovered_week_bundle(uncovered=frozenset()))
+
+
+def _corrupt_amount_frame(candidate, slots, price, *, factor=6.0):
+    """把一天的 `amount` 整列缩小 —— 焦煤 JM1309 2013-04-08 就是日线的 1/6。"""
+    frame = _roll_minute_frame(candidate, slots, price)
+    frame["amount"] = frame["amount"] / factor
+    return frame
+
+
+def _cached_conflict_setup():
+    import scripts.commodity.build_panel as builder_module
+
+    choices = _uncovered_week_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    first_day, second_day = UNCOVERED_ROLL_WEEK[2], UNCOVERED_ROLL_WEEK[3]
+    good_candidate = _roll_candidate(
+        choices[2], contexts[(first_day, "RB")], role="panel"
+    )
+    corrupt_candidate = _roll_candidate(
+        choices[3], contexts[(second_day, "RB")], role="panel"
+    )
+    good = _roll_minute_frame(good_candidate, contexts[(first_day, "RB")].slots, 200.0)
+    corrupt = _corrupt_amount_frame(
+        corrupt_candidate, contexts[(second_day, "RB")].slots, 200.0
+    )
+    honest = float(
+        _roll_minute_frame(
+            corrupt_candidate, contexts[(second_day, "RB")].slots, 200.0
+        )["amount"].sum()
+    )
+
+    class _Source:
+        def resolve_metadata_multiplier(self, **kwargs):
+            return MultiplierResolution(
+                multiplier=10,
+                source="metadata",
+                sample_rows=len(kwargs["frame"]),
+                pass_rate=1.0,
+                sample_dates=1,
+            )
+
+    def build(daily_turnover_by_key):
+        resolver = builder_module.CachingMetadataMultiplierResolver(
+            _Source(),
+            pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+            daily_turnover_by_key=daily_turnover_by_key,
+        )
+        resolver.set_phase("bars")
+        assert resolver(good_candidate, good).multiplier == 10
+        return resolver, corrupt_candidate, corrupt
+
+    return build, second_day, honest
+
+
+def test_a_day_whose_amount_disagrees_with_the_daily_record_keeps_the_multiplier():
+    """当天成交额与日线对不上 ⇒ 坏的是成交额那一列，不是乘数。
+
+    焦煤 JM1309 在 2013-04-08 与 04-11 的分钟 `amount` **恰好是日线 turnover 的 1/6**
+    （乘数 60、按 10 合成），价格反推 202 而当天价带 1211–1216；同一张合约前后几天
+    与日线逐日精确相等，成交量全程精确相等。乘数照用，这一天的成交价由
+    `five_minute_vwap` 自己的区间校验拒掉（bar 照常出，`fill_unpriceable=True`）——
+    不合成任何价格，也不该把整跑打断。
+    """
+    build, day, honest = _cached_conflict_setup()
+    resolver, candidate, corrupt = build({("RB2410.SHF", day): honest})
+
+    assert resolver(candidate, corrupt).multiplier == 10
+    assert [
+        (row["trade_date"], row["product"], row["contract"])
+        for row in resolver.amount_disagreements
+    ] == [(day, "RB", "RB2410.SHF")]
+    assert resolver.amount_disagreements[0]["daily_turnover"] == pytest.approx(honest)
+
+
+def test_a_contradiction_the_daily_record_corroborates_is_still_fatal():
+    """日线与分钟一致却仍与乘数矛盾 —— 那是口径或乘数错了，不是归档缺陷。"""
+    build, day, honest = _cached_conflict_setup()
+    resolver, candidate, corrupt = build({("RB2410.SHF", day): honest / 6.0})
+
+    with pytest.raises(ValueError, match="panel_multiplier_cached_conflict"):
+        resolver(candidate, corrupt)
+
+
+def test_a_contradiction_without_a_daily_record_is_still_fatal():
+    """没有独立记录可比时不许放行 —— 裁判缺席就按最保守的来。"""
+    build, _day, _honest = _cached_conflict_setup()
+    resolver, candidate, corrupt = build({})
+
+    with pytest.raises(ValueError, match="panel_multiplier_cached_conflict"):
+        resolver(candidate, corrupt)
+
+
+class _CorruptAmountRollSource(_RollSource):
+    def __init__(self, slots, prices, corrupt_contracts):
+        super().__init__(slots, prices)
+        self.corrupt_contracts = set(corrupt_contracts)
+
+    def iter_month(self, candidates, lower, upper):
+        for frame in super().iter_month(candidates, lower, upper):
+            corrupt = frame["daily_contract"].isin(self.corrupt_contracts)
+            frame.loc[corrupt, "amount"] = frame.loc[corrupt, "amount"] / 6.0
+            yield frame
+
+
+def _roll_with_corrupt_amount(daily_turnover_by_key):
+    choices = _roll_choices()
+    contexts = build_contexts(
+        choices,
+        rules=[SessionRule.day_only("SHFE", "RB", version="commodity-v1")],
+    )
+    context = contexts[(ROLL_DATES[1], "RB")]
+    source = _CorruptAmountRollSource(
+        context.slots,
+        {"RB2405.SHF": 100.0, "RB2410.SHF": 200.0},
+        {"RB2405.SHF"},
+    )
+    return build_roll_fills(
+        choices=choices,
+        contexts=contexts,
+        source=source,
+        pricing_basis_by_exchange={"SHFE": "amount_vwap"},
+        multiplier_resolver=lambda candidate, frame, **_: 10,
+        daily_turnover_by_key=daily_turnover_by_key,
+    )
+
+
+def test_a_roll_leg_whose_amount_disagrees_with_the_daily_record_books_no_fill():
+    """换月腿撞上成交额坏掉的那一天 —— 没人能按成交额执行这次转移，不发单。"""
+    honest = 100.0 * 5 * 10.0 + 10.0 * (0 + 1 + 2 + 3 + 4)
+    fills, skipped = _roll_with_corrupt_amount({("RB2405.SHF", ROLL_DATES[1]): honest})
+
+    assert fills.empty
+    assert [row["unpriceable_leg"] for row in skipped] == ["RB2405.SHF"]
+
+
+def test_a_roll_leg_priced_out_of_range_without_that_evidence_is_still_fatal():
+    with pytest.raises(ValueError, match="roll_fill_unpriceable"):
+        _roll_with_corrupt_amount({})

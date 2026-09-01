@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import fcntl
+import math
 from numbers import Integral, Real
 import os
 from pathlib import Path
@@ -890,6 +891,40 @@ def _canonical_resolution_evidence(resolution: object) -> dict[str, object]:
     }
 
 
+def _amount_disagrees_with_daily(
+    frame: pd.DataFrame,
+    *,
+    minute_symbol: str,
+    declared_turnover: float | None,
+) -> float | None:
+    """这一天的分钟成交额与日线记录对得上吗？对不上就是 `amount` 那一列坏了。
+
+    焦煤 JM1309 在 2013-04-08 与 04-11 两天，分钟 `amount` **恰好是日线 turnover 的
+    1/6**（乘数 60、按 10 合成），价格反推出 202 而当天价带是 1211–1216；同一张合约
+    前后几天 amount 与日线**逐日精确相等**、成交量全程精确相等。所以矛盾的不是乘数，
+    是这一天的成交额列。
+
+    日线是独立于分钟归档的另一份记录，拿它当裁判就不需要任何阈值判断"谁更可信"：
+    对得上 ⇒ 分钟与日线一致，那矛盾只能出在乘数上，照旧硬失败；对不上 ⇒ 这天的
+    成交额不可用，`five_minute_vwap` 自己的区间校验会把成交价拒掉（bar 照常出，
+    `fill_unpriceable=True`），不需要合成任何价格。
+    """
+    if declared_turnover is None or not math.isfinite(declared_turnover):
+        return None
+    traded = frame.loc[
+        (frame["symbol"] == minute_symbol)
+        & (pd.to_numeric(frame["volume"], errors="coerce") > 0)
+    ]
+    if traded.empty:
+        return None
+    observed = float(pd.to_numeric(traded["amount"], errors="coerce").fillna(0.0).sum())
+    if not math.isfinite(observed) or observed <= 0.0:
+        return None
+    if math.isclose(observed, declared_turnover, rel_tol=1e-3):
+        return None
+    return observed
+
+
 def _sibling_multiplier(sample, candidate):
     """同品种**兄弟合约**推出的乘数 —— 乘数是品种级常量，交易所公告改动才变。
 
@@ -1024,11 +1059,14 @@ class CachingMetadataMultiplierResolver:
         source,
         *,
         pricing_basis_by_exchange: Mapping[str, str],
+        daily_turnover_by_key: Mapping[tuple[str, date], float] | None = None,
     ) -> None:
         self._source = source
         self._pricing_basis_by_exchange = dict(pricing_basis_by_exchange)
+        self._daily_turnover = dict(daily_turnover_by_key or {})
         self._phase = "default"
         self._cache: dict[tuple[str, str, str], tuple[date, object]] = {}
+        self._amount_disagreements: dict[tuple[str, date], dict[str, object]] = {}
 
     def set_phase(self, phase: str) -> None:
         if phase not in {"roll_fills", "bars"}:
@@ -1107,12 +1145,40 @@ class CachingMetadataMultiplierResolver:
                         else 1.0
                     )
                     if pass_rate < 0.60:
-                        raise ValueError(
-                            "panel_multiplier_cached_conflict: local day evidence "
-                            f"contradicts contract={candidate.daily_contract!r} "
-                            f"trade_date={candidate.trade_date.isoformat()}"
-                        ) from exc
+                        observed = _amount_disagrees_with_daily(
+                            frame,
+                            minute_symbol=candidate.minute_symbol,
+                            declared_turnover=self._daily_turnover.get(
+                                (candidate.daily_contract, candidate.trade_date)
+                            ),
+                        )
+                        if observed is None:
+                            raise ValueError(
+                                "panel_multiplier_cached_conflict: local day evidence "
+                                f"contradicts contract={candidate.daily_contract!r} "
+                                f"trade_date={candidate.trade_date.isoformat()}"
+                            ) from exc
+                        # 日线否掉的是这天的成交额，不是乘数。乘数照用，这一天的
+                        # 成交价由 `five_minute_vwap` 自己的区间校验拒掉。
+                        self._amount_disagreements[
+                            (candidate.daily_contract, candidate.trade_date)
+                        ] = {
+                            "trade_date": candidate.trade_date,
+                            "product": candidate.product,
+                            "contract": candidate.daily_contract,
+                            "minute_amount": observed,
+                            "daily_turnover": self._daily_turnover[
+                                (candidate.daily_contract, candidate.trade_date)
+                            ],
+                        }
         return resolution
+
+    @property
+    def amount_disagreements(self) -> tuple[dict[str, object], ...]:
+        return tuple(
+            self._amount_disagreements[key]
+            for key in sorted(self._amount_disagreements)
+        )
 
     def checkpoint_state(self) -> object:
         entries = []
@@ -1140,15 +1206,48 @@ class CachingMetadataMultiplierResolver:
                     "resolution": payload,
                 }
             )
-        return {"entries": entries}
+        # 成交额与日线对不上的那些天是这一跑的产出之一（验收要写它的数），
+        # 与缓存一起过 checkpoint，续跑之后才不会只剩后半段。
+        return {
+            "entries": entries,
+            "amount_disagreements": [
+                {
+                    "trade_date": row["trade_date"].isoformat(),
+                    "product": str(row["product"]),
+                    "contract": str(row["contract"]),
+                    "minute_amount": repr(float(row["minute_amount"])),
+                    "daily_turnover": repr(float(row["daily_turnover"])),
+                }
+                for row in self.amount_disagreements
+            ],
+        }
 
     def restore_checkpoint_state(self, state: object) -> None:
         from common.minute.bars import MultiplierResolution
 
-        if type(state) is not dict or set(state) != {"entries"} or type(
-            state["entries"]
-        ) is not list:
+        expected = {"entries", "amount_disagreements"}
+        if type(state) is not dict or set(state) != expected:
             raise ValueError("panel_checkpoint_state: invalid cached multiplier state")
+        if any(type(state[name]) is not list for name in expected):
+            raise ValueError("panel_checkpoint_state: invalid cached multiplier state")
+        disagreements: dict[tuple[str, date], dict[str, object]] = {}
+        for row in state["amount_disagreements"]:
+            if type(row) is not dict or set(row) != {
+                "trade_date",
+                "product",
+                "contract",
+                "minute_amount",
+                "daily_turnover",
+            }:
+                raise ValueError("panel_checkpoint_state: invalid amount disagreement")
+            trade_date = date.fromisoformat(str(row["trade_date"]))
+            disagreements[(str(row["contract"]), trade_date)] = {
+                "trade_date": trade_date,
+                "product": str(row["product"]),
+                "contract": str(row["contract"]),
+                "minute_amount": float(row["minute_amount"]),
+                "daily_turnover": float(row["daily_turnover"]),
+            }
         restored: dict[tuple[str, str, str], tuple[date, object]] = {}
         for entry in state["entries"]:
             if type(entry) is not dict or set(entry) != {
@@ -1190,7 +1289,13 @@ class CachingMetadataMultiplierResolver:
                 != _canonical_resolution_evidence(resolution)
             ):
                 raise ValueError("panel_checkpoint_state: cached multiplier prefix mismatch")
+        for key in self._amount_disagreements:
+            if key not in disagreements:
+                raise ValueError(
+                    "panel_checkpoint_state: amount disagreement prefix mismatch"
+                )
         self._cache = restored
+        self._amount_disagreements = disagreements
 
 
 def _contract_changed(previous, current) -> bool:
@@ -1272,6 +1377,7 @@ def build_roll_fills(
     pricing_basis_by_exchange: Mapping[str, str],
     multiplier_resolver,
     uncovered: frozenset[tuple[date, str]] = frozenset(),
+    daily_turnover_by_key: Mapping[tuple[str, date], float] | None = None,
 ) -> tuple[pd.DataFrame, tuple[dict[str, object], ...]]:
     """Price both concrete legs of every in-scope roll in one bounded batch/month.
 
@@ -1403,12 +1509,31 @@ def build_roll_fills(
                         pricing_basis=basis,
                     )
                 except (MinuteDataError, KeyError, TypeError, ValueError) as exc:
-                    raise ValueError(
-                        "roll_fill_unpriceable: both raw dominant legs are required; "
-                        f"{current.trade_date} {current.product} "
-                        f"{previous.contract!r} -> {current.contract!r}; "
-                        f"failed={candidate.daily_contract!r}"
-                    ) from exc
+                    # 这一天的分钟成交额与日线对不上 ⇒ 坏的是 `amount` 那一列，
+                    # 没有人能在这条腿上按成交额定出价。与「窗口零成交」同一个结果：
+                    # 不发单。日线对得上时仍然硬失败 —— 那才是口径或结构错了。
+                    disagreeing = _amount_disagrees_with_daily(
+                        frame,
+                        minute_symbol=candidate.minute_symbol,
+                        declared_turnover=(daily_turnover_by_key or {}).get(
+                            (candidate.daily_contract, candidate.trade_date)
+                        ),
+                    )
+                    if disagreeing is None:
+                        raise ValueError(
+                            "roll_fill_unpriceable: both raw dominant legs are "
+                            f"required; {current.trade_date} {current.product} "
+                            f"{previous.contract!r} -> {current.contract!r}; "
+                            f"failed={candidate.daily_contract!r}"
+                        ) from exc
+                    unpriceable = {
+                        "trade_date": current.trade_date,
+                        "product": current.product,
+                        "old_contract": previous.contract,
+                        "new_contract": current.contract,
+                        "unpriceable_leg": candidate.daily_contract,
+                    }
+                    break
                 prices.append(fill.price)
                 bases.append(basis)
 
@@ -2397,9 +2522,19 @@ def main(argv: list[str] | None = None) -> int:
         pricing_basis_by_exchange=basis_by_exchange,
     )
 
+    # 日线 turnover 是独立于分钟归档的另一份记录：分钟 `amount` 与它对不上的那些天，
+    # 坏的是成交额列而不是乘数（焦煤 JM1309 2013-04-08/11 恰好是日线的 1/6）。
+    daily_turnover_by_key = {
+        (str(symbol), trade_date): float(turnover)
+        for symbol, trade_date, turnover in daily.loc[
+            :, ["symbol", "trade_date", "turnover"]
+        ].itertuples(index=False, name=None)
+        if turnover is not None and float(turnover) > 0.0
+    }
     metadata_multiplier_resolver = CachingMetadataMultiplierResolver(
         source,
         pricing_basis_by_exchange=basis_by_exchange,
+        daily_turnover_by_key=daily_turnover_by_key,
     )
     multiplier_resolver = DigestingMultiplierResolver(
         metadata_multiplier_resolver,
@@ -2447,6 +2582,7 @@ def main(argv: list[str] | None = None) -> int:
             pricing_basis_by_exchange=basis_by_exchange,
             multiplier_resolver=multiplier_resolver,
             uncovered=uncovered_keys,
+            daily_turnover_by_key=daily_turnover_by_key,
         )
         # 换月阶段一次跑完全部换月，所以跳过的那些在长跑的分钟阶段之前就报全了 ——
         # 不再一次炸一条。清单落 CSV，计数进 manifest。
@@ -2517,6 +2653,36 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(unpriced_rolls)} skipped",
             flush=True,
         )
+    # 分钟成交额与日线对不上的品种日：bar 照常，成交价由区间校验拒掉。清单落盘，
+    # 因为「安静时段没人成交」与「这天的成交额列坏了」是两回事。
+    amount_disagreements = metadata_multiplier_resolver.amount_disagreements
+    amount_manifest = Path(args.output_dir) / "minute-amount-disagrees-with-daily.csv"
+    amount_manifest.parent.mkdir(parents=True, exist_ok=True)
+    if not amount_disagreements:
+        amount_manifest.unlink(missing_ok=True)
+    else:
+        with amount_manifest.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(
+                ["trade_date", "product", "contract", "minute_amount", "daily_turnover"]
+            )
+            for row in amount_disagreements:
+                writer.writerow(
+                    [
+                        row["trade_date"].isoformat(),
+                        row["product"],
+                        row["contract"],
+                        repr(float(row["minute_amount"])),
+                        repr(float(row["daily_turnover"])),
+                    ]
+                )
+        disagreeing_products = sorted({row["product"] for row in amount_disagreements})
+        print(
+            f"minute amount disagrees with daily: {len(amount_disagreements)} "
+            f"product-days across {len(disagreeing_products)} products "
+            f"({' '.join(disagreeing_products)}); manifest={amount_manifest}",
+            flush=True,
+        )
     dominants = _dominant_frame(choices, contexts=contexts, factor_by_key=factor_by_key)
     bars = _bundle_bars(raw_bars, contexts=contexts, dominants=dominants)
     universes = _universe_frame(products_by_month)
@@ -2551,6 +2717,11 @@ def main(argv: list[str] | None = None) -> int:
             ],
             # 面板不覆盖的品种日：形不成 bar（乘数解不出来）的那一类。归档缺日与
             # 未成交主力两类由各自的资产/清单申报，都不在 bundle 的换月校验里。
+            "amount_disagrees_with_daily": len(amount_disagreements),
+            "amount_disagrees_with_daily_keys": [
+                f"{row['trade_date']:%Y-%m-%d}/{row['product']}"
+                for row in amount_disagreements
+            ],
             "unformable_product_days": len(unformable),
             "unformable_product_day_keys": [
                 f"{row.trade_date:%Y-%m-%d}/{row.product}" for row in unformable
