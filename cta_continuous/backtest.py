@@ -622,8 +622,16 @@ def run_backtest(
             # 还没有），只有影子在建仓；只看主账户会把影子的首次建仓判成再平衡，
             # 于是被粗节拍挡掉 ⇒ 影子收益恒 0 ⇒ 波动率永远算不出来 ⇒ 整段回测一笔
             # 不成交。这条只有接线才看得见。
-            crosses = ((carried == 0.0) != (want == 0.0)) or (
-                (shadow_carried == 0.0) != (shadow_want == 0.0)
+            # ⚠️ 「换方向」有两种走法，两种都必须算 SIGNAL：经过空仓的（跨越零），
+            # 和**直接反手**的（权重从 +w 跳到 −w，一次也没碰过 0）。只判跨越零会把
+            # 反手归成再平衡 ⇒ entry / monthly / daily 下被节拍闸挡掉 ⇒ 品种建仓后
+            # 再不换方向。研报基线档没有空仓状态、方向变化**全部**是直接反手，
+            # 全档在 `exit_gates="narrow"` 下也能直接反手。
+            crosses = (
+                ((carried == 0.0) != (want == 0.0))
+                or ((shadow_carried == 0.0) != (shadow_want == 0.0))
+                or (carried * want < 0.0)
+                or (shadow_carried * shadow_want < 0.0)
             )
             if (
                 held is not None

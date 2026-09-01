@@ -661,3 +661,25 @@ def test_the_crossover_tier_ignores_atr_leverage_everywhere():
         ungeared.executions.drop(columns=["cause"])
     )
     assert list(geared.executions["cause"]) == list(ungeared.executions["cause"])
+
+
+def test_a_direct_reversal_still_trades_under_a_coarse_cadence():
+    """多头直接翻空头时权重**从不经过 0**：只按「跨越零」判成因会把反手归成再平衡，
+    于是 entry / monthly / daily 这些粗节拍把**换方向**整个挡掉，品种建仓后就再没
+    动过。研报基线档没有空仓状态、所有方向变化都是直接反手 —— 那一档下这道闸会把
+    信号全部吃掉；全档在 `exit_gates="narrow"` 下同样能直接反手。
+    """
+    flip = date(2024, 2, 5)
+    before = [day for day in ALL_DAYS if day < flip]
+    after_days = [day for day in ALL_DAYS if day >= flip]
+    rows = _series(product="RB", contract="RB2405.SHF", days=before)
+    rows += _series(product="RB", contract="RB2405.SHF", days=after_days,
+                    direction="short", signal=-0.75)
+    frame = _signals(rows)
+
+    result = run_backtest(frame, params=replace(FAST, rebalance="entry"), signals=frame)
+
+    executions = result.executions
+    after = executions.loc[pd.to_datetime(executions["trade_date"]).dt.date >= flip]
+    assert (after["new_weight"] < 0.0).any(), "反手被节拍闸挡掉了：仓位没有变成空头"
+    assert "signal" in set(after["cause"])
