@@ -224,3 +224,30 @@ def test_data_quality_counts_signals_cancelled_by_an_unavailable_fill() -> None:
     ].iloc[0]
     assert float(row["value"]) == 2.0
     assert row["product"] == "RB"
+
+
+def test_data_quality_counts_forced_exits_priced_at_the_bars_close() -> None:
+    """裁决 B 换了计价基准，验收文档要写条数 —— 报告层单列这一个数。"""
+    import pandas as pd
+
+    from common.commodity.backtest import _data_quality
+
+    frame = pd.DataFrame(
+        {
+            # 命中数与不命中数故意不相等：否则把比较改成 `!=` 也能过。
+            "no_trade": [False, False, False, False, False],
+            "action": [
+                "dow_entry",
+                "continuity_break_close",
+                "continuity_break",
+                "continuity_break_close",
+                "hold",
+            ],
+        }
+    )
+
+    quality = _data_quality({"RB": frame}, [], {})
+
+    row = quality.loc[quality["metric"] == "forced_exits_priced_at_close"].iloc[0]
+    assert float(row["value"]) == 2.0
+    assert row["product"] == "RB"

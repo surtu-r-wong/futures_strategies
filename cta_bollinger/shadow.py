@@ -385,13 +385,27 @@ def run_shadow_product(
             if frame_index in segment_last_bars:
                 output["action"] = "continuity_break"
                 if ledger.current_target != 0.0:
-                    fill_price = finite(
-                        row["fill_price"], "continuity break fill", positive=True
-                    )
+                    if bool(row["fill_unpriceable"]):
+                        # 强制平仓没有下一根：下一根已经是新合约，两张合约的原始价
+                        # 不可比，信号路径那条「没有对手盘就作废、下一根重新判」在
+                        # 这里用不了 —— 仓位真的困住了。按该 bar 的收盘价平掉（那是
+                        # 当天真实成交过的价，口径 C 保证 bar 不合成），换掉的计价
+                        # 基准由 `continuity_break_close` 单列申报（用户 2026-09-02
+                        # 裁决）。价既然是 slot_end 那一刻的，成交时刻就用 slot_end。
+                        output["action"] = "continuity_break_close"
+                        fill_price = finite(
+                            row["close"], "continuity break close", positive=True
+                        )
+                        exit_fill_time = row["slot_end"]
+                    else:
+                        fill_price = finite(
+                            row["fill_price"], "continuity break fill", positive=True
+                        )
+                        exit_fill_time = row["fill_time"]
                     assert ledger.current_contract is not None
                     ledger.request_target(
                         trade_date=trade_date,
-                        fill_time=row["fill_time"],
+                        fill_time=exit_fill_time,
                         contract=ledger.current_contract,
                         fill_price=fill_price,
                         next_target=0.0,

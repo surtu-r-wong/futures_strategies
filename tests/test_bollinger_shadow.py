@@ -626,3 +626,57 @@ def test_a_roll_fill_on_the_products_first_panel_day_is_not_an_unused_fill() -> 
     result = run_shadow_product(frame, product="RB", roll_fills=rolls)
 
     assert not result.signals.empty
+
+
+def _break_panel_with_no_fill() -> pd.DataFrame:
+    """The forced exit lands on a bar whose own fill window had no trades.
+
+    `FU 2025-08-29 FU2509.SHF` in the full history: the roll into FU2601 cannot
+    be priced, so the panel marks 08-29 as the last bar before the switch — and
+    that bar's fill window is itself untraded.
+    """
+    first = [100.0] * 10 + [104.0] * 7 + [107.0]
+    second = _second_segment_closes()
+    frame = _panel(
+        first + second,
+        open_interest=[100.0] * (len(first) + len(second)),
+        contracts=["RB1804.SHF"] * len(first) + ["RB1901.SHF"] * len(second),
+        segments=[0] * len(first) + [1] * len(second),
+    )
+    frame.loc[17, ["fill_price", "fill_unpriceable"]] = [np.nan, True]
+    return frame
+
+
+def test_a_forced_exit_with_no_fill_is_priced_at_the_bars_own_close() -> None:
+    """用户 2026-09-02 裁决 B：断代平仓没有对手盘时，按该 bar 的收盘价平掉。
+
+    收盘价是当天真实成交过的价（口径 C 保证 bar 不合成）。信号路径那条
+    「没有对手盘就作废、下一根重新判」在这里用不了 —— 强制平仓没有下一根，
+    下一根已经是新合约。
+    """
+    frame = _break_panel_with_no_fill()
+
+    result = run_shadow_product(frame, product="RB", **_SMALL)
+
+    closed = result.trades.loc[result.trades["exit_reason"] == "continuity_break"]
+    assert len(closed) == 1
+    assert closed.iloc[0]["exit_contract"] == "RB1804.SHF"
+    assert closed.iloc[0]["exit_price"] == 107.0
+    assert closed.iloc[0]["exit_time"] == frame.loc[17, "slot_end"]
+
+
+def test_a_close_priced_forced_exit_declares_its_pricing_basis() -> None:
+    """计价基准换了，必须单列申报 —— 报告层按 action 计数，验收文档写条数与键。"""
+    result = run_shadow_product(_break_panel_with_no_fill(), product="RB", **_SMALL)
+
+    assert result.signals.iloc[17]["action"] == "continuity_break_close"
+    assert (result.signals["action"] == "continuity_break_close").sum() == 1
+
+
+def test_a_forced_exit_refuses_a_close_that_is_not_a_price() -> None:
+    """0 不是价格。收盘价是这条路径上唯一的定价证据，它不成立就得响。"""
+    frame = _break_panel_with_no_fill()
+    frame.loc[17, "close"] = 0.0
+
+    with pytest.raises(ValueError, match="continuity break close"):
+        run_shadow_product(frame, product="RB", **_SMALL)

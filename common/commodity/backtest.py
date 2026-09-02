@@ -1089,6 +1089,15 @@ def _data_quality(
                     "value": float((frame["action"] == "fill_unavailable").sum()),
                 }
             )
+            # 断代平仓落在没有对手盘的那一根时按该 bar 的收盘价平掉（用户
+            # 2026-09-02 裁决）—— 计价基准换了，验收文档要写条数。
+            rows.append(
+                {
+                    "metric": "forced_exits_priced_at_close",
+                    "product": product,
+                    "value": float((frame["action"] == "continuity_break_close").sum()),
+                }
+            )
         if "pricing_basis" in frame.columns:
             counts = frame.loc[~frame["no_trade"], "pricing_basis"].value_counts()
             for basis, count in counts.items():

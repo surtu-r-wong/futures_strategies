@@ -439,3 +439,41 @@ def test_a_later_fill_for_the_same_contract_is_still_an_unused_fill() -> None:
 
     with pytest.raises(ValueError, match="roll_mismatch"):
         run_shadow_product(bars, product="RB", roll_fills=stray)
+
+
+def _dow_break_with_no_fill() -> pd.DataFrame:
+    first = _dow_bars(_zigzag(60, 100.0), "RB1804.SHF", 0, "2017-06-01")
+    last = first.index[-1]
+    first.loc[last, ["fill_price", "fill_unpriceable"]] = [np.nan, True]
+    second = _dow_bars(_zigzag(200, 300.0), "RB1901.SHF", 1, "2018-07-16")
+    return pd.concat([first, second], ignore_index=True)
+
+
+def test_a_dow_forced_exit_with_no_fill_is_priced_at_the_bars_own_close() -> None:
+    """用户 2026-09-02 裁决 B：断代平仓没有对手盘时按该 bar 的收盘价平掉。"""
+    frame = _dow_break_with_no_fill()
+
+    result = run_shadow_product(frame, product="RB", roll_fills=_empty_rolls())
+
+    closed = result.trades.loc[result.trades["exit_reason"] == "continuity_break"]
+    assert len(closed) == 1
+    assert closed.iloc[0]["exit_contract"] == "RB1804.SHF"
+    assert closed.iloc[0]["exit_price"] == frame.loc[59, "close"]
+    assert closed.iloc[0]["exit_time"] == frame.loc[59, "slot_end"]
+
+
+def test_a_dow_close_priced_forced_exit_declares_its_pricing_basis() -> None:
+    result = run_shadow_product(
+        _dow_break_with_no_fill(), product="RB", roll_fills=_empty_rolls()
+    )
+
+    assert result.signals.iloc[59]["action"] == "continuity_break_close"
+    assert (result.signals["action"] == "continuity_break_close").sum() == 1
+
+
+def test_a_dow_forced_exit_refuses_a_close_that_is_not_a_price() -> None:
+    frame = _dow_break_with_no_fill()
+    frame.loc[59, "close"] = 0.0
+
+    with pytest.raises(ValueError, match="continuity break close"):
+        run_shadow_product(frame, product="RB", roll_fills=_empty_rolls())
