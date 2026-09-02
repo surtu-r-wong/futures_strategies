@@ -662,7 +662,17 @@ def test_a_forced_exit_with_no_fill_is_priced_at_the_bars_own_close() -> None:
     assert len(closed) == 1
     assert closed.iloc[0]["exit_contract"] == "RB1804.SHF"
     assert closed.iloc[0]["exit_price"] == 107.0
-    assert closed.iloc[0]["exit_time"] == frame.loc[17, "slot_end"]
+    # 成交时刻仍是面板给的那个：组合层拿它与面板逐点对齐。
+    assert closed.iloc[0]["exit_time"] == frame.loc[17, "fill_time"]
+
+
+def test_a_close_priced_forced_exit_reports_the_price_it_used() -> None:
+    """signals 行必须报出真正用掉的价 —— 组合层见 `action_changed` 就要一个价。"""
+    result = run_shadow_product(_break_panel_with_no_fill(), product="RB", **_SMALL)
+
+    row = result.signals.iloc[17]
+    assert row["fill_price"] == 107.0
+    assert bool(row["fill_unpriceable"]) is True
 
 
 def test_a_close_priced_forced_exit_declares_its_pricing_basis() -> None:

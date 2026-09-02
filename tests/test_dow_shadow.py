@@ -459,7 +459,15 @@ def test_a_dow_forced_exit_with_no_fill_is_priced_at_the_bars_own_close() -> Non
     assert len(closed) == 1
     assert closed.iloc[0]["exit_contract"] == "RB1804.SHF"
     assert closed.iloc[0]["exit_price"] == frame.loc[59, "close"]
-    assert closed.iloc[0]["exit_time"] == frame.loc[59, "slot_end"]
+    assert closed.iloc[0]["exit_time"] == frame.loc[59, "fill_time"]
+
+
+def test_a_dow_close_priced_forced_exit_reports_the_price_it_used() -> None:
+    frame = _dow_break_with_no_fill()
+
+    result = run_shadow_product(frame, product="RB", roll_fills=_empty_rolls())
+
+    assert result.signals.iloc[59]["fill_price"] == frame.loc[59, "close"]
 
 
 def test_a_dow_close_priced_forced_exit_declares_its_pricing_basis() -> None:

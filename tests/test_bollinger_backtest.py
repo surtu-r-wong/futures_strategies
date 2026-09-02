@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from common.commodity.bundle import PanelBundle
+from common.commodity.execution import ROLL_COLUMNS
 from cta_bollinger.backtest import BacktestResult, run_backtest
 from cta_bollinger.shadow import ShadowResult, run_shadow_product
 
@@ -494,3 +495,76 @@ def test_a_roll_meeting_a_deferred_fill_closes_the_old_leg_at_its_own_price() ->
     assert len(closed) == 1
     assert closed.iloc[0]["new_weight"] == 0.0
     assert closed.iloc[0]["price"] == pytest.approx(DEFERRED_EXIT_OLD_PRICE)
+
+
+#: 断代平仓落在没人成交的那一根：面板给的价是 NaN，策略按该 bar 的收盘价平掉。
+UNFILLABLE_BREAK_DAY = date(2024, 3, 14)
+UNFILLABLE_BREAK_CLOSE = 107.0
+
+
+def _unfillable_break_scenario() -> tuple[PanelBundle, dict[str, ShadowResult]]:
+    """CU 换合约但没有换月成交单 ⇒ 断代平仓，而那一根的成交窗没人成交。
+
+    真实形态：`FU 2025-08-29 FU2509.SHF`（w2526）与 `AU 2019-12-16`（w1920）。
+    """
+    dates = _trade_dates()
+    closes = _stepping(dates)
+    break_index = dates.index(UNFILLABLE_BREAK_DAY)
+    closes[break_index] = UNFILLABLE_BREAK_CLOSE
+
+    cu = _bars("CU", dates, closes, contract_of=_cu_contract)
+    cu.loc[break_index, ["fill_price", "fill_unpriceable"]] = [np.nan, True]
+
+    frames = {
+        "CU": cu,
+        "RB": _bars("RB", dates, _oscillating(dates)),
+        "TA": _bars("TA", dates, [200.0] * len(dates), multiplier=5),
+    }
+    bars = pd.concat(frames.values(), ignore_index=True)
+    roll_fills = pd.DataFrame(columns=list(ROLL_COLUMNS))
+    dominants = pd.DataFrame(
+        [
+            {
+                "trade_date": row.trade_date,
+                "product": row.product,
+                "contract": row.contract,
+                "oi": 1000,
+                "volume": 900,
+                "selected_from": row.trade_date,
+                "adj_factor": 1.0,
+            }
+            for row in bars.itertuples(index=False)
+        ]
+    )
+    bundle = PanelBundle(
+        bars=bars,
+        universes=_universe_rows(dates),
+        dominants=dominants,
+        roll_fills=roll_fills,
+        manifest={"bundle_version": 1},
+    )
+
+    shadows: dict[str, ShadowResult] = {}
+    for product in sorted(frames):
+        raw = run_shadow_product(
+            bars, product=product, roll_fills=roll_fills, **SHADOW_KWARGS
+        )
+        daily, trades = _forced_scores(product, dates)
+        shadows[product] = ShadowResult(product, raw.signals, trades, daily)
+    return bundle, shadows
+
+
+def test_a_close_priced_forced_exit_reaches_the_portfolio() -> None:
+    """影子层用掉的价必须报进 signals 行 —— 组合层见 `action_changed` 就要一个价。
+
+    影子层的单元测试全绿，接线仍在这一根上硬失败（实测 FU 2025-08-29 / AU
+    2019-12-16）：只改账本执行、不改这一行报出去的东西，缺口只有串起来才现形。
+    """
+    result = _run(*_unfillable_break_scenario())
+
+    exits = result.trades.query(
+        "product == 'CU' and trade_date == @UNFILLABLE_BREAK_DAY"
+    )
+    assert len(exits) == 1
+    assert exits.iloc[0]["new_weight"] == 0.0
+    assert exits.iloc[0]["price"] == pytest.approx(UNFILLABLE_BREAK_CLOSE)

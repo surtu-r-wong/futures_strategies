@@ -439,16 +439,19 @@ def run_shadow_product(
                         fill_price = finite(
                             row["close"], "continuity break close", positive=True
                         )
-                        exit_fill_time = row["slot_end"]
+                        # 这一行必须报出真正用掉的价：组合层的事件构造见
+                        # `action_changed` 就要一个价，不给它就在这一根上硬失败
+                        # （实测 FU 2025-08-29 与 AU 2019-12-16）。`fill_time` 不动
+                        # —— 组合层拿它与面板逐点对齐，改了会被对齐检查正确拦下。
+                        output["fill_price"] = fill_price
                     else:
                         fill_price = finite(
                             row["fill_price"], "continuity break fill", positive=True
                         )
-                        exit_fill_time = row["fill_time"]
                     assert ledger.current_contract is not None
                     ledger.request_target(
                         trade_date=trade_date,
-                        fill_time=exit_fill_time,
+                        fill_time=row["fill_time"],
                         contract=ledger.current_contract,
                         fill_price=fill_price,
                         next_target=0.0,
