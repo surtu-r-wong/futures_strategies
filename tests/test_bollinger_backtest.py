@@ -568,3 +568,99 @@ def test_a_close_priced_forced_exit_reaches_the_portfolio() -> None:
     assert len(exits) == 1
     assert exits.iloc[0]["new_weight"] == 0.0
     assert exits.iloc[0]["price"] == pytest.approx(UNFILLABLE_BREAK_CLOSE)
+
+
+CROSS_LEG_PANEL_FILL = 150.0
+
+
+def _cross_leg_break_scenario() -> tuple[PanelBundle, dict[str, ShadowResult]]:
+    """CU 断代平仓的成交窗口落到次日 —— 那时旧腿已不在面板里，面板给的价是后继合约的。
+
+    真实形态：`CS 2021-11-02` / `SM 2016-09-01` / `ZC 2022-05-05`（全历史 Bollinger
+    在 SM 上持仓，组合层对齐检查拦下 `fill_price differs from the bundle`）。
+    """
+    dates = _trade_dates()
+    closes = _stepping(dates)
+    break_index = dates.index(UNFILLABLE_BREAK_DAY)
+    closes[break_index] = UNFILLABLE_BREAK_CLOSE
+
+    cu = _bars("CU", dates, closes, contract_of=_cu_contract)
+    next_day = dates[break_index + 1]
+    cu.loc[break_index, "fill_time"] = pd.Timestamp(
+        datetime.combine(next_day, time(9, 4), tzinfo=TZ)
+    )
+    cu.loc[break_index, "fill_price"] = CROSS_LEG_PANEL_FILL
+
+    frames = {
+        "CU": cu,
+        "RB": _bars("RB", dates, _oscillating(dates)),
+        "TA": _bars("TA", dates, [200.0] * len(dates), multiplier=5),
+    }
+    bars = pd.concat(frames.values(), ignore_index=True)
+    roll_fills = pd.DataFrame(columns=list(ROLL_COLUMNS))
+    dominants = pd.DataFrame(
+        [
+            {
+                "trade_date": row.trade_date,
+                "product": row.product,
+                "contract": row.contract,
+                "oi": 1000,
+                "volume": 900,
+                "selected_from": row.trade_date,
+                "adj_factor": 1.0,
+            }
+            for row in bars.itertuples(index=False)
+        ]
+    )
+    bundle = PanelBundle(
+        bars=bars,
+        universes=_universe_rows(dates),
+        dominants=dominants,
+        roll_fills=roll_fills,
+        manifest={"bundle_version": 1},
+    )
+
+    shadows: dict[str, ShadowResult] = {}
+    for product in sorted(frames):
+        raw = run_shadow_product(
+            bars, product=product, roll_fills=roll_fills, **SHADOW_KWARGS
+        )
+        daily, trades = _forced_scores(product, dates)
+        shadows[product] = ShadowResult(product, raw.signals, trades, daily)
+    return bundle, shadows
+
+
+def test_a_forced_exit_priced_off_the_panel_still_aligns_with_the_bundle() -> None:
+    """裁决 B 延用到跨腿：那一行申报了 `continuity_break_close`，它的成交价按裁决
+    替换成破口 bar 的收盘价，与面板给的（后继合约的）价不同是**应当**的。
+
+    对齐检查要认得这份申报：只放过申报行的成交价，其余逐点照比。"""
+    bundle, shadows = _cross_leg_break_scenario()
+    signals = shadows["CU"].signals
+    declared = signals.loc[signals["action"] == "continuity_break_close"]
+    assert len(declared) == 1
+    assert declared.iloc[0]["fill_price"] == UNFILLABLE_BREAK_CLOSE
+
+    result = _run(bundle, shadows)
+
+    exits = result.trades.query("product == 'CU' and new_weight == 0.0")
+    assert len(exits) == 1
+    assert exits.iloc[0]["contract"] == "CU2404.SHF"
+    assert exits.iloc[0]["price"] == pytest.approx(UNFILLABLE_BREAK_CLOSE)
+
+
+def test_an_undeclared_fill_price_still_fails_alignment() -> None:
+    """放过的只有申报行：普通一行的成交价与面板不同，仍是「不是这份面板产的影子」。"""
+    bundle, shadows = _scenario()
+    signals = shadows["RB"].signals.copy()
+    ordinary = signals.index[
+        (signals["action"] != "continuity_break_close") & signals["fill_price"].notna()
+    ][0]
+    bumped = float(signals.loc[ordinary, "fill_price"]) + 1.0
+    signals.loc[ordinary, "fill_price"] = bumped
+    shadows["RB"] = ShadowResult(
+        "RB", signals, shadows["RB"].trades, shadows["RB"].daily
+    )
+
+    with pytest.raises(ValueError, match="RB: fill_price differs from the bundle"):
+        _run(bundle, shadows)

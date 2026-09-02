@@ -294,9 +294,16 @@ def _check_alignment(
             raise _fail(
                 prefix, "alignment", f"{product}: {column} differs from the bundle"
             )
+    # 申报了 `continuity_break_close` 的那一行，成交价按用户裁决 B 换成了破口 bar
+    # 自己的收盘价（无人成交时面板价是 NaN，本就比不到；成交窗落到后继合约上时
+    # 面板价是**另一张合约的**，与这一行不同才对）。只放过申报行的成交价，
+    # 成交时刻与其余各行仍逐点照比 —— 影子必须是这份面板产的，不是相似品。
+    declared = (signals["action"] == "continuity_break_close").to_numpy()
     for column in ("fill_time", "fill_price"):
         left, right = signals[column], panel[column]
         both = left.notna() & right.notna()
+        if column == "fill_price":
+            both &= ~declared
         if not left.loc[both].equals(right.loc[both]):
             raise _fail(
                 prefix, "alignment", f"{product}: {column} differs from the bundle"
