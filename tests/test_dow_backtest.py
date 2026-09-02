@@ -254,3 +254,36 @@ def test_a_product_leaving_the_universe_is_closed_at_the_next_month() -> None:
     # The other two keep trading, so this is a selection exit and not an empty run.
     survivors = result.positions.query("product != 'CU' and direction != 0")
     assert not survivors.empty
+
+
+def test_selected_allocation_reads_the_denominator_as_the_selected_universe(
+    scenario,
+) -> None:
+    """D7 的另一种读法：「满足开仓条件品种等权分配资金」按 Bollinger 篇同一句
+    （「经筛选后品种等权」）读 —— 分母是当月入选品种，无信号份额留现金，别人
+    进出不再牵动我的目标。登记默认（只在持仓品种间等分）不动。"""
+    result = _run(*scenario, allocation="selected")
+
+    held = result.positions.query("direction != 0")
+    assert not held.empty
+    selected_count = (
+        result.positions.query("selected").groupby("trade_date")["product"].nunique()
+    )
+    expected = held["trade_date"].map(selected_count)
+    assert np.allclose(held["base_weight_abs"], 1.0 / expected)
+    # 入选但无信号的品种也占一份分母（份额留现金）。
+    chosen = result.positions.query("selected")
+    assert np.allclose(
+        chosen["universe_weight"], 1.0 / chosen["trade_date"].map(selected_count)
+    )
+    assert (chosen.query("direction == 0")["actual_weight"] == 0.0).all()
+
+    assert result.trades.query("reason == 'allocation_resize'").empty
+
+
+def test_the_default_allocation_is_still_active_only(scenario) -> None:
+    default = _run(*scenario)
+    explicit = _run(*scenario, allocation="active")
+    assert default.trades.equals(explicit.trades)
+    with pytest.raises(ValueError, match="allocation"):
+        _run(*scenario, allocation="equal")

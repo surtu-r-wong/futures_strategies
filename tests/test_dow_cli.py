@@ -308,3 +308,52 @@ def test_main_marks_a_daily_atr_run_as_sensitivity(tmp_path) -> None:
     assert len(daily_atr) == len(bar_atr)
     assert not daily_atr.fillna(-1.0).equals(bar_atr.fillna(-1.0))
     assert daily_atr.isna().sum() > bar_atr.isna().sum()
+
+
+def test_the_selected_allocation_reading_is_a_declared_sensitivity(tmp_path) -> None:
+    default = resolve_options(build_parser().parse_args(_args(tmp_path)))
+    assert default.allocation == "active"
+
+    options = resolve_options(
+        build_parser().parse_args(_args(tmp_path) + ["--allocation", "selected"])
+    )
+    assert options.allocation == "selected"
+
+
+def test_main_marks_a_selected_allocation_run_as_sensitivity(
+    tmp_path, monkeypatch
+) -> None:
+    import cta_dow.__main__ as entry
+
+    # 四个月的夹具凑不够选池观测，组合层看不出两种读法的差别；旗标是否真的
+    # 送到 `run_backtest`，只能在接线处盯。
+    seen: list[str] = []
+    real_run_backtest = entry.run_backtest
+
+    def spy(**kwargs):
+        seen.append(kwargs.get("allocation", "<missing>"))
+        return real_run_backtest(**kwargs)
+
+    monkeypatch.setattr(entry, "run_backtest", spy)
+    panel = tmp_path / "panel"
+    prefix = tmp_path / "out" / "dow_selected"
+    _tiny_bundle(panel)
+
+    argv = [
+        "--panel-dir",
+        str(panel),
+        "--start",
+        "2024-01-02",
+        "--end",
+        "2024-04-30",
+        "--output-prefix",
+        str(prefix),
+        "--require-paper-faithful",
+        "--allocation",
+        "selected",
+    ]
+    assert main(argv) == 0
+    audit = json.loads(prefix.with_suffix(".audit.json").read_text("utf-8"))
+    assert audit["run_config"]["allocation"] == "selected"
+    assert audit["sensitivity_only"] is True
+    assert seen == ["selected"]

@@ -62,6 +62,7 @@ class Options:
     require_paper_faithful: bool
     run_literal_sensitivity: bool
     atr_frequency: str = "bar"
+    allocation: str = "active"
     ema_spans: tuple[int, int, int] = EMA_SPANS
     atr_window: int = ATR_WINDOW
     target_vol: float = TARGET_ANNUAL_VOL
@@ -89,6 +90,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="入场后锁存（忠实默认）或逐 bar 重验全部三道闸",
     )
     parser.add_argument("--cost-bps", type=float, default=DEFAULT_COST_BPS)
+    parser.add_argument(
+        "--allocation",
+        choices=("active", "selected"),
+        default="active",
+        help=(
+            "资金在当前持仓品种间等分（登记默认，D7）或在当月入选品种间等分、"
+            "无信号份额留现金；selected 的产物一律标为敏感性"
+        ),
+    )
     parser.add_argument(
         "--atr-frequency",
         choices=("bar", "daily"),
@@ -134,6 +144,7 @@ def resolve_options(namespace: argparse.Namespace) -> Options:
         require_paper_faithful=bool(namespace.require_paper_faithful),
         run_literal_sensitivity=bool(namespace.run_literal_sensitivity),
         atr_frequency=str(namespace.atr_frequency),
+        allocation=str(namespace.allocation),
     )
 
 
@@ -165,6 +176,7 @@ def _run_one(
         shadows=shadows,
         target_vol=options.target_vol,
         cost_bps=options.cost_bps,
+        allocation=options.allocation,
     )
     run_config = {
         "start": options.start.isoformat(),
@@ -177,6 +189,7 @@ def _run_one(
         "ema_signal": options.ema_spans[2],
         "atr_window": options.atr_window,
         "atr_frequency": options.atr_frequency,
+        "allocation": options.allocation,
         "target_annual_vol": options.target_vol,
         "in_sample_end": options.in_sample_end.isoformat(),
         "products": products,
@@ -213,7 +226,9 @@ def main(argv: list[str] | None = None) -> int:
         signal_mode=options.signal_mode,
         output_prefix=options.output_prefix,
         sensitivity_only=(
-            options.signal_mode == "literal" or options.atr_frequency == "daily"
+            options.signal_mode == "literal"
+            or options.atr_frequency == "daily"
+            or options.allocation == "selected"
         ),
     )
     if options.run_literal_sensitivity:
