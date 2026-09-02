@@ -852,8 +852,18 @@ class _LedgerState:
             # would close their day on different prices for the same bar.
             if event.kind == "resize" and product not in self.pending_resize:
                 continue
-            self.latest_price[payload["contract"]] = payload["price"]
-            self.bar_contract[product] = payload["contract"]
+            if product in rolled:
+                # 换月与「前一日收盘信号在今日开盘的成交」由构造决定落在同一时刻，
+                # 而面板给那笔挂单的价正是**新腿**那五分钟的 VWAP —— 影子层
+                # `EventLedger.roll` 已裁定两者本就是同一笔：仓位先搬到新腿，这一笔
+                # 再作用在新腿上。事件已按 (时间, 优先级) 排好，换月一定排在
+                # align/resize/target 之前，所以这里只需不让它们把合约写回旧腿。
+                # 价也不能再写：payload 里那个价是新腿的，写进 payload["contract"]
+                # 就把新腿的价记到了旧腿名下。
+                self.bar_contract[product] = rolled[product][1]
+            else:
+                self.latest_price[payload["contract"]] = payload["price"]
+                self.bar_contract[product] = payload["contract"]
             if event.kind == "target":
                 exposure = payload["exposure"]
                 if exposure is None:
@@ -900,7 +910,9 @@ class _LedgerState:
             if product in rolled:
                 old_contract, new_contract = rolled[product]
                 reasons[old_contract] = "roll_old"
-                reasons[new_contract] = "roll_new"
+                # 合并成一次调仓时新腿记那笔成交自己的 reason（影子层同此），
+                # 只有单独换月才是 `roll_new`。
+                reasons[new_contract] = "roll_new" if reason == "roll" else reason
                 continue
             reasons[self.bar_contract[product]] = reason
             previous = self.held_contract.get(product)

@@ -347,3 +347,150 @@ def test_a_target_without_a_priced_fill_is_rejected(scenario) -> None:
 
     with pytest.raises(ValueError, match="bollinger_backtest_fill"):
         _run(bundle, broken)
+
+
+#: CU 换合约的那天，以及它前一天（那天最后一根的成交被推到换合约当天开盘）。
+DEFERRED_SWITCH = date(2024, 2, 16)
+DEFERRED_SIGNAL = date(2024, 2, 15)
+#: 换月新腿的价，与旧腿 104.0 明显不同，好看出这一笔落在哪条腿上。
+DEFERRED_NEW_PRICE = 110.0
+
+
+def _deferred_fill_universe(dates: list[date]) -> pd.DataFrame:
+    """三个品种全程在池：RB 从十二月起就在交易，二月的已实现波动率才有得算。"""
+    months = sorted({day.replace(day=1) for day in dates})
+    return pd.DataFrame(
+        [
+            {"month_start": month, "product": product}
+            for month in months
+            for product in ("CU", "RB", "TA")
+        ]
+    )
+
+
+def _deferred_fill_scenario(
+    *,
+    switch: date = DEFERRED_SWITCH,
+    signal_day: date = DEFERRED_SIGNAL,
+    closes=_stepping,
+    old_price: float = 104.0,
+    new_price: float = DEFERRED_NEW_PRICE,
+) -> tuple[PanelBundle, dict[str, ShadowResult]]:
+    """换月与「前一日信号在次日开盘的成交」落在同一时刻。
+
+    真实形态：2020-04-01 没有夜盘，FG 当日最后一根的成交被推到 04-02 09:04，
+    而 FG005→FG009 的换月也落在 09:04；面板给那笔递延成交的价正是**新腿**的价
+    （实测逐位相同）。影子层 `EventLedger.roll` 早已裁定两者本就是同一笔。
+    """
+    dates = _trade_dates()
+
+    def contract_of(day: date) -> str:
+        return "CU2406.SHF" if day >= switch else "CU2404.SHF"
+
+    cu = _bars("CU", dates, closes(dates), contract_of=contract_of)
+    signal_row = cu.index[cu["trade_date"] == signal_day][0]
+    roll_slot = pd.Timestamp(datetime.combine(switch, time(9, 4), tzinfo=TZ))
+    cu.loc[signal_row, "fill_time"] = roll_slot
+    cu.loc[signal_row, "fill_price"] = new_price
+
+    frames = {
+        "CU": cu,
+        "RB": _bars("RB", dates, _oscillating(dates)),
+        "TA": _bars("TA", dates, [200.0] * len(dates), multiplier=5),
+    }
+    bars = pd.concat(frames.values(), ignore_index=True)
+    roll_fills = pd.DataFrame(
+        [
+            {
+                "trade_date": switch,
+                "product": "CU",
+                "old_contract": "CU2404.SHF",
+                "new_contract": "CU2406.SHF",
+                "fill_time": roll_slot,
+                "old_price": old_price,
+                "new_price": new_price,
+                "old_pricing_basis": "amount_vwap",
+                "new_pricing_basis": "amount_vwap",
+            }
+        ]
+    )
+    dominants = pd.DataFrame(
+        [
+            {
+                "trade_date": row.trade_date,
+                "product": row.product,
+                "contract": row.contract,
+                "oi": 1000,
+                "volume": 900,
+                "selected_from": row.trade_date,
+                "adj_factor": 1.0,
+            }
+            for row in bars.itertuples(index=False)
+        ]
+    )
+    bundle = PanelBundle(
+        bars=bars,
+        universes=_deferred_fill_universe(dates),
+        dominants=dominants,
+        roll_fills=roll_fills,
+        manifest={"bundle_version": 1},
+    )
+
+    shadows: dict[str, ShadowResult] = {}
+    for product in sorted(frames):
+        raw = run_shadow_product(
+            bars, product=product, roll_fills=roll_fills, **SHADOW_KWARGS
+        )
+        daily, trades = _forced_scores(product, dates)
+        shadows[product] = ShadowResult(product, raw.signals, trades, daily)
+    return bundle, shadows
+
+
+def test_a_roll_meeting_a_deferred_fill_puts_the_position_on_the_new_leg() -> None:
+    """仓位先搬家，这一笔再作用在新腿上 —— 不能开在刚被换掉的那条腿上，
+    也不能把新腿的价记到旧腿名下。"""
+    result = _run(*_deferred_fill_scenario())
+
+    roll_slot = pd.Timestamp(datetime.combine(DEFERRED_SWITCH, time(9, 4), tzinfo=TZ))
+    legs = result.trades.query("product == 'CU' and timestamp == @roll_slot")
+    assert not legs.empty
+    opened = legs.query("new_weight != 0")
+    assert list(opened["contract"]) == ["CU2406.SHF"]
+    assert opened.iloc[0]["price"] == pytest.approx(DEFERRED_NEW_PRICE)
+
+
+def test_a_roll_meeting_a_deferred_fill_keeps_the_fills_own_reason() -> None:
+    """影子层把两者合并成一次调仓：旧腿记 roll_old，新腿记那笔成交自己的 reason。"""
+    result = _run(*_deferred_fill_scenario())
+
+    roll_slot = pd.Timestamp(datetime.combine(DEFERRED_SWITCH, time(9, 4), tzinfo=TZ))
+    legs = result.trades.query("product == 'CU' and timestamp == @roll_slot")
+    opened = legs.query("new_weight != 0").iloc[0]
+    assert opened["reason"] == "upper_cross"
+
+
+#: 递延成交是**平仓**的那一变体：换月当刻旧腿真的被平掉，价才看得见。
+DEFERRED_EXIT_SWITCH = date(2024, 2, 8)
+DEFERRED_EXIT_SIGNAL = date(2024, 2, 7)
+DEFERRED_EXIT_OLD_PRICE = 96.0
+
+
+def test_a_roll_meeting_a_deferred_fill_closes_the_old_leg_at_its_own_price() -> None:
+    """旧腿按换月单的 `old_price` 平 —— 把新腿的价记到旧腿名下会无声算错 P&L。"""
+    result = _run(
+        *_deferred_fill_scenario(
+            switch=DEFERRED_EXIT_SWITCH,
+            signal_day=DEFERRED_EXIT_SIGNAL,
+            closes=_oscillating,
+            old_price=DEFERRED_EXIT_OLD_PRICE,
+        )
+    )
+
+    roll_slot = pd.Timestamp(
+        datetime.combine(DEFERRED_EXIT_SWITCH, time(9, 4), tzinfo=TZ)
+    )
+    legs = result.trades.query("product == 'CU' and timestamp == @roll_slot")
+    closed = legs.query("contract == 'CU2404.SHF'")
+    assert len(closed) == 1
+    assert closed.iloc[0]["new_weight"] == 0.0
+    assert closed.iloc[0]["price"] == pytest.approx(DEFERRED_EXIT_OLD_PRICE)
