@@ -459,7 +459,8 @@ def test_a_dow_forced_exit_with_no_fill_is_priced_at_the_bars_own_close() -> Non
     assert len(closed) == 1
     assert closed.iloc[0]["exit_contract"] == "RB1804.SHF"
     assert closed.iloc[0]["exit_price"] == frame.loc[59, "close"]
-    assert closed.iloc[0]["exit_time"] == frame.loc[59, "fill_time"]
+    assert closed.iloc[0]["exit_time"] == frame.loc[59, "slot_end"]
+    assert result.signals.iloc[59]["fill_time"] == frame.loc[59, "fill_time"]
 
 
 def test_a_dow_close_priced_forced_exit_reports_the_price_it_used() -> None:
@@ -485,3 +486,25 @@ def test_a_dow_forced_exit_refuses_a_close_that_is_not_a_price() -> None:
 
     with pytest.raises(ValueError, match="continuity break close"):
         run_shadow_product(frame, product="RB", roll_fills=_empty_rolls())
+
+
+def _dow_break_with_a_deferred_fill() -> pd.DataFrame:
+    first = _dow_bars(_zigzag(60, 100.0), "RB1804.SHF", 0, "2017-06-01")
+    second = _dow_bars(_zigzag(200, 300.0), "RB1901.SHF", 1, "2018-07-16")
+    last = first.index[-1]
+    first.loc[last, "fill_time"] = second["slot_end"].iloc[0] - pd.Timedelta(hours=5)
+    first.loc[last, "fill_price"] = 300.0
+    return pd.concat([first, second], ignore_index=True)
+
+
+def test_a_dow_forced_exit_deferred_into_the_next_leg_uses_the_close() -> None:
+    """裁决 B 的延用（与 Bollinger 同一条）：成交窗口落到旧腿已不在面板的那一天，
+    面板给的价是后继合约的，按该 bar 自己的收盘价平。"""
+    frame = _dow_break_with_a_deferred_fill()
+
+    result = run_shadow_product(frame, product="RB", roll_fills=_empty_rolls())
+
+    closed = result.trades.loc[result.trades["exit_reason"] == "continuity_break"]
+    assert len(closed) == 1
+    assert closed.iloc[0]["exit_price"] == frame.loc[59, "close"]
+    assert result.signals.iloc[59]["action"] == "continuity_break_close"

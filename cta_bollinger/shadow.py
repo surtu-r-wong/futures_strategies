@@ -385,13 +385,24 @@ def run_shadow_product(
             if frame_index in segment_last_bars:
                 output["action"] = "continuity_break"
                 if ledger.current_target != 0.0:
-                    if bool(row["fill_unpriceable"]):
+                    # 我们持的这条腿在这个成交窗口有没有对手盘 —— 两种形态都算没有：
+                    # ① 那五分钟根本无人成交（`fill_unpriceable`）；
+                    # ② 成交窗口落到下一交易日，那时旧腿已经不在面板里，面板给的价
+                    #    是**后继合约**的（实测 CS 2021-11-02 / SM 2016-09-01 /
+                    #    ZC 2022-05-05，与旧腿收盘差 0.8%~5.4%）。
+                    fillable = not bool(row["fill_unpriceable"]) and (
+                        ledger.calendar.execution_trade_date(
+                            row["fill_time"], trade_date
+                        )
+                        == trade_date
+                    )
+                    if not fillable:
                         # 强制平仓没有下一根：下一根已经是新合约，两张合约的原始价
                         # 不可比，信号路径那条「没有对手盘就作废、下一根重新判」在
                         # 这里用不了 —— 仓位真的困住了。按该 bar 的收盘价平掉（那是
                         # 当天真实成交过的价，口径 C 保证 bar 不合成），换掉的计价
                         # 基准由 `continuity_break_close` 单列申报（用户 2026-09-02
-                        # 裁决）。价既然是 slot_end 那一刻的，成交时刻就用 slot_end。
+                        # 裁决 B 及其延用）。
                         output["action"] = "continuity_break_close"
                         fill_price = finite(
                             row["close"], "continuity break close", positive=True
@@ -401,14 +412,18 @@ def run_shadow_product(
                         # （实测 FU 2025-08-29 与 AU 2019-12-16）。`fill_time` 不动
                         # —— 组合层拿它与面板逐点对齐，改了会被对齐检查正确拦下。
                         output["fill_price"] = fill_price
+                        # 价是 slot_end 那一刻的，账本就在那一刻成交：用面板的成交
+                        # 时刻会把这一笔挂到下一交易日，而那时旧腿已经没了。
+                        exit_fill_time = row["slot_end"]
                     else:
                         fill_price = finite(
                             row["fill_price"], "continuity break fill", positive=True
                         )
+                        exit_fill_time = row["fill_time"]
                     assert ledger.current_contract is not None
                     ledger.request_target(
                         trade_date=trade_date,
-                        fill_time=row["fill_time"],
+                        fill_time=exit_fill_time,
                         contract=ledger.current_contract,
                         fill_price=fill_price,
                         next_target=0.0,

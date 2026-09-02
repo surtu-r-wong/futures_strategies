@@ -662,8 +662,10 @@ def test_a_forced_exit_with_no_fill_is_priced_at_the_bars_own_close() -> None:
     assert len(closed) == 1
     assert closed.iloc[0]["exit_contract"] == "RB1804.SHF"
     assert closed.iloc[0]["exit_price"] == 107.0
-    # 成交时刻仍是面板给的那个：组合层拿它与面板逐点对齐。
-    assert closed.iloc[0]["exit_time"] == frame.loc[17, "fill_time"]
+    # 账本在价被struck 的那一刻成交（`slot_end`）……
+    assert closed.iloc[0]["exit_time"] == frame.loc[17, "slot_end"]
+    # ……而这一行报出去的成交时刻仍是面板给的：组合层拿它与面板逐点对齐。
+    assert result.signals.iloc[17]["fill_time"] == frame.loc[17, "fill_time"]
 
 
 def test_a_close_priced_forced_exit_reports_the_price_it_used() -> None:
@@ -690,3 +692,39 @@ def test_a_forced_exit_refuses_a_close_that_is_not_a_price() -> None:
 
     with pytest.raises(ValueError, match="continuity break close"):
         run_shadow_product(frame, product="RB", **_SMALL)
+
+
+def _break_panel_with_a_deferred_fill() -> pd.DataFrame:
+    """断代平仓的成交窗口落到下一交易日 —— 那时旧腿已经不在面板里。
+
+    真实形态：`CS 2021-11-02 15:00`（成交推到 21:04）与 `ZC 2022-05-05`。面板给
+    那笔递延成交的价是**后继合约**的，用它平旧腿等于拿另一张合约的价记账。
+    """
+    first = [100.0] * 10 + [104.0] * 7 + [107.0]
+    second = _second_segment_closes()
+    frame = _panel(
+        first + second,
+        open_interest=[100.0] * (len(first) + len(second)),
+        contracts=["RB1804.SHF"] * len(first) + ["RB1901.SHF"] * len(second),
+        segments=[0] * len(first) + [1] * len(second),
+    )
+    # 成交时刻落在下一个交易日的日内 ⇒ `execution_trade_date` 判为次日。
+    frame.loc[17, "fill_time"] = frame.loc[18, "slot_end"] - pd.Timedelta(hours=5)
+    # 面板给的价属于新的一段（新腿），与旧腿的收盘 107.0 差着量级。
+    frame.loc[17, "fill_price"] = 200.0
+    return frame
+
+
+def test_a_forced_exit_whose_window_belongs_to_the_next_leg_uses_the_close() -> None:
+    """用户 2026-09-02 裁决 B 的延用：成交窗口里成交的都是后继合约 ⇒ 我们持的这条
+    腿同样没有对手盘，按该 bar 的收盘价平。"""
+    frame = _break_panel_with_a_deferred_fill()
+
+    result = run_shadow_product(frame, product="RB", **_SMALL)
+
+    closed = result.trades.loc[result.trades["exit_reason"] == "continuity_break"]
+    assert len(closed) == 1
+    assert closed.iloc[0]["exit_contract"] == "RB1804.SHF"
+    assert closed.iloc[0]["exit_price"] == 107.0
+    assert result.signals.iloc[17]["action"] == "continuity_break_close"
+    assert result.signals.iloc[17]["fill_price"] == 107.0
