@@ -242,3 +242,69 @@ def test_an_unpriceable_window_is_counted_not_refused(tmp_path) -> None:
     assert exit_code == 0
     audit = json.loads((tmp_path / "dow.audit.json").read_text(encoding="utf-8"))
     assert audit["run_config"]["unpriceable_fill_windows"] == 4
+
+
+def test_the_daily_atr_reading_is_a_declared_sensitivity(tmp_path) -> None:
+    """`--atr-frequency daily` 是对研报「每日波动幅度」的另一种读法，不是调参：
+    默认仍是 bar，daily 的产物一律标成敏感性。"""
+    default = resolve_options(build_parser().parse_args(_args(tmp_path)))
+    assert default.atr_frequency == "bar"
+
+    options = resolve_options(
+        build_parser().parse_args(_args(tmp_path) + ["--atr-frequency", "daily"])
+    )
+    assert options.atr_frequency == "daily"
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(_args(tmp_path) + ["--atr-frequency", "weekly"])
+
+
+def test_main_marks_a_daily_atr_run_as_sensitivity(tmp_path) -> None:
+    panel = tmp_path / "panel"
+    prefix = tmp_path / "out" / "dow_atr_daily"
+    _tiny_bundle(panel)
+
+    code = main(
+        [
+            "--panel-dir",
+            str(panel),
+            "--start",
+            "2024-01-02",
+            "--end",
+            "2024-04-30",
+            "--output-prefix",
+            str(prefix),
+            "--require-paper-faithful",
+            "--atr-frequency",
+            "daily",
+        ]
+    )
+
+    assert code == 0
+    audit = json.loads(prefix.with_suffix(".audit.json").read_text("utf-8"))
+    assert audit["run_config"]["atr_frequency"] == "daily"
+    assert audit["sensitivity_only"] is True
+
+    # 旗标要真的到影子层：同一面板按 bar 再跑一次，两份 signals 的 ATR 必须不同。
+    bar_prefix = tmp_path / "out" / "dow_bar"
+    bar_argv = [
+        "--panel-dir",
+        str(panel),
+        "--start",
+        "2024-01-02",
+        "--end",
+        "2024-04-30",
+        "--output-prefix",
+        str(bar_prefix),
+        "--require-paper-faithful",
+    ]
+    assert main(bar_argv) == 0
+    daily_atr = pd.read_excel(prefix.with_suffix(".xlsx"), sheet_name="signals")[
+        "atr_adjusted"
+    ]
+    bar_atr = pd.read_excel(bar_prefix.with_suffix(".xlsx"), sheet_name="signals")[
+        "atr_adjusted"
+    ]
+    assert len(daily_atr) == len(bar_atr)
+    assert not daily_atr.fillna(-1.0).equals(bar_atr.fillna(-1.0))
+    assert daily_atr.isna().sum() > bar_atr.isna().sum()

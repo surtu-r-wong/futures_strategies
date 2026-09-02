@@ -29,7 +29,7 @@ from common.commodity.execution import (
     unexecutable_transitions,
     segment_slices,
 )
-from common.commodity.indicators import atr_series
+from common.commodity.indicators import atr_series, daily_atr_by_bar
 from common.commodity.panel import SessionCalendar
 from common.leverage import atr_leverage
 from cta_dow.indicators import Trend, macd_path, preliminary_trend
@@ -193,13 +193,25 @@ def run_shadow_product(
     roll_fills: pd.DataFrame | None = None,
     signal_mode: str | SignalMode = SignalMode.LATCHED,
     atr_window: int = 20,
+    atr_frequency: str = "bar",
     cost_bps: float = 1.3,
 ) -> ShadowResult:
-    """Run one product without the portfolio-level volatility multiplier."""
+    """Run one product without the portfolio-level volatility multiplier.
+
+    ``atr_frequency`` is a reading of the paper, not a parameter: ``"bar"`` (the
+    registered default) averages the true range of the 15-minute bars;
+    ``"daily"`` follows the paper's wording that the true range measures the
+    *daily* move and averages completed trading days, so a bar sees the ATR
+    as of the previous day. The threshold and the ATR leverage both take it.
+    """
     nonempty_string(product, "product")
     mode = _resolve_mode(signal_mode)
     if type(atr_window) is not int or atr_window < 1:
         raise ValueError("dow_shadow_atr_window: expected positive integer")
+    if atr_frequency not in ("bar", "daily"):
+        raise ValueError(
+            f"dow_shadow_atr_frequency: expected 'bar' or 'daily'; got {atr_frequency!r}"
+        )
     frame, embedded_rolls = prepare_bars(bars, product)
     rolls = prepare_rolls(
         roll_fills if roll_fills is not None else embedded_rolls, product
@@ -248,11 +260,20 @@ def run_shadow_product(
         signal_line[span] = path.signal_line
         macd_diff[span] = path.diff
         cumulative[span] = path.cumulative
-        atr = atr_series(
-            adjusted_high[span], adjusted_low[span], adjusted_close[span],
-            window=atr_window,
-        )
-        atr[: min(atr_window - 1, len(atr))] = np.nan
+        if atr_frequency == "daily":
+            atr = daily_atr_by_bar(
+                adjusted_high[span],
+                adjusted_low[span],
+                adjusted_close[span],
+                traded["trade_date"].to_numpy()[span],
+                window=atr_window,
+            )
+        else:
+            atr = atr_series(
+                adjusted_high[span], adjusted_low[span], adjusted_close[span],
+                window=atr_window,
+            )
+            atr[: min(atr_window - 1, len(atr))] = np.nan
         adjusted_atr[span] = atr
         trends[span] = list(_trend_path(path.cumulative, atr))
     trends = tuple(trends)

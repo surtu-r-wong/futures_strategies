@@ -61,6 +61,7 @@ class Options:
     cost_bps: float
     require_paper_faithful: bool
     run_literal_sensitivity: bool
+    atr_frequency: str = "bar"
     ema_spans: tuple[int, int, int] = EMA_SPANS
     atr_window: int = ATR_WINDOW
     target_vol: float = TARGET_ANNUAL_VOL
@@ -88,6 +89,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="入场后锁存（忠实默认）或逐 bar 重验全部三道闸",
     )
     parser.add_argument("--cost-bps", type=float, default=DEFAULT_COST_BPS)
+    parser.add_argument(
+        "--atr-frequency",
+        choices=("bar", "daily"),
+        default="bar",
+        help=(
+            "ATR 按 15 分钟 bar 算（登记默认）或按研报原文「每日」波动幅度算；"
+            "daily 的产物一律标为敏感性"
+        ),
+    )
     parser.add_argument(
         "--require-paper-faithful",
         action="store_true",
@@ -123,6 +133,7 @@ def resolve_options(namespace: argparse.Namespace) -> Options:
         cost_bps=float(namespace.cost_bps),
         require_paper_faithful=bool(namespace.require_paper_faithful),
         run_literal_sensitivity=bool(namespace.run_literal_sensitivity),
+        atr_frequency=str(namespace.atr_frequency),
     )
 
 
@@ -144,6 +155,7 @@ def _run_one(
             roll_fills=sliced.roll_fills,
             signal_mode=signal_mode,
             atr_window=options.atr_window,
+            atr_frequency=options.atr_frequency,
             cost_bps=options.cost_bps,
         )
         for product in products
@@ -164,6 +176,7 @@ def _run_one(
         "ema_slow": options.ema_spans[1],
         "ema_signal": options.ema_spans[2],
         "atr_window": options.atr_window,
+        "atr_frequency": options.atr_frequency,
         "target_annual_vol": options.target_vol,
         "in_sample_end": options.in_sample_end.isoformat(),
         "products": products,
@@ -199,7 +212,9 @@ def main(argv: list[str] | None = None) -> int:
         unpriceable_fill_windows=unpriceable_fill_windows,
         signal_mode=options.signal_mode,
         output_prefix=options.output_prefix,
-        sensitivity_only=options.signal_mode == "literal",
+        sensitivity_only=(
+            options.signal_mode == "literal" or options.atr_frequency == "daily"
+        ),
     )
     if options.run_literal_sensitivity:
         _run_one(

@@ -7,7 +7,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-__all__ = ["atr_series", "ema", "true_range"]
+__all__ = ["atr_series", "daily_atr_by_bar", "ema", "true_range"]
 
 
 def _as_float_array(values: Sequence[float], label: str) -> np.ndarray:
@@ -73,4 +73,58 @@ def atr_series(
     for index in range(highs.size):
         start = max(0, index - window + 1)
         out[index] = ranges[start : index + 1].mean()
+    return out
+
+
+def daily_atr_by_bar(
+    high: Sequence[float],
+    low: Sequence[float],
+    close: Sequence[float],
+    days: Sequence[object],
+    *,
+    window: int,
+) -> np.ndarray:
+    """按「每日」波动幅度算的 ATR，摊到每根 bar 上。
+
+    研报原文说 TR 「用于衡量每日的价格波动幅度」：先把同一交易日的 bar 聚成日
+    H/L/C，日 TR 用前一日收盘，ATR 是最近 `window` 个**已完成**交易日的均值。
+    t 日的 bar 只能看到 t−1 日为止的值 —— 当天的区间还没走完，不能预知。
+    完成日不足 `window` 个的 bar 为 NaN。
+
+    ⚠️ 传进来的序列必须已经剔掉无成交 bar，且按时间排好（`days` 单调不减）。
+    """
+    if type(window) is not int or window < 1:
+        raise ValueError(f"atr_window: window 必须是 >= 1 的整数；got {window!r}")
+    highs = _as_float_array(high, "atr_high")
+    lows = _as_float_array(low, "atr_low")
+    closes = _as_float_array(close, "atr_close")
+    labels = list(days)
+    if not highs.size == lows.size == closes.size == len(labels):
+        raise ValueError("atr_length: 四条序列长度必须相同")
+    out = np.full(highs.size, np.nan)
+    if not highs.size:
+        return out
+
+    # 逐日聚合；日期回退说明序列没排好，直接拒绝而不是悄悄合并。
+    starts: list[int] = [0]
+    for index in range(1, highs.size):
+        if labels[index] != labels[index - 1]:
+            if labels[index] in labels[: starts[-1]]:
+                raise ValueError("daily_atr_days: 交易日必须按时间排好、不得回退")
+            starts.append(index)
+    starts.append(highs.size)
+
+    ranges: list[float] = []
+    previous_close: float | None = None
+    for day, (begin, end) in enumerate(zip(starts, starts[1:])):
+        if day >= window:
+            out[begin:end] = float(np.mean(ranges[day - window : day]))
+        ranges.append(
+            true_range(
+                float(highs[begin:end].max()),
+                float(lows[begin:end].min()),
+                previous_close,
+            )
+        )
+        previous_close = float(closes[end - 1])
     return out

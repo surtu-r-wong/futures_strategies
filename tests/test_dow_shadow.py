@@ -508,3 +508,36 @@ def test_a_dow_forced_exit_deferred_into_the_next_leg_uses_the_close() -> None:
     assert len(closed) == 1
     assert closed.iloc[0]["exit_price"] == frame.loc[59, "close"]
     assert result.signals.iloc[59]["action"] == "continuity_break_close"
+
+
+def test_daily_atr_frequency_sees_only_the_previous_days() -> None:
+    """研报的 ATR 用「每日」波动幅度（原文），登记默认却是 15 分钟 bar 的 ATR。
+
+    `atr_frequency="daily"` 下：一根 bar 一天的夹具里，日 TR 就是 bar TR，但 t 日的
+    bar 只能用到 t−1 日为止的 20 个完成日 —— 恰是 15 分钟 ATR 往后错一根。"""
+    from common.commodity.indicators import atr_series
+
+    frame = _dow_bars(_zigzag(80, 100.0), "RB1804.SHF", 0, "2017-06-01")
+
+    daily = run_shadow_product(
+        frame, product="RB", roll_fills=_empty_rolls(), atr_frequency="daily"
+    )
+    bar = run_shadow_product(frame, product="RB", roll_fills=_empty_rolls())
+
+    got = daily.signals["atr_adjusted"].to_numpy(dtype="float64")
+    trailing = atr_series(frame["high"], frame["low"], frame["close"], window=20)
+    assert np.isnan(got[:20]).all()
+    np.testing.assert_allclose(got[20:], trailing[19:-1])
+    # 默认口径不动：仍是含当根在内的 20 根 bar。
+    np.testing.assert_allclose(
+        bar.signals["atr_adjusted"].to_numpy(dtype="float64")[19:], trailing[19:]
+    )
+    assert daily.signals["atr_raw"].iloc[25] == pytest.approx(got[25])
+
+
+def test_shadow_rejects_an_unknown_atr_frequency() -> None:
+    frame = _dow_bars(_zigzag(30, 100.0), "RB1804.SHF", 0, "2017-06-01")
+    with pytest.raises(ValueError, match="atr_frequency"):
+        run_shadow_product(
+            frame, product="RB", roll_fills=_empty_rolls(), atr_frequency="weekly"
+        )
