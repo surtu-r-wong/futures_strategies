@@ -251,3 +251,33 @@ def test_data_quality_counts_forced_exits_priced_at_the_bars_close() -> None:
     row = quality.loc[quality["metric"] == "forced_exits_priced_at_close"].iloc[0]
     assert float(row["value"]) == 2.0
     assert row["product"] == "RB"
+
+
+def test_a_sheet_too_tall_for_excel_spills_to_a_file_beside_the_workbook(
+    tmp_path, result, monkeypatch
+) -> None:
+    """全历史的 signals 有 3,156,620 行，Excel 一张表最多 1,048,576 行。
+
+    不截断、不丢：整表落到工作簿旁边的 csv.gz（内容与工作表本该有的一致），表里
+    留一行指路，审计里的行数与 sha256 仍是整表的 —— 证据链不变。
+    """
+    from common.commodity import report as commodity_report
+
+    monkeypatch.setattr(commodity_report, "EXCEL_MAX_ROWS", 10)
+
+    paths = write_outputs(result, output_prefix=tmp_path / "dow")
+
+    assert pd.ExcelFile(paths.xlsx).sheet_names == list(REPORT_SHEETS)
+    placeholder = pd.read_excel(paths.xlsx, sheet_name="daily_returns")
+    assert list(placeholder.columns) == ["rows", "written_to"]
+    sidecar = paths.xlsx.with_name(str(placeholder.iloc[0]["written_to"]))
+    assert sidecar.exists()
+    spilled = pd.read_csv(sidecar)
+    assert len(spilled) == int(placeholder.iloc[0]["rows"])
+    assert len(spilled) == len(result.daily)
+
+    audit = json.loads(paths.audit.read_text(encoding="utf-8"))
+    assert audit["sheets"]["daily_returns"]["rows"] == len(result.daily)
+    assert audit["sheets"]["daily_returns"]["written_to"] == sidecar.name
+    # 放得下的表照旧写在工作簿里。
+    assert "written_to" not in pd.read_excel(paths.xlsx, sheet_name="metrics").columns

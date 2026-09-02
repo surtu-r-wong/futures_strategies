@@ -168,6 +168,9 @@ SHARED_FIDELITY_ROWS: tuple[dict[str, str], ...] = (
     },
 )
 
+#: 一张 Excel 工作表放得下的行数（xlsx 的硬上限）。全历史的 signals 是它的三倍。
+EXCEL_MAX_ROWS = 1_048_576
+
 REPORT_SHEETS = (
     "metrics",
     "daily_returns",
@@ -350,7 +353,9 @@ def _audit_payload(
     run_config: Mapping[str, object] | None,
     query_plans: Sequence[Mapping[str, object]] | None,
     sensitivity_only: bool,
+    spilled: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
+    spilled = spilled or {}
     return {
         "commit": _repo_commit(),
         "in_sample_end": spec.in_sample_end.isoformat(),
@@ -369,7 +374,11 @@ def _audit_payload(
             for row in sheets["fidelity"].to_dict("records")
         ],
         "sheets": {
-            name: {"rows": int(len(frame)), "sha256": _digest(frame)}
+            name: {
+                "rows": int(len(frame)),
+                "sha256": _digest(frame),
+                **({"written_to": spilled[name]} if name in spilled else {}),
+            }
             for name, frame in sheets.items()
         },
     }
@@ -404,14 +413,24 @@ def write_outputs(
         run_config=run_config,
         sensitivity_only=sensitivity_only,
     )
+    spilled: dict[str, str] = {}
     with pd.ExcelWriter(paths.xlsx, engine="openpyxl") as writer:
         for name in REPORT_SHEETS:
             frame = sheets[name]
-            written = (
-                excel_safe_frame(frame)
-                if not frame.empty
-                else pd.DataFrame({"empty": [True]})
-            )
+            if len(frame) > EXCEL_MAX_ROWS:
+                # 一张工作表放不下这么多行。不截断也不丢：整表落到工作簿旁边的
+                # csv.gz（内容与工作表本该有的一致，含公式注入防护），表里留一行
+                # 指路。审计里的行数与 sha256 仍是整表的，证据链不变。
+                sidecar = paths.xlsx.with_name(f"{paths.xlsx.stem}.{name}.csv.gz")
+                excel_safe_frame(frame).to_csv(sidecar, index=False)
+                spilled[name] = sidecar.name
+                written = pd.DataFrame(
+                    [{"rows": int(len(frame)), "written_to": sidecar.name}]
+                )
+            elif frame.empty:
+                written = pd.DataFrame({"empty": [True]})
+            else:
+                written = excel_safe_frame(frame)
             written.to_excel(writer, sheet_name=name, index=False)
     _write_chart(sheets["daily_returns"], paths.png, spec)
     paths.audit.write_text(
@@ -423,6 +442,7 @@ def write_outputs(
                 run_config=run_config,
                 query_plans=query_plans,
                 sensitivity_only=sensitivity_only,
+                spilled=spilled,
             ),
             ensure_ascii=False,
             indent=2,
