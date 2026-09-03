@@ -364,3 +364,47 @@ def test_main_marks_a_selected_allocation_run_as_sensitivity(
     assert audit["run_config"]["allocation"] == "selected"
     assert audit["sensitivity_only"] is True
     assert seen == ["selected"]
+
+
+def test_the_prior_extreme_breakout_reading_is_a_declared_sensitivity(tmp_path) -> None:
+    """`--breakout-reference prior_extreme` 是对研报「临时高点」的另一种读法（公式块的
+    lastmax_1 / 图 13 的「第一高点」），不是调参：默认仍是 segment，产物标成敏感性。"""
+    default = resolve_options(build_parser().parse_args(_args(tmp_path)))
+    assert default.breakout_reference == "segment"
+
+    options = resolve_options(
+        build_parser().parse_args(
+            _args(tmp_path) + ["--breakout-reference", "prior_extreme"]
+        )
+    )
+    assert options.breakout_reference == "prior_extreme"
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(_args(tmp_path) + ["--breakout-reference", "moon"])
+
+
+def test_main_marks_a_prior_extreme_run_as_sensitivity(tmp_path) -> None:
+    panel = tmp_path / "panel"
+    prefix = tmp_path / "out" / "dow_prior"
+    _tiny_bundle(panel)
+
+    code = main(
+        [
+            "--panel-dir",
+            str(panel),
+            "--start",
+            "2024-01-02",
+            "--end",
+            "2024-04-30",
+            "--output-prefix",
+            str(prefix),
+            "--require-paper-faithful",
+            "--breakout-reference",
+            "prior_extreme",
+        ]
+    )
+
+    assert code == 0
+    audit = json.loads(prefix.with_suffix(".audit.json").read_text("utf-8"))
+    assert audit["run_config"]["breakout_reference"] == "prior_extreme"
+    assert audit["sensitivity_only"] is True

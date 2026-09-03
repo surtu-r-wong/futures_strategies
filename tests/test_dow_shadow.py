@@ -580,3 +580,42 @@ def test_shadow_rejects_an_unknown_atr_frequency() -> None:
         run_shadow_product(
             frame, product="RB", roll_fills=_empty_rolls(), atr_frequency="weekly"
         )
+
+
+def test_prior_extreme_breakout_reference_reaches_every_signal_row() -> None:
+    """`breakout_reference="prior_extreme"` 下，signals 表里每一根上升段 bar 的突破判定都
+    是「收盘 ≥ 第一高点」，下降段对称；没有上一同向段就没有突破。默认读法不受影响。"""
+    frame = _dow_bars(_zigzag(120, 100.0), "RB1804.SHF", 0, "2017-06-01")
+
+    prior = run_shadow_product(
+        frame,
+        product="RB",
+        roll_fills=_empty_rolls(),
+        breakout_reference="prior_extreme",
+    )
+    default = run_shadow_product(frame, product="RB", roll_fills=_empty_rolls())
+
+    signals = prior.signals
+    judged = signals["trend_changed"].eq(False) & signals["atr_adjusted"].notna()
+    up = judged & signals["trend"].eq("up")
+    down = judged & signals["trend"].eq("down")
+    assert up.any() and down.any()
+    expected_up = signals["signal_close"] >= signals["last_up_high_1"]
+    expected_down = signals["signal_close"] <= signals["last_down_low_1"]
+    assert (
+        signals.loc[up, "close_breakout"].tolist()
+        == expected_up[up].fillna(False).tolist()
+    )
+    assert (
+        signals.loc[down, "close_breakout"].tolist()
+        == expected_down[down].fillna(False).tolist()
+    )
+    assert not default.signals["close_breakout"].equals(signals["close_breakout"])
+
+
+def test_shadow_rejects_an_unknown_breakout_reference() -> None:
+    frame = _dow_bars(_zigzag(30, 100.0), "RB1804.SHF", 0, "2017-06-01")
+    with pytest.raises(ValueError, match="breakout_reference"):
+        run_shadow_product(
+            frame, product="RB", roll_fills=_empty_rolls(), breakout_reference="moon"
+        )

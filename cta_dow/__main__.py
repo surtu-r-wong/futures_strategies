@@ -63,6 +63,7 @@ class Options:
     run_literal_sensitivity: bool
     atr_frequency: str = "bar"
     allocation: str = "active"
+    breakout_reference: str = "segment"
     ema_spans: tuple[int, int, int] = EMA_SPANS
     atr_window: int = ATR_WINDOW
     target_vol: float = TARGET_ANNUAL_VOL
@@ -109,6 +110,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--breakout-reference",
+        choices=("segment", "prior_extreme"),
+        default="segment",
+        help=(
+            "入场突破的参照：本段此前的临时极值（登记默认 D5）或上一同向段的整段极值"
+            "（研报公式块的 lastmax_1、图 13 的「第一高点」）；prior_extreme 的产物一律标为敏感性"
+        ),
+    )
+    parser.add_argument(
         "--require-paper-faithful",
         action="store_true",
         help="区间内存在无法定价的应成交窗口时直接拒绝运行",
@@ -147,6 +157,7 @@ def resolve_options(namespace: argparse.Namespace) -> Options:
         run_literal_sensitivity=bool(namespace.run_literal_sensitivity),
         atr_frequency=str(namespace.atr_frequency),
         allocation=str(namespace.allocation),
+        breakout_reference=str(namespace.breakout_reference),
     )
 
 
@@ -170,6 +181,7 @@ def _run_one(
             atr_window=options.atr_window,
             atr_frequency=options.atr_frequency,
             cost_bps=options.cost_bps,
+            breakout_reference=options.breakout_reference,
         )
         for product in products
     }
@@ -192,6 +204,7 @@ def _run_one(
         "atr_window": options.atr_window,
         "atr_frequency": options.atr_frequency,
         "allocation": options.allocation,
+        "breakout_reference": options.breakout_reference,
         "target_annual_vol": options.target_vol,
         "in_sample_end": options.in_sample_end.isoformat(),
         "products": products,
@@ -231,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
             options.signal_mode == "literal"
             or options.atr_frequency == "daily"
             or options.allocation == "selected"
+            or options.breakout_reference == "prior_extreme"
         ),
     )
     if options.run_literal_sensitivity:

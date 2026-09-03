@@ -202,3 +202,97 @@ def test_a_non_neutral_state_without_a_segment_is_rejected() -> None:
             last_up_highs=(),
             last_down_lows=(),
         )
+
+
+def test_prior_extreme_reference_measures_the_breakout_against_the_last_same_side_segment() -> (
+    None
+):
+    """研报公式块在上升趋势下定义了 lastmax_1（上一上升段最高价），正文条件却没用它；
+    图 13 标注的也是「第一高点」。这条读法把突破参照换成它：收盘要越过上一上升段的整段高点，
+    而不是本段此前的临时高点。默认读法不动。"""
+    state = prepared_up_state(
+        segment_high=12.0, segment_low=10.0, last_down_lows=(9.0, 8.0)
+    )
+    state = SegmentState(
+        trend=state.trend,
+        segment_high=state.segment_high,
+        segment_low=state.segment_low,
+        last_up_highs=(15.0,),
+        last_down_lows=state.last_down_lows,
+    )
+    below = inspect_bar(
+        state,
+        trend=Trend.UP,
+        high=13.0,
+        low=11.0,
+        close=12.5,
+        breakout_reference="prior_extreme",
+    )
+    assert below.close_breakout is False
+    assert (
+        inspect_bar(
+            state, trend=Trend.UP, high=13.0, low=11.0, close=12.5
+        ).close_breakout
+        is True
+    )
+    cleared = inspect_bar(
+        state,
+        trend=Trend.UP,
+        high=15.5,
+        low=11.0,
+        close=15.0,
+        breakout_reference="prior_extreme",
+    )
+    assert cleared.close_breakout is True
+
+
+def test_prior_extreme_reference_has_no_breakout_without_a_previous_same_side_segment() -> (
+    None
+):
+    state = prepared_up_state(
+        segment_high=12.0, segment_low=10.0, last_down_lows=(9.0, 8.0)
+    )
+    decision = inspect_bar(
+        state,
+        trend=Trend.UP,
+        high=13.0,
+        low=11.0,
+        close=12.9,
+        breakout_reference="prior_extreme",
+    )
+    assert decision.close_breakout is False
+
+
+def test_prior_extreme_reference_mirrors_for_a_down_segment() -> None:
+    state = SegmentState(
+        trend=Trend.DOWN,
+        segment_high=12.0,
+        segment_low=10.0,
+        last_up_highs=(13.0, 14.0),
+        last_down_lows=(8.0,),
+    )
+    decision = inspect_bar(
+        state,
+        trend=Trend.DOWN,
+        high=11.0,
+        low=7.5,
+        close=8.0,
+        breakout_reference="prior_extreme",
+    )
+    assert decision.close_breakout is True
+    assert decision.dow_resonance is True
+
+
+def test_inspect_bar_rejects_an_unknown_breakout_reference() -> None:
+    state = prepared_up_state(
+        segment_high=12.0, segment_low=10.0, last_down_lows=(9.0, 8.0)
+    )
+    with pytest.raises(ValueError, match="breakout_reference"):
+        inspect_bar(
+            state,
+            trend=Trend.UP,
+            high=13.0,
+            low=11.0,
+            close=12.5,
+            breakout_reference="moon",
+        )

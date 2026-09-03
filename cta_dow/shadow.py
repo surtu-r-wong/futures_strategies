@@ -34,7 +34,7 @@ from common.commodity.panel import SessionCalendar
 from common.leverage import atr_leverage
 from cta_dow.indicators import Trend, macd_path, preliminary_trend
 from cta_dow.signals import Position, SignalMode, TradeState, decide
-from cta_dow.state import SegmentState, inspect_bar
+from cta_dow.state import BREAKOUT_REFERENCES, SegmentState, inspect_bar
 
 __all__ = ["ShadowResult", "run_shadow_product"]
 
@@ -195,6 +195,7 @@ def run_shadow_product(
     atr_window: int = 20,
     atr_frequency: str = "bar",
     cost_bps: float = 1.3,
+    breakout_reference: str = "segment",
 ) -> ShadowResult:
     """Run one product without the portfolio-level volatility multiplier.
 
@@ -203,6 +204,10 @@ def run_shadow_product(
     ``"daily"`` follows the paper's wording that the true range measures the
     *daily* move and averages completed trading days, so a bar sees the ATR
     as of the previous day. The threshold and the ATR leverage both take it.
+    ``breakout_reference`` is likewise a reading (see ``inspect_bar``): the
+    registered default measures the entry close against the current segment's
+    running extreme; ``"prior_extreme"`` against the previous same-side
+    segment's extreme.
     """
     nonempty_string(product, "product")
     mode = _resolve_mode(signal_mode)
@@ -211,6 +216,11 @@ def run_shadow_product(
     if atr_frequency not in ("bar", "daily"):
         raise ValueError(
             f"dow_shadow_atr_frequency: expected 'bar' or 'daily'; got {atr_frequency!r}"
+        )
+    if breakout_reference not in BREAKOUT_REFERENCES:
+        raise ValueError(
+            "dow_shadow_breakout_reference: expected one of "
+            f"{BREAKOUT_REFERENCES}; got {breakout_reference!r}"
         )
     frame, embedded_rolls = prepare_bars(bars, product)
     rolls = prepare_rolls(
@@ -527,6 +537,7 @@ def run_shadow_product(
                 high=float(adjusted_high[position]),
                 low=float(adjusted_low[position]),
                 close=float(adjusted_close[position]),
+                breakout_reference=breakout_reference,
             )
             segment = decision.next_state
             record_segment(output, prior_segment, decision)

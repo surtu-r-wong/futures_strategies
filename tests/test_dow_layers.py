@@ -125,7 +125,12 @@ def test_layer_three_opposite_only_flat_keeps_the_corrected_position_when_undete
 def test_untraded_bars_carry_the_previous_position_in_every_layer():
     frame = _signals(
         [
-            {"trend": "up", "state_position": "long", "close_breakout": True},
+            {
+                "trend": "up",
+                "state_position": "long",
+                "close_breakout": True,
+                "last_up_high_1": 90.0,
+            },
             {
                 "trend": "neutral",
                 "no_trade": True,
@@ -340,3 +345,33 @@ def test_layer_report_can_size_every_layer_by_atr():
     )
     # 0.005 * 100 / 1 = 0.5 倍：+10% 的 bar 只赚 5%。
     assert report["l1_trend"].loc["2020", "return"] == pytest.approx(0.05)
+
+
+def test_layer_three_prior_high_reading_enters_when_the_close_clears_the_last_up_high():
+    # 研报公式块在上升趋势下定义了 lastmax_1（上一上升段最高价），正文条件却没用它；
+    # 图 13 标注的也是「第一高点」与「临时高点」。这条读法把入场改成收盘越过第一高点。
+    frame = _signals(
+        [
+            {"trend": "up", "signal_close": 115.0, "last_up_high_1": 120.0},
+            {"trend": "up", "signal_close": 121.0, "last_up_high_1": 120.0},
+            # 锁存：回落到第一高点之下仍持有。
+            {"trend": "up", "signal_close": 118.0, "last_up_high_1": 120.0},
+            # 拐点修正失效：平仓。
+            {
+                "trend": "up",
+                "signal_close": 118.0,
+                "last_up_high_1": 120.0,
+                "turning_valid": False,
+            },
+            # 下降趋势：高点依次下降且收盘跌破第一低点 ⇒ 持空。
+            {
+                "trend": "down",
+                "signal_close": 85.0,
+                "last_up_high_1": 110.0,
+                "last_up_high_2": 120.0,
+                "last_down_low_1": 90.0,
+            },
+        ]
+    )
+    got = layer_positions(frame)
+    assert got["l3_prior_high_breakout"].tolist() == [0, 1, 1, 0, -1]

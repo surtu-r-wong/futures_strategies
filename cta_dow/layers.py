@@ -39,6 +39,7 @@ LAYER_COLUMNS = (
     "l3_resonance_hold",
     "l3_opposite_flat",
     "l3_breakout_latched",
+    "l3_prior_high_breakout",
 )
 
 _TREND_DIRECTION = {"up": 1, "down": -1, "neutral": 0}
@@ -81,6 +82,7 @@ def layer_positions(signals: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, int]] = []
     previous = {column: 0 for column in LAYER_COLUMNS}
     latched = 0
+    prior_latched = 0
     for row in signals.itertuples(index=False):
         if bool(row.no_trade):
             rows.append(dict(previous))
@@ -115,6 +117,27 @@ def layer_positions(signals: pd.DataFrame) -> pd.DataFrame:
         if latched == 0 and reversal != 0 and resonance and bool(row.close_breakout):
             latched = reversal
 
+        # 研报公式块定义了上一同向段的极值（lastmax_1 / lastmin_1）却没在条件里用到；
+        # 图 13 标的也是「第一高点」与「临时高点」。这条读法把入场参照换成它。
+        close = float(row.signal_close)
+        if stand_down == 1:
+            stand_resonance = dow_up
+            prior_cleared = _finite(row.last_up_high_1) and close >= float(
+                row.last_up_high_1
+            )
+        elif stand_down == -1:
+            stand_resonance = dow_down
+            prior_cleared = _finite(row.last_down_low_1) and close <= float(
+                row.last_down_low_1
+            )
+        else:
+            stand_resonance = False
+            prior_cleared = False
+        if prior_latched != stand_down:
+            prior_latched = 0
+        if prior_latched == 0 and stand_down != 0 and stand_resonance and prior_cleared:
+            prior_latched = stand_down
+
         current = {
             "l1_trend": trend,
             "l2_stand_down": stand_down,
@@ -123,6 +146,7 @@ def layer_positions(signals: pd.DataFrame) -> pd.DataFrame:
             "l3_resonance_hold": reversal if resonance else 0,
             "l3_opposite_flat": opposite_flat,
             "l3_breakout_latched": latched,
+            "l3_prior_high_breakout": prior_latched,
         }
         rows.append(current)
         previous = current

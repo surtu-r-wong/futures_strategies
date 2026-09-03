@@ -22,10 +22,14 @@ from typing import Any
 
 from cta_dow.indicators import Trend
 
-__all__ = ["SegmentDecision", "SegmentState", "inspect_bar"]
+__all__ = ["BREAKOUT_REFERENCES", "SegmentDecision", "SegmentState", "inspect_bar"]
 
 #: 研报只用到前两段的极值。
 HISTORY_DEPTH = 2
+
+#: 突破参照的两种读法：本段此前的临时极值（登记默认 D5），或上一同向段的整段极值 ——
+#: 研报公式块定义了 lastmax_1 / lastmin_1 却没在正文条件里用到，图 13 标注的正是「第一高点」。
+BREAKOUT_REFERENCES = ("segment", "prior_extreme")
 
 
 def _finite(value: Any, label: str) -> float:
@@ -134,10 +138,24 @@ def inspect_bar(
     high: float,
     low: float,
     close: float,
+    breakout_reference: str = "segment",
 ) -> SegmentDecision:
-    """Advance one traded bar and report the gates it leaves open."""
+    """Advance one traded bar and report the gates it leaves open.
+
+    ``breakout_reference`` picks what the close must clear: ``"segment"`` (the
+    registered default) is the running extreme of the current segment before
+    this bar joins it; ``"prior_extreme"`` is the whole previous same-side
+    segment's extreme -- ``lastmax_1`` in the paper's formula block, the
+    "第一高点" of its figure 13 -- so a breakout is a higher high in the Dow
+    sense, not merely a new high within the segment.
+    """
     if not isinstance(state, SegmentState):
         raise ValueError("dow_state: expected a SegmentState")
+    if breakout_reference not in BREAKOUT_REFERENCES:
+        raise ValueError(
+            "dow_breakout_reference: expected one of "
+            f"{BREAKOUT_REFERENCES}; got {breakout_reference!r}"
+        )
     if not isinstance(trend, Trend):
         raise ValueError("dow_trend: expected a Trend")
     high = _finite(high, "dow_bar_high")
@@ -171,13 +189,19 @@ def inspect_bar(
         enough_history = len(history) >= HISTORY_DEPTH
         turning_valid = bool(history) and candidate_low > history[0]
         resonance = enough_history and history[0] > history[1]
-        breakout = close >= prior_high
+        if breakout_reference == "prior_extreme":
+            breakout = bool(state.last_up_highs) and close >= state.last_up_highs[0]
+        else:
+            breakout = close >= prior_high
     else:
         history = state.last_up_highs
         enough_history = len(history) >= HISTORY_DEPTH
         turning_valid = bool(history) and candidate_high < history[0]
         resonance = enough_history and history[0] < history[1]
-        breakout = close <= prior_low
+        if breakout_reference == "prior_extreme":
+            breakout = bool(state.last_down_lows) and close <= state.last_down_lows[0]
+        else:
+            breakout = close <= prior_low
 
     return SegmentDecision(
         next_state=SegmentState(
