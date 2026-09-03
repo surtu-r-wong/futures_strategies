@@ -30,7 +30,9 @@ def prepared_down_state(*, segment_high, segment_low, last_up_highs):
 
 def test_switch_closes_the_previous_segment_and_starts_with_current_bar() -> None:
     state = SegmentState.empty()
-    state = inspect_bar(state, trend=Trend.UP, high=11.0, low=9.0, close=10.0).next_state
+    state = inspect_bar(
+        state, trend=Trend.UP, high=11.0, low=9.0, close=10.0
+    ).next_state
     state = inspect_bar(
         state, trend=Trend.UP, high=12.0, low=8.0, close=11.0
     ).next_state
@@ -43,7 +45,9 @@ def test_switch_closes_the_previous_segment_and_starts_with_current_bar() -> Non
     assert state.segment_low == 7.0
 
 
-def test_correction_uses_current_running_extreme_but_breakout_uses_prior_extreme() -> None:
+def test_correction_uses_current_running_extreme_but_breakout_uses_prior_extreme() -> (
+    None
+):
     state = prepared_up_state(
         segment_high=12.0, segment_low=10.0, last_down_lows=(9.0, 8.0)
     )
@@ -152,9 +156,7 @@ def test_history_keeps_only_the_last_two_extremes() -> None:
 def test_a_neutral_stretch_creates_no_segment() -> None:
     state = SegmentState.empty()
 
-    decision = inspect_bar(
-        state, trend=Trend.NEUTRAL, high=11.0, low=9.0, close=10.0
-    )
+    decision = inspect_bar(state, trend=Trend.NEUTRAL, high=11.0, low=9.0, close=10.0)
 
     assert decision.next_state.segment_high is None
     assert decision.next_state.segment_low is None
@@ -174,7 +176,9 @@ def test_the_first_bar_of_a_new_segment_is_never_a_breakout() -> None:
 
 
 def test_enough_history_is_false_until_two_prior_troughs_exist() -> None:
-    state = prepared_up_state(segment_high=12.0, segment_low=10.0, last_down_lows=(9.0,))
+    state = prepared_up_state(
+        segment_high=12.0, segment_low=10.0, last_down_lows=(9.0,)
+    )
 
     decision = inspect_bar(state, trend=Trend.UP, high=13.0, low=11.0, close=12.5)
 
@@ -184,7 +188,9 @@ def test_enough_history_is_false_until_two_prior_troughs_exist() -> None:
 
 def test_a_bar_whose_close_sits_outside_its_own_range_is_rejected() -> None:
     with pytest.raises(ValueError, match="dow_bar"):
-        inspect_bar(SegmentState.empty(), trend=Trend.UP, high=11.0, low=9.0, close=12.0)
+        inspect_bar(
+            SegmentState.empty(), trend=Trend.UP, high=11.0, low=9.0, close=12.0
+        )
 
 
 def test_a_non_neutral_state_without_a_segment_is_rejected() -> None:

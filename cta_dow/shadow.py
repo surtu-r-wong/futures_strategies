@@ -270,7 +270,9 @@ def run_shadow_product(
             )
         else:
             atr = atr_series(
-                adjusted_high[span], adjusted_low[span], adjusted_close[span],
+                adjusted_high[span],
+                adjusted_low[span],
+                adjusted_close[span],
                 window=atr_window,
             )
             atr[: min(atr_window - 1, len(atr))] = np.nan
@@ -338,10 +340,14 @@ def run_shadow_product(
             target_weight=ledger.current_target,
         )
 
-    def record_segment(output: dict[str, object], prior: SegmentState, decision) -> None:
+    def record_segment(
+        output: dict[str, object], prior: SegmentState, decision
+    ) -> None:
         state = decision.next_state
         output.update(
-            trend=state.trend.value if not decision.trend_changed else state.trend.value,
+            trend=state.trend.value
+            if not decision.trend_changed
+            else state.trend.value,
             trend_changed=decision.trend_changed,
             turning_valid=decision.turning_valid,
             dow_resonance=decision.dow_resonance,
@@ -353,7 +359,9 @@ def run_shadow_product(
             prior_segment_low=prior.segment_low
             if prior.segment_low is not None
             else np.nan,
-            segment_high=state.segment_high if state.segment_high is not None else np.nan,
+            segment_high=state.segment_high
+            if state.segment_high is not None
+            else np.nan,
             segment_low=state.segment_low if state.segment_low is not None else np.nan,
             last_up_high_1=_history(state.last_up_highs, 0),
             last_up_high_2=_history(state.last_up_highs, 1),

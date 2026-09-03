@@ -96,8 +96,10 @@ def _tiny_bundle(directory: Path, *, unpriceable_days: int = 0) -> None:
             ("TA", "TA405.CZC", 5, math.pi),
         ):
             slot_end = pd.Timestamp(datetime.combine(day, time(14, 45), tzinfo=TZ))
-            close = 100.0 + 0.35 * index + 7.0 * math.sin(
-                2 * math.pi * index / 25.0 + phase
+            close = (
+                100.0
+                + 0.35 * index
+                + 7.0 * math.sin(2 * math.pi * index / 25.0 + phase)
             )
             rows.append(
                 {
@@ -113,12 +115,10 @@ def _tiny_bundle(directory: Path, *, unpriceable_days: int = 0) -> None:
                     "open_interest": 1000.0 + index,
                     "no_trade": False,
                     "adj_factor": 1.0,
-                "continuity_segment": 0,
+                    "continuity_segment": 0,
                     "continuity_segment": 0,
                     "fill_time": slot_end + pd.Timedelta(minutes=5),
-                    "fill_price": (
-                        float("nan") if index < unpriceable_days else close
-                    ),
+                    "fill_price": (float("nan") if index < unpriceable_days else close),
                     "fill_pending": False,
                     "fill_unpriceable": index < unpriceable_days,
                     "pricing_basis": "amount_vwap",
@@ -150,8 +150,15 @@ def _tiny_bundle(directory: Path, *, unpriceable_days: int = 0) -> None:
     )
     roll_fills = pd.DataFrame(
         columns=[
-            "trade_date", "product", "old_contract", "new_contract", "fill_time",
-            "old_price", "new_price", "old_pricing_basis", "new_pricing_basis",
+            "trade_date",
+            "product",
+            "old_contract",
+            "new_contract",
+            "fill_time",
+            "old_price",
+            "new_price",
+            "old_pricing_basis",
+            "new_pricing_basis",
         ]
     )
     write_bundle(

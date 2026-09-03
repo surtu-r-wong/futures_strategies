@@ -50,8 +50,10 @@ def _dow_panel(
     """
     days = pd.bdate_range("2023-01-02", periods=count)
     adjusted_close = np.array(
-        [100.0 + 0.35 * index + 7.0 * math.sin(2 * math.pi * index / 25.0)
-         for index in range(count)]
+        [
+            100.0 + 0.35 * index + 7.0 * math.sin(2 * math.pi * index / 25.0)
+            for index in range(count)
+        ]
     )
     factors = np.ones(count)
     contracts = ["RB2405.SHF"] * count
@@ -63,7 +65,10 @@ def _dow_panel(
     raw_high = (adjusted_close + BAND) / factors
     raw_low = (adjusted_close - BAND) / factors
     slot_end = pd.DatetimeIndex(
-        [pd.Timestamp(datetime.combine(day.date(), time(14, 45), tzinfo=TZ)) for day in days]
+        [
+            pd.Timestamp(datetime.combine(day.date(), time(14, 45), tzinfo=TZ))
+            for day in days
+        ]
     )
     bars = pd.DataFrame(
         {
@@ -91,8 +96,15 @@ def _dow_panel(
     if roll_at is None:
         rolls = pd.DataFrame(
             columns=[
-                "trade_date", "product", "old_contract", "new_contract", "fill_time",
-                "old_price", "new_price", "old_pricing_basis", "new_pricing_basis",
+                "trade_date",
+                "product",
+                "old_contract",
+                "new_contract",
+                "fill_time",
+                "old_price",
+                "new_price",
+                "old_pricing_basis",
+                "new_pricing_basis",
             ]
         )
     else:
@@ -115,7 +127,9 @@ def _dow_panel(
 
 
 def _run(**kwargs) -> ShadowResult:
-    bars, rolls = _dow_panel(**{k: v for k, v in kwargs.items() if k in {"count", "roll_at"}})
+    bars, rolls = _dow_panel(
+        **{k: v for k, v in kwargs.items() if k in {"count", "roll_at"}}
+    )
     options = {k: v for k, v in kwargs.items() if k not in {"count", "roll_at"}}
     return run_shadow_product(bars, product="RB", roll_fills=rolls, **options)
 
@@ -147,7 +161,9 @@ def test_a_roll_moves_execution_but_never_the_signal_path() -> None:
 def test_entries_fill_at_the_contract_price_not_the_continuous_price() -> None:
     rolled = _run(roll_at=300)
 
-    after = rolled.trades.loc[rolled.trades["entry_date"] > pd.Timestamp("2024-03-01").date()]
+    after = rolled.trades.loc[
+        rolled.trades["entry_date"] > pd.Timestamp("2024-03-01").date()
+    ]
     assert not after.empty
     for row in after.itertuples(index=False):
         assert row.entry_price == pytest.approx(row.entry_signal_close / 1.5)
@@ -193,11 +209,24 @@ def test_an_unknown_signal_mode_is_rejected() -> None:
 
 
 _DOW_SEGMENT_COLUMNS = [
-    "signal_close", "macd", "signal_line", "macd_diff", "cumulative",
-    "atr_adjusted", "trend", "trend_changed", "turning_valid",
-    "dow_resonance", "close_breakout", "enough_history",
-    "segment_high", "segment_low", "last_up_high_1", "last_down_low_1",
-    "action", "target_weight",
+    "signal_close",
+    "macd",
+    "signal_line",
+    "macd_diff",
+    "cumulative",
+    "atr_adjusted",
+    "trend",
+    "trend_changed",
+    "turning_valid",
+    "dow_resonance",
+    "close_breakout",
+    "enough_history",
+    "segment_high",
+    "segment_low",
+    "last_up_high_1",
+    "last_down_low_1",
+    "action",
+    "target_weight",
 ]
 
 
@@ -211,7 +240,10 @@ def _dow_bars(closes: np.ndarray, contract: str, segment: int, start) -> pd.Data
     count = len(closes)
     days = pd.bdate_range(start, periods=count)
     slot_end = pd.DatetimeIndex(
-        [pd.Timestamp(datetime.combine(d.date(), time(14, 45), tzinfo=TZ)) for d in days]
+        [
+            pd.Timestamp(datetime.combine(d.date(), time(14, 45), tzinfo=TZ))
+            for d in days
+        ]
     )
     return pd.DataFrame(
         {
@@ -241,8 +273,15 @@ def _dow_bars(closes: np.ndarray, contract: str, segment: int, start) -> pd.Data
 def _empty_rolls() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
-            "trade_date", "product", "old_contract", "new_contract", "fill_time",
-            "old_price", "new_price", "old_pricing_basis", "new_pricing_basis",
+            "trade_date",
+            "product",
+            "old_contract",
+            "new_contract",
+            "fill_time",
+            "old_price",
+            "new_price",
+            "old_pricing_basis",
+            "new_pricing_basis",
         ]
     )
 

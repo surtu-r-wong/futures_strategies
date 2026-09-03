@@ -130,7 +130,9 @@ def resolve_options(namespace: argparse.Namespace) -> Options:
     end: date = namespace.end
     check_window(_PROG, start, end)
     if namespace.signal_mode == "literal" and namespace.run_literal_sensitivity:
-        _fail("--signal-mode literal 与 --run-literal-sensitivity 会产出同一份结果，请二选一")
+        _fail(
+            "--signal-mode literal 与 --run-literal-sensitivity 会产出同一份结果，请二选一"
+        )
     if not (namespace.cost_bps >= 0.0):
         _fail(f"--cost-bps {namespace.cost_bps} 必须非负")
 
