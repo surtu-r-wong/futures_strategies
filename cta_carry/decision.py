@@ -14,7 +14,7 @@ from .risk import (
     raw_target_weight,
     transition_signal,
 )
-from .signals import SignalResult, build_signals
+from .signals import SignalResult, build_signals, rank_linear_weights
 
 
 @dataclass(frozen=True)
@@ -107,6 +107,18 @@ def plan_signal_targets(
     raw_weights: dict[str, float] = {}
     reasons: dict[str, str] = {}
 
+    rank_linear = getattr(config, "weighting", "risk_budget") == "rank_linear"
+    rank_weights: dict[str, float] = {}
+    if rank_linear and not signal_rows.empty:
+        ready = signal_rows.loc[signal_rows["input_ready"].astype(bool)].sort_values(
+            ["carry_ma", "product"],
+            kind="mergesort",
+        )
+        if len(ready) >= 5:
+            rank_weights = dict(
+                zip(ready["product"], rank_linear_weights(ready).to_numpy())
+            )
+
     for product in products:
         before = previous_states.get(product, PositionState())
         transition_state = states.get(product, PositionState())
@@ -148,6 +160,13 @@ def plan_signal_targets(
                     reason="active target requires finite positive ATR",
                     value=signal_atr,
                 )
+            if rank_linear:
+                # The centred rank is the whole size; the ATR budget, tranches
+                # and close play no part.  strength still gates the filter.
+                raw_weights[after.contract] = float(rank_weights[product]) * float(
+                    signal.strength
+                )
+                continue
             try:
                 raw_weights[after.contract] = raw_target_weight(
                     after.direction,

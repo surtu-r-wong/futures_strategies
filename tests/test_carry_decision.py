@@ -1,6 +1,7 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from cta_carry.decision import build_daily_research, plan_signal_targets
 from cta_carry.risk import PositionState
@@ -100,3 +101,54 @@ def test_first_missing_signal_creates_a_signal_exit_target():
     assert plan.states["A"].contract is None
     assert plan.raw_weights == {}
     assert plan.reasons == {"A": "signal_exit"}
+
+
+def _rank_rows(carries, strengths=None):
+    strengths = strengths or {}
+    rows = []
+    for product, carry_ma in carries.items():
+        rows.append(
+            {
+                "trade_date": date(2024, 1, 2),
+                "product": product,
+                "main_contract": f"{product}2405",
+                "carry_ma": carry_ma,
+                "input_ready": True,
+                "strength": strengths.get(product, 1.0),
+                "main_close": 100.0,
+                "atr": 2.0,
+            }
+        )
+    frame = pd.DataFrame(rows)
+    # what build_signals would set under rank_linear: sign of the centred rank
+    order = frame.sort_values(["carry_ma", "product"])["product"].tolist()
+    centre = (len(order) + 1) / 2
+    direction = {p: int((i + 1 > centre) - (i + 1 < centre)) for i, p in enumerate(order)}
+    frame["effective_direction"] = [
+        direction[p] if strengths.get(p, 1.0) > 0 else 0 for p in frame["product"]
+    ]
+    return frame
+
+
+def test_rank_linear_sizing_uses_rank_weight_times_strength_not_the_atr_budget():
+    config = small_config(weighting="rank_linear", trend_filter_enabled=False)
+    rows = _rank_rows({"A": -0.3, "B": 0.4, "C": -0.1, "D": 0.2, "E": 0.05}, {"D": 0.5})
+
+    plan = plan_signal_targets({}, rows, config)
+
+    assert plan.raw_weights == pytest.approx(
+        {"A2405": -2 / 15, "B2405": 2 / 15, "C2405": -1 / 15, "D2405": 0.5 / 15}
+    )
+    assert plan.states["E"].direction == 0
+    assert plan.reasons["A"] == "entry"
+
+
+def test_rank_linear_sizing_is_independent_of_close_and_atr():
+    config = small_config(weighting="rank_linear", trend_filter_enabled=False)
+    rows = _rank_rows({"A": -0.3, "B": 0.4, "C": -0.1, "D": 0.2, "E": 0.05})
+    rows["atr"] = 7.0
+    rows["main_close"] = 1_000.0
+
+    plan = plan_signal_targets({}, rows, config)
+
+    assert plan.raw_weights["B2405"] == pytest.approx(2 / 15)

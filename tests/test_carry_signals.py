@@ -601,3 +601,43 @@ def test_switching_the_trend_filter_off_still_leaves_unranked_products_flat():
     assert off["rank_direction"] == 0
     assert off["strength"] == 0.0
     assert off["effective_direction"] == 0
+
+
+def test_rank_linear_weights_are_centred_and_sum_to_zero() -> None:
+    from cta_carry.signals import rank_linear_weights
+
+    ready = pd.DataFrame(
+        {"product": list("ACEDB"), "carry_ma": [-0.3, -0.1, 0.05, 0.2, 0.4]}
+    )
+
+    weights = rank_linear_weights(ready)
+
+    # ascending ranks A=1, C=2, E=3, D=4, B=5; centre (1+5)/2 = 3; denominator 5*6/2 = 15
+    assert weights.tolist() == pytest.approx([-2 / 15, -1 / 15, 0.0, 1 / 15, 2 / 15])
+    assert sum(weights) == pytest.approx(0.0)
+
+
+def test_rank_linear_signals_direct_every_ready_product_without_a_sign_gate() -> None:
+    frame, _ = _two_day_cross_section(
+        {"A": -0.3, "B": 0.4, "C": -0.1, "D": 0.2, "E": 0.05}
+    )
+
+    result = build_signals(frame, _config(weighting="rank_linear", trend_filter_enabled=False))
+    latest = _latest_by_product(result)
+
+    assert [latest.loc[p, "rank_direction"] for p in "ABCDE"] == [-1, 1, -1, 1, 0]
+    assert [latest.loc[p, "effective_direction"] for p in "ABCDE"] == [-1, 1, -1, 1, 0]
+    assert [latest.loc[p, "strength"] for p in "ABCDE"] == [1.0, 1.0, 1.0, 1.0, 0.0]
+    assert set(latest["reason"]) == {"rank_linear"}
+
+
+def test_rank_linear_signals_go_long_the_top_of_an_all_contango_cross_section() -> None:
+    frame, _ = _two_day_cross_section(
+        {"A": -0.5, "B": -0.4, "C": -0.3, "D": -0.2, "E": -0.1}
+    )
+
+    latest = _latest_by_product(
+        build_signals(frame, _config(weighting="rank_linear", trend_filter_enabled=False))
+    )
+
+    assert [latest.loc[p, "rank_direction"] for p in "ABCDE"] == [-1, -1, 0, 1, 1]

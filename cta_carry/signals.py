@@ -43,6 +43,18 @@ def _finite_mask(values: pd.Series) -> pd.Series:
     return np.isfinite(values).fillna(False).astype(bool)
 
 
+def rank_linear_weights(ready: pd.DataFrame) -> pd.Series:
+    """CITIC 3.5 step 3: w = (rank - (1+N)/2) / (N(1+N)/2), carry_ma ascending.
+
+    Zero-sum by construction; the median product of an odd cross-section gets
+    exactly 0.  Ties resolve in row order, so pass a frame already sorted by
+    (carry_ma, product) for determinism.
+    """
+    count = len(ready)
+    rank = ready["carry_ma"].rank(method="first", ascending=True)
+    return (rank - (1 + count) / 2) / (count * (1 + count) / 2)
+
+
 def _trend_states(signals: pd.DataFrame, config) -> list:
     """Carry a per-product trend state forward across a product-ordered frame.
 
@@ -168,21 +180,32 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
 
         if signal_ready_date is None:
             signal_ready_date = trade_date
-        signals.loc[daily.index, "reason"] = "rank_and_filter"
 
-        selection_count = max(
-            1,
-            math.floor(len(ready) * config.selection_fraction),
-        )
-        bottom = ready.head(selection_count)
-        top = ready.tail(selection_count)
-        # carry_ma > 0 is backwardation (near above far) and carries the roll
-        # premium, so the top of the ranking is the long leg; carry_ma < 0 is
-        # contango and pays it away, so the bottom is the short leg.
-        short_indexes = bottom.loc[bottom["carry_ma"] < 0.0].index
-        long_indexes = top.loc[top["carry_ma"] > 0.0].index
-        signals.loc[long_indexes, "rank_direction"] = 1
-        signals.loc[short_indexes, "rank_direction"] = -1
+        if getattr(config, "weighting", "risk_budget") == "rank_linear":
+            # Every ready product takes the side of its centred rank, with no
+            # sign gate: the top of an all-contango cross-section is still the
+            # long leg.  Magnitudes are sized in decision.plan_signal_targets.
+            signals.loc[daily.index, "reason"] = "rank_linear"
+            weights = rank_linear_weights(ready)
+            signals.loc[ready.index, "rank_direction"] = (
+                np.sign(weights).astype(int).to_numpy()
+            )
+        else:
+            signals.loc[daily.index, "reason"] = "rank_and_filter"
+            selection_count = max(
+                1,
+                math.floor(len(ready) * config.selection_fraction),
+            )
+            bottom = ready.head(selection_count)
+            top = ready.tail(selection_count)
+            # carry_ma > 0 is backwardation (near above far) and carries the
+            # roll premium, so the top of the ranking is the long leg;
+            # carry_ma < 0 is contango and pays it away, so the bottom is the
+            # short leg.
+            short_indexes = bottom.loc[bottom["carry_ma"] < 0.0].index
+            long_indexes = top.loc[top["carry_ma"] > 0.0].index
+            signals.loc[long_indexes, "rank_direction"] = 1
+            signals.loc[short_indexes, "rank_direction"] = -1
 
         for index in daily.index:
             if (
