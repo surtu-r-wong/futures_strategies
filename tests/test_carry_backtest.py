@@ -862,3 +862,40 @@ def test_stateful_engine_validates_requested_date_range() -> None:
             start=data.dates[10],
             end=data.dates[9],
         )
+
+
+def test_close_plan_skips_the_chandelier_when_stop_loss_is_disabled() -> None:
+    # Same bar as the stop-stage test: close 90 sits below 110 - 2.5 * 1, so
+    # the chandelier would fire; with the stop disabled nothing moves.
+    config = small_config(stop_loss_enabled=False)
+    state = PositionState(
+        direction=1,
+        contract="A2410",
+        tranches_remaining=3,
+        highest_high=110.0,
+    )
+    signal_rows = pd.DataFrame(
+        [
+            {
+                "product": "A",
+                "main_contract": "A2410",
+                "main_close": 90.0,
+                "atr": 1.0,
+                "strength": 1.0,
+                "effective_direction": 1,
+            }
+        ]
+    )
+
+    plan = _close_plan(
+        states={"A": state},
+        signal_rows=signal_rows,
+        bars={"A2410": {"high": 100.0, "low": 89.0, "close": 90.0}},
+        atrs={"A2410": 1.0},
+        config=config,
+    )
+
+    assert plan.reasons["A"] == "rebalance"
+    assert plan.states["A"].tranches_remaining == 3
+    assert plan.states["A"].highest_high == 110.0
+    assert plan.states["A"].locked_direction == 0

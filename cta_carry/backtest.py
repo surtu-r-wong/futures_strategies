@@ -439,7 +439,11 @@ def _close_plan(
         before = states[product]
         after_stop = before
         stop_triggered = False
-        if before.direction != 0 and before.contract is not None:
+        if (
+            getattr(config, "stop_loss_enabled", True)
+            and before.direction != 0
+            and before.contract is not None
+        ):
             bar = bars.get(before.contract)
             atr = atrs.get(before.contract)
             if bar is not None and _valid_positive(atr):
