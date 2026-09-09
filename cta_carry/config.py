@@ -75,6 +75,13 @@ class CarryConfig:
     # Consecutive same-side closes required before the trend state flips.  1
     # flips on the first close and reproduces the original stateless rule.
     trend_confirm_days: int = 1
+    # Whether the momentum/volume filter gates the Carry ranking at all. It
+    # zeroes 31.4% of ranked product-days and, being a hysteresis-free switch,
+    # causes 53.3% of all turnover in round trips (2026-08-06 attribution).
+    # Turnover is what the strategy is cost-bound on, so the filter has to be
+    # measurable without it. Not a tuning knob. Default keeps it, so the
+    # baseline does not move.
+    trend_filter_enabled: bool = True
     # How the secondary contract is chosen.  "strictly_later" takes the
     # highest-OI contract delivering strictly after the main, which anchors the
     # Carry sign to the textbook near-vs-far definition.  "second_by_oi" takes
@@ -121,6 +128,9 @@ class CarryConfig:
 
         if type(self.equal_weight_capital) is not bool:
             raise ValueError("equal_weight_capital must be a bool")
+
+        if type(self.trend_filter_enabled) is not bool:
+            raise ValueError("trend_filter_enabled must be a bool")
 
         if self.secondary_selection not in _SECONDARY_SELECTIONS:
             raise ValueError(

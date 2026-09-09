@@ -8,14 +8,13 @@ import math
 
 import pytest
 
-import common.commodity.indicators as shared
-import cta_continuous.indicators as legacy
-from cta_continuous.indicators import delta_tnr, gap_widening, tnr_series
-
-
-def test_shared_indicators_are_direct_compatibility_re_exports():
-    for name in ("_as_float_array", "atr_series", "ema", "true_range"):
-        assert getattr(legacy, name) is getattr(shared, name)
+from cta_continuous.indicators import (
+    atr_series,
+    delta_tnr,
+    ema,
+    gap_widening,
+    tnr_series,
+)
 
 
 def test_tnr_is_one_on_a_monotone_path():
@@ -51,9 +50,44 @@ def test_delta_tnr_uses_the_mean_of_the_last_k_including_now():
     assert delta_tnr([0.9, 0.6, 0.3], k=3)[2] == pytest.approx(-0.3)
 
 
+def test_delta_tnr_lag_mode_compares_with_k_periods_ago():
+    """D7 的另一侧：研报**正文**说「当日与 3 日前」比，公式图说与近 k 期均值比。
+
+    ⚠️ k=3 的滞后版在第 4 个值上才有定义（索引 3 减索引 0）。三个值时索引 2 要减
+    索引 −1，那是 NaN —— `0.3 − 0.9` 是滞后 **2**，不是 3。
+
+    手算（四个值）：滞后版 `0.2 − 0.9 = −0.7`；均值版
+    `0.2 − (0.6 + 0.3 + 0.2)/3 = −1/6`。两条口径确实分得开。
+    """
+    lag = delta_tnr([0.9, 0.6, 0.3, 0.2], k=3, mode="lag")
+    mean = delta_tnr([0.9, 0.6, 0.3, 0.2], k=3, mode="mean")
+    assert math.isnan(lag[2])
+    assert lag[3] == pytest.approx(-0.7)
+    assert mean[3] == pytest.approx(-1 / 6)
+
+
+def test_delta_tnr_lag_mode_needs_k_periods_of_history():
+    values = delta_tnr([0.1, 0.2, 0.3, 0.4], k=3, mode="lag")
+    assert all(math.isnan(value) for value in values[:3])
+    assert values[3] == pytest.approx(0.3)
+
+
+def test_delta_tnr_rejects_a_mode_it_does_not_know():
+    with pytest.raises(ValueError) as caught:
+        delta_tnr([0.1, 0.2], k=1, mode="ewm")
+    assert str(caught.value).startswith("delta_tnr_mode:")
+
+
 def test_delta_tnr_is_positive_when_noise_is_falling():
     """噪音减小 = TNR 上升 ⇒ ΔTNR > 0，这才是研报表 4 里赚钱的那一侧。"""
     assert delta_tnr([0.3, 0.6, 0.9], k=3)[2] > 0
+
+
+def test_ema_uses_alpha_two_over_span_plus_one_without_adjustment():
+    """D12：alpha = 2/(span+1)，adjust=False。span=2 ⇒ alpha=2/3。"""
+    values = ema([1.0, 2.0], span=2)
+    assert values[0] == pytest.approx(1.0)
+    assert values[1] == pytest.approx(2.0 * (2 / 3) + 1.0 * (1 / 3))
 
 
 def test_gap_widening_compares_absolute_distance_to_the_previous_bar():
@@ -68,3 +102,26 @@ def test_gap_widening_is_true_when_a_short_ma_pulls_further_below():
     """空头一侧距离也在扩大 —— 绝对值，不是带符号的差。"""
     widening = gap_widening([-1.0, -2.0], [0.0, 0.0])
     assert widening[1] is True
+
+
+def test_atr_averages_true_range_over_the_window():
+    """TR = max(h−l, |h−前收|, |l−前收|)；ATR 是它的移动平均。
+
+    手算三根 bar：
+      #0 无前收        ⇒ TR = 110 − 100 = 10
+      #1 前收 105      ⇒ TR = max(112−106=6, |112−105|=7, |106−105|=1) = 7
+      #2 前收 110      ⇒ TR = max(118−110=8, |118−110|=8, |110−110|=0) = 8
+    window=2 ⇒ 第三根的 ATR = (7 + 8)/2 = 7.5。
+    """
+    high = [110.0, 112.0, 118.0]
+    low = [100.0, 106.0, 110.0]
+    close = [105.0, 110.0, 112.0]
+    values = atr_series(high, low, close, window=2)
+    assert values[2] == pytest.approx(7.5)
+    assert values[1] == pytest.approx((10.0 + 7.0) / 2)
+
+
+def test_first_bar_true_range_falls_back_to_the_bar_range():
+    """没有前收时 TR 只能是 h−l。"""
+    values = atr_series([110.0, 111.0], [100.0, 109.0], [105.0, 110.0], window=1)
+    assert values[0] == pytest.approx(10.0)

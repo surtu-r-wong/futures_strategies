@@ -11,13 +11,37 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 import numpy as np
 
-from common.commodity.indicators import _as_float_array, atr_series, ema, true_range
-
 __all__ = ["atr_series", "delta_tnr", "ema", "gap_widening", "tnr_series", "true_range"]
+
+
+def _as_float_array(values: Sequence[float], label: str) -> np.ndarray:
+    array = np.asarray(values, dtype="float64")
+    if array.ndim != 1:
+        raise ValueError(f"{label}: 需要一维序列")
+    return array
+
+
+def ema(values: Sequence[float], *, span: int) -> np.ndarray:
+    """指数移动平均，`alpha = 2/(span+1)`，不做 adjust 修正（计划 D12）。
+
+    首项取原值 —— 递推需要一个起点，研报没写别的。
+    """
+    if type(span) is not int or span < 1:
+        raise ValueError(f"ema_span: span 必须是 >= 1 的整数；got {span!r}")
+    array = _as_float_array(values, "ema_values")
+    if array.size == 0:
+        return array
+    alpha = 2.0 / (span + 1.0)
+    out = np.empty_like(array)
+    out[0] = array[0]
+    for index in range(1, array.size):
+        out[index] = alpha * array[index] + (1.0 - alpha) * out[index - 1]
+    return out
 
 
 def gap_widening(short: Sequence[float], long: Sequence[float]) -> list[bool]:
@@ -57,19 +81,77 @@ def tnr_series(closes: Sequence[float], *, window: int) -> np.ndarray:
     return out
 
 
-def delta_tnr(values: Sequence[float], *, k: int = 3) -> np.ndarray:
-    """`ΔTNR_t = TNR_t − mean(TNR_t … TNR_{t−k+1})`（计划 D7）。
+def delta_tnr(
+    values: Sequence[float], *, k: int = 3, mode: str = "mean"
+) -> np.ndarray:
+    """噪音变化趋势（计划 D7）。研报两处说法不同，两条都留出来。
 
-    ⚠️ 求和**含 TNR_t 自己**，所以 k=3 时展开是 `(2/3)·TNR_t − (1/3)(TNR_{t−1} + TNR_{t−2})`。
-    研报正文另说「当日与 3 日前比较」，与公式图不符；这里取公式图。
+    - ``mode="mean"``（默认，**公式图**）：`ΔTNR_t = TNR_t − mean(TNR_t … TNR_{t−k+1})`。
+      求和**含 TNR_t 自己**，所以 k=3 时展开是
+      `(2/3)·TNR_t − (1/3)(TNR_{t−1} + TNR_{t−2})`。
+    - ``mode="lag"``（**正文**）：`ΔTNR_t = TNR_t − TNR_{t−k}`，即「当日与 k 期前比」。
+
+    公式图更精确，所以默认取它；正文那一侧由 `--dtnr-mode lag` 跑对照。
     """
     if type(k) is not int or k < 1:
         raise ValueError(f"delta_tnr_k: k 必须是 >= 1 的整数；got {k!r}")
+    if mode not in ("mean", "lag"):
+        raise ValueError(
+            f"delta_tnr_mode: 只接受 'mean'（公式图）或 'lag'（正文）；got {mode!r}"
+        )
     array = _as_float_array(values, "delta_tnr_values")
     out = np.full(array.size, np.nan)
+    if mode == "lag":
+        for index in range(k, array.size):
+            earlier, now = array[index - k], array[index]
+            if np.isnan(earlier) or np.isnan(now):
+                continue
+            out[index] = now - earlier
+        return out
     for index in range(k - 1, array.size):
         window = array[index - k + 1 : index + 1]
         if np.isnan(window).any():
             continue
         out[index] = array[index] - window.mean()
+    return out
+
+
+def true_range(high: float, low: float, previous_close: float | None) -> float:
+    """`max(h − l, |h − 前收|, |l − 前收|)`；没有前收时退化为 `h − l`。"""
+    span = high - low
+    if previous_close is None or (
+        isinstance(previous_close, float) and math.isnan(previous_close)
+    ):
+        return span
+    return max(span, abs(high - previous_close), abs(low - previous_close))
+
+
+def atr_series(
+    high: Sequence[float],
+    low: Sequence[float],
+    close: Sequence[float],
+    *,
+    window: int,
+) -> np.ndarray:
+    """TR 的移动平均。窗口未满时取前面全部已知的 TR 的均值。
+
+    ⚠️ 传进来的三条序列必须**已经**剔掉无成交 bar（D13）。
+    """
+    if type(window) is not int or window < 1:
+        raise ValueError(f"atr_window: window 必须是 >= 1 的整数；got {window!r}")
+    highs = _as_float_array(high, "atr_high")
+    lows = _as_float_array(low, "atr_low")
+    closes = _as_float_array(close, "atr_close")
+    if not highs.size == lows.size == closes.size:
+        raise ValueError("atr_length: 三条序列长度必须相同")
+
+    ranges = np.empty(highs.size)
+    for index in range(highs.size):
+        previous = closes[index - 1] if index else None
+        ranges[index] = true_range(highs[index], lows[index], previous)
+
+    out = np.empty(highs.size)
+    for index in range(highs.size):
+        start = max(0, index - window + 1)
+        out[index] = ranges[start : index + 1].mean()
     return out

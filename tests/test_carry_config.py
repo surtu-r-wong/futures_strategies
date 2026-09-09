@@ -107,3 +107,22 @@ def test_nonnegative_numeric_fields_require_finite_nonnegative_values(
 def test_min_shadow_active_days_must_be_within_vol_window(value: int) -> None:
     with pytest.raises(ValueError, match="min_shadow_active_days"):
         CarryConfig(min_shadow_active_days=value)
+
+
+@pytest.mark.parametrize("value", [0, 1, "true", None])
+def test_trend_filter_enabled_must_be_a_bool(value) -> None:
+    with pytest.raises(ValueError, match="trend_filter_enabled"):
+        CarryConfig(trend_filter_enabled=value)
+
+
+def test_no_trend_filter_flag_switches_the_filter_off() -> None:
+    """The CLI has to expose the switch, and omitting it must leave the
+    baseline default untouched."""
+    from cta_carry.__main__ import build_parser, _config_from_args
+
+    base = ["--start", "2013-01-04", "--end", "2026-08-26"]
+    on = _config_from_args(build_parser().parse_args(base))
+    off = _config_from_args(build_parser().parse_args(base + ["--no-trend-filter"]))
+
+    assert on.trend_filter_enabled is True
+    assert off.trend_filter_enabled is False

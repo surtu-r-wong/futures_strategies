@@ -28,7 +28,7 @@ START, END = date(2023, 1, 1), date(2023, 3, 31)
 
 def main() -> int:
     cfg = load_config(resolve_settings_path())
-    rules = load_session_rules(Path("config/carry_minute_sessions.csv"))
+    rules = load_session_rules(Path("config/continuous_minute_sessions.csv"))
     bases = load_pricing_bases(Path("config/carry_minute_pricing_basis.csv"))
 
     with get_connection(pg_config_from(cfg)) as conn, conn.cursor() as cur:

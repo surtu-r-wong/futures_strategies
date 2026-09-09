@@ -8,7 +8,9 @@
 >   `common/minute/account.py`、`cta_continuous/{continuous,panel}.py`、`scripts/continuous/build_panel.py`、
 >   `config/carry_minute_day_only_regimes.csv`、`docs/ROADMAP.md`、5 个 carry/continuous 测试文件。
 >   **没有一个是 guosen 文件**（`cta_dow/`、`cta_bollinger/`、`output/guosen_*`、本目录四篇研究文档都能自动合并）——
->   冲突来自分支上带着的 carry/continuous 旧改动，合回 master 时以 master 为准即可。
+>   冲突来自分支上带着的 carry/continuous 旧改动。**合并结果（2026-09-09 当天）**：并不是「以 master 为准即可」——
+>   `cta_continuous` 的转发层撤销、两套实现并存（见 ROADMAP「商品共享核心收尾」2026-09-09 段）；carry 侧的冲突
+>   逐块合并（零成本日的浮点夹取取分支的 ULP 口径、两条测试都保留；时段权威资产取分支的超集 559 / 43 行）。
 > - 登记结果一个数没动；所有变体都是 `sensitivity_only`，旗标默认值不变。
 > - 待用户拍板的事全在 **§6**（面板提前到 2011 重建 / B、C 是否升为登记读法 / D5 入场参照是否改「第一高点」）；
 >   铁矿石逐层对表已完成，见 `2026-09-03-guosen-dow-iron-ore-layers.md`。

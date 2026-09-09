@@ -95,6 +95,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="drop the branch that trades against a fading trend",
     )
+    parser.add_argument(
+        "--no-trend-filter",
+        dest="trend_filter_enabled",
+        action="store_false",
+        default=None,
+        help="let the Carry ranking alone decide the position, with no "
+        "momentum/volume gate",
+    )
     parser.add_argument("--trend-band-atr", type=float)
     parser.add_argument("--trend-confirm-days", type=int)
     parser.add_argument(

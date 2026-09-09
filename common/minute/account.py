@@ -9,6 +9,9 @@ from typing import Mapping
 
 from common.errors import EquityDepletedError
 
+#: 复利化成本的浮点噪音上限。日收益量级是 1e−2，单次运算的 ulp 约 1e−18，一天几十
+#: 个事件累计到 1e−16；真正为负的成本至少要大好几个数量级才可能出现。
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionRecord:

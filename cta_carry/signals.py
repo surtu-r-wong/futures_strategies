@@ -192,6 +192,11 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
                 continue
 
             direction = signals.at[index, "rank_direction"]
+            if not getattr(config, "trend_filter_enabled", True):
+                signals.at[index, "strength"] = 1.0
+                signals.at[index, "effective_direction"] = direction
+                continue
+
             trend_state = signals.at[index, "trend_state"]
             trend_aligned = trend_state == direction
             trend_opposed = trend_state == -direction

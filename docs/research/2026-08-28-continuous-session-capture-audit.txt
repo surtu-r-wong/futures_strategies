@@ -1,0 +1,81 @@
+publication_status=validated
+eligibility_config liquidity_window=120 liquidity_threshold=5000000000.0 prewarm_calendar_days=730
+requested_range start=2011-01-04 end=2026-01-30 daily_load_start=2009-01-04 backtest_start=2011-01-04
+session_authority version=commodity-v1 session_exception_sha256=ae137205778b6bb6f73abf3e3ed4a59c762c0f09adc1ebfc736e6ff943c55d31 day_only_sha256=f6f4776a42808b4cfefe23bd048637aee1431346aa203fe89a0ae50f2d06e57e history_exception_sha256=d2bf062f8d98cdb175c766e9f276910fed721833943af4845fece7b1bea74b80
+authorized_absent_day_session key=SHFE/AL/2018-01-02 contract=AL1803.SHF source_url=docs/research/2026-08-21-minute-archive-data-request.md
+authorized_absent_day_session key=SHFE/CU/2019-01-02 contract=CU1903.SHF source_url=docs/research/2026-08-21-minute-archive-data-request.md
+authorized_absent_day_session key=SHFE/RU/2019-01-02 contract=RU1905.SHF source_url=docs/research/2026-08-21-minute-archive-data-request.md
+authorized_absent_day_session key=SHFE/AL/2020-01-02 contract=AL2002.SHF source_url=docs/research/2026-08-21-minute-archive-data-request.md
+authorized_absent_day_session key=SHFE/FU/2020-01-02 contract=FU2005.SHF source_url=docs/research/2026-08-21-minute-archive-data-request.md
+authorized_absent_day_session_count=5 registered=5
+night_start_widened=2019-12-23 SHFE AL representative=AL2002.SHF observed=NaT widened=2019-12-20 21:00:00+08:00
+night_start_widened=2020-05-19 SHFE AG representative=AG2012.SHF observed=2020-05-18 21:01:00+08:00 widened=2020-05-18 21:00:00+08:00
+night_start_widened=2020-05-26 CZCE FG representative=FG009.CZC observed=2020-05-25 21:02:00+08:00 widened=2020-05-25 21:00:00+08:00
+night_start_widened=2022-05-26 INE BC representative=BC2208.INE observed=2022-05-25 21:05:00+08:00 widened=2022-05-25 21:00:00+08:00
+night_untraded_padding=2017-03-31 DCE A
+night_untraded_padding=2017-03-31 DCE I
+night_untraded_padding=2017-03-31 DCE J
+night_untraded_padding=2017-03-31 DCE JM
+night_untraded_padding=2017-03-31 DCE M
+night_untraded_padding=2017-03-31 DCE P
+night_untraded_padding=2017-03-31 DCE Y
+night_untraded_padding=2017-04-19 CZCE CF
+night_untraded_padding=2017-04-19 CZCE FG
+night_untraded_padding=2017-04-19 CZCE MA
+night_untraded_padding=2017-04-19 CZCE OI
+night_untraded_padding=2017-04-19 CZCE RM
+night_untraded_padding=2017-04-19 CZCE SR
+night_untraded_padding=2017-04-19 CZCE TA
+night_untraded_padding=2017-04-19 CZCE ZC
+night_auction_attributed=2019-12-26 CZCE CF
+night_auction_attributed=2019-12-26 CZCE FG
+night_auction_attributed=2019-12-26 CZCE MA
+night_auction_attributed=2019-12-26 CZCE OI
+night_auction_attributed=2019-12-26 CZCE RM
+night_auction_attributed=2019-12-26 CZCE SR
+night_auction_attributed=2019-12-26 CZCE TA
+night_auction_attributed=2019-12-26 CZCE ZC
+night_auction_attributed=2019-12-26 DCE A
+night_auction_attributed=2019-12-26 DCE C
+night_auction_attributed=2019-12-26 DCE EG
+night_auction_attributed=2019-12-26 DCE I
+night_auction_attributed=2019-12-26 DCE J
+night_auction_attributed=2019-12-26 DCE JM
+night_auction_attributed=2019-12-26 DCE L
+night_auction_attributed=2019-12-26 DCE M
+night_auction_attributed=2019-12-26 DCE P
+night_auction_attributed=2019-12-26 DCE PP
+night_auction_attributed=2019-12-26 DCE V
+night_auction_attributed=2019-12-26 DCE Y
+night_auction_attributed=2019-12-26 INE SC
+night_auction_attributed=2019-12-26 SHFE AG
+night_auction_attributed=2019-12-26 SHFE AL
+night_auction_attributed=2019-12-26 SHFE BU
+night_auction_attributed=2019-12-26 SHFE CU
+night_auction_attributed=2019-12-26 SHFE FU
+night_auction_attributed=2019-12-26 SHFE HC
+night_auction_attributed=2019-12-26 SHFE NI
+night_auction_attributed=2019-12-26 SHFE PB
+night_auction_attributed=2019-12-26 SHFE RB
+night_auction_attributed=2019-12-26 SHFE RU
+night_auction_attributed=2019-12-26 SHFE SP
+night_auction_attributed=2019-12-26 SHFE ZN
+session_exception_unaudited exchange=SHFE product=AU trade_date=2019-12-26
+coverage_year=2011 all_product_days=5006 in_pool_days=3577 in_pool_ratio=0.714543 audit_universe_days=5006 audited_days=3583 audited_ratio=0.715741 normalization_excluded_product_days=0 normalization_unkeyable_rows=0
+coverage_year=2012 all_product_days=5389 in_pool_days=3607 in_pool_ratio=0.669326 audit_universe_days=5389 audited_days=3609 audited_ratio=0.669698 normalization_excluded_product_days=15 normalization_unkeyable_rows=0
+coverage_year=2013 all_product_days=6289 in_pool_days=4104 in_pool_ratio=0.652568 audit_universe_days=6289 audited_days=4112 audited_ratio=0.653840 normalization_excluded_product_days=0 normalization_unkeyable_rows=0
+coverage_year=2014 all_product_days=7849 in_pool_days=4996 in_pool_ratio=0.636514 audit_universe_days=7849 audited_days=4996 audited_ratio=0.636514 normalization_excluded_product_days=0 normalization_unkeyable_rows=0
+coverage_year=2015 all_product_days=9073 in_pool_days=5697 in_pool_ratio=0.627907 audit_universe_days=9073 audited_days=5705 audited_ratio=0.628789 normalization_excluded_product_days=3 normalization_unkeyable_rows=0
+coverage_year=2016 all_product_days=9272 in_pool_days=6947 in_pool_ratio=0.749245 audit_universe_days=9272 audited_days=6947 audited_ratio=0.749245 normalization_excluded_product_days=0 normalization_unkeyable_rows=0
+coverage_year=2017 all_product_days=9305 in_pool_days=7976 in_pool_ratio=0.857174 audit_universe_days=9305 audited_days=7976 audited_ratio=0.857174 normalization_excluded_product_days=64 normalization_unkeyable_rows=0
+coverage_year=2018 all_product_days=9754 in_pool_days=8632 in_pool_ratio=0.884970 audit_universe_days=9754 audited_days=8636 audited_ratio=0.885380 normalization_excluded_product_days=183 normalization_unkeyable_rows=0
+coverage_year=2019 all_product_days=10998 in_pool_days=8853 in_pool_ratio=0.804965 audit_universe_days=10998 audited_days=8865 audited_ratio=0.806056 normalization_excluded_product_days=0 normalization_unkeyable_rows=0
+coverage_year=2020 all_product_days=12315 in_pool_days=9100 in_pool_ratio=0.738936 audit_universe_days=12315 audited_days=9110 audited_ratio=0.739748 normalization_excluded_product_days=0 normalization_unkeyable_rows=0
+coverage_year=2021 all_product_days=13341 in_pool_days=11268 in_pool_ratio=0.844614 audit_universe_days=13341 audited_days=11268 audited_ratio=0.844614 normalization_excluded_product_days=0 normalization_unkeyable_rows=0
+coverage_year=2022 all_product_days=13317 in_pool_days=11681 in_pool_ratio=0.877150 audit_universe_days=13317 audited_days=11695 audited_ratio=0.878201 normalization_excluded_product_days=0 normalization_unkeyable_rows=0
+coverage_year=2023 all_product_days=14074 in_pool_days=12311 in_pool_ratio=0.874734 audit_universe_days=14074 audited_days=12313 audited_ratio=0.874876 normalization_excluded_product_days=55 normalization_unkeyable_rows=0
+coverage_year=2024 all_product_days=14879 in_pool_days=13319 in_pool_ratio=0.895154 audit_universe_days=14879 audited_days=13333 audited_ratio=0.896095 normalization_excluded_product_days=242 normalization_unkeyable_rows=0
+coverage_year=2025 all_product_days=16057 in_pool_days=13439 in_pool_ratio=0.836956 audit_universe_days=16057 audited_days=13443 audited_ratio=0.837205 normalization_excluded_product_days=254 normalization_unkeyable_rows=0
+coverage_year=2026 all_product_days=1472 in_pool_days=1180 in_pool_ratio=0.801630 audit_universe_days=1472 audited_days=1180 audited_ratio=0.801630 normalization_excluded_product_days=117 normalization_unkeyable_rows=0
+normalization_unkeyable_unknown_date_rows=0
+products=63 rules=5299 checked_days=126771 ambiguous=0

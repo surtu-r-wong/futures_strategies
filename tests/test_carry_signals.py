@@ -562,3 +562,42 @@ def test_switching_the_branch_off_leaves_trend_aligned_positions_alone():
     assert on["strength"] == 1.0
     assert off["strength"] == 1.0
     assert off["effective_direction"] == on["effective_direction"]
+
+
+def test_the_whole_trend_filter_can_be_switched_off():
+    """The momentum/volume filter zeroes 31.4% of the ranked product-days and,
+    because it is a hysteresis-free switch, 53.3% of all turnover is round
+    trips it causes (2026-08-06 attribution). Turnover is the binding
+    constraint on this strategy, so the filter has to be measurable without
+    it. With the filter off the Carry ranking alone decides the position.
+    The default stays on: the baseline must not move."""
+    carries = {"A": -0.5, "B": -0.2, "C": 0.0, "D": 0.2, "E": 0.5}
+    frame, _ = _two_day_cross_section(carries)
+
+    on = _latest_by_product(build_signals(frame, _config())).loc["A"]
+    off = _latest_by_product(
+        build_signals(frame, _config(trend_filter_enabled=False))
+    ).loc["A"]
+
+    assert on["rank_direction"] == -1
+    assert on["strength"] == 0.0
+    assert on["effective_direction"] == 0
+
+    assert off["rank_direction"] == -1
+    assert off["strength"] == 1.0
+    assert off["effective_direction"] == -1
+
+
+def test_switching_the_trend_filter_off_still_leaves_unranked_products_flat():
+    """Reverse guard: the switch removes the filter, not the ranking gate.
+    A product the cross-section never selects must stay flat either way."""
+    carries = {"A": -0.5, "B": -0.2, "C": 0.0, "D": 0.2, "E": 0.5}
+    frame, _ = _two_day_cross_section(carries)
+
+    off = _latest_by_product(
+        build_signals(frame, _config(trend_filter_enabled=False))
+    ).loc["C"]
+
+    assert off["rank_direction"] == 0
+    assert off["strength"] == 0.0
+    assert off["effective_direction"] == 0

@@ -1,5 +1,12 @@
 # Guosen Commodity Shared Core Implementation Plan
 
+> **状态（2026-09-09）**：本计划把 `cta_continuous` 改成 `common/commodity` 转发层的那部分
+> **在合回 master 时被撤销**。分叉后 master 在 `cta_continuous/{continuous,panel}.py` 上落了
+> 9 个提交，转发层跑 master 的测试 32 个失败（接口与语义已分开）。合并结果是两套实现并存：
+> 连续线用 `cta_continuous/*`，Bollinger / 道氏用 `common/commodity/*`。细节见 `docs/ROADMAP.md`
+> 「商品共享核心收尾」下的 2026-09-09 合并裁定。下文 Task 9 的等价闸只描述 2026-08-28 时点。
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Extract the commodity-market machinery already built for cta_continuous into a stable shared package, then extend its cached panel for Bollinger and Dow without changing continuous-signal behavior.

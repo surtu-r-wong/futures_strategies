@@ -10,7 +10,12 @@
 
 import pytest
 
-from cta_continuous.signals import Direction, position_signal, up_down_prob
+from cta_continuous.signals import (
+    Direction,
+    position_path,
+    position_signal,
+    up_down_prob,
+)
 
 
 def test_up_down_prob_reproduces_figure_13():
@@ -190,3 +195,189 @@ def test_atr_leverage_gate_is_strict():
     assert gate_flags(
         short_above_long=True, widening=True, atr_leverage=1.0, delta_tnr=0.01
     ) == (False, False)
+
+
+# --- D21：离场用哪几道闸 -----------------------------------------------------
+
+def _bars(count, overrides=None):
+    """一串默认「四闸全过、多头」的 bar，按需覆盖某几根。"""
+    bars = [
+        {
+            "short_above_long": True,
+            "widening": True,
+            "atr_leverage": 2.0,
+            "delta_tnr": 0.1,
+            "u2p": 0.5,
+        }
+        for _ in range(count)
+    ]
+    for index, patch in (overrides or {}).items():
+        bars[index].update(patch)
+    return bars
+
+
+def _path(bars, **kwargs):
+    return position_path(
+        short_above_long=[b["short_above_long"] for b in bars],
+        widening=[b["widening"] for b in bars],
+        atr_leverage=[b["atr_leverage"] for b in bars],
+        delta_tnr=[b["delta_tnr"] for b in bars],
+        u2p=[b["u2p"] for b in bars],
+        **kwargs,
+    )
+
+
+def test_wide_exit_is_pointwise_the_stateless_reading():
+    """`exit_gates="wide"` 必须与逐 bar 无状态判定**逐点相同** —— 它就是 D6 原样。"""
+    bars = _bars(8, {2: {"widening": False}, 4: {"delta_tnr": -0.1}, 6: {"atr_leverage": 0.5}})
+
+    path = _path(bars, exit_gates="wide")
+    stateless = [position_signal(**bar) for bar in bars]
+
+    assert list(path) == stateless
+
+
+def test_narrow_exit_holds_a_position_through_a_noise_gate_dip():
+    """D6 的原文只点名 `Lev_ATR<1`；ΔTNR 转负不该把仓位打掉。"""
+    bars = _bars(5, {2: {"delta_tnr": -0.3}, 3: {"widening": False}})
+
+    path = _path(bars, exit_gates="narrow")
+
+    assert [signal.direction for signal in path] == [Direction.LONG] * 5
+
+
+def test_narrow_exit_closes_when_atr_leverage_falls_below_one():
+    """§3.1：「当开仓杠杆率 Lev_ATR<1 …… 即使此时传统信号为 1，我们依然平仓操作」。"""
+    bars = _bars(5, {2: {"atr_leverage": 0.5}})
+
+    path = _path(bars, exit_gates="narrow")
+
+    assert path[1].direction is Direction.LONG
+    assert path[2].direction is Direction.FLAT
+    # 杠杆恢复、四闸重新全过 ⇒ 可以再进场。
+    assert path[3].direction is Direction.LONG
+
+
+def test_narrow_exit_closes_on_a_moving_average_reversal():
+    bars = _bars(5, {2: {"short_above_long": False}, 3: {"short_above_long": False},
+                       4: {"short_above_long": False}})
+
+    path = _path(bars, exit_gates="narrow")
+
+    assert path[1].direction is Direction.LONG
+    # 均线反向：多头必须离场；能不能立刻反手，取决于空头那侧的 U2P。
+    assert path[2].direction is not Direction.LONG
+
+
+def test_narrow_exit_can_reverse_straight_into_the_other_side():
+    bars = _bars(4)
+    for index in (2, 3):
+        bars[index].update({"short_above_long": False, "u2p": -0.5})
+
+    path = _path(bars, exit_gates="narrow")
+
+    assert path[1].direction is Direction.LONG
+    assert path[2].direction is Direction.SHORT
+
+
+def test_narrow_exit_still_needs_all_four_gates_to_enter():
+    """收窄的是**离场**，不是入场。入场照旧要四道闸全过。"""
+    bars = _bars(4, {0: {"delta_tnr": -0.1}, 1: {"widening": False},
+                       2: {"u2p": 0.1}})
+
+    path = _path(bars, exit_gates="narrow")
+
+    assert [signal.direction for signal in path[:3]] == [Direction.FLAT] * 3
+    assert path[3].direction is Direction.LONG
+
+
+def test_position_path_rejects_an_exit_rule_it_does_not_know():
+    with pytest.raises(ValueError) as caught:
+        _path(_bars(2), exit_gates="trailing")
+    assert str(caught.value).startswith("exit_gates:")
+
+
+# --- 研报基线档：EMA 均线穿越（§2.1） ---------------------------------------
+#
+# 「当短均线上穿长均线且二者距离走阔时，我们即选择开多仓（Signal=1）；当短均线下穿
+# 长均线且二者距离走阔时，即选择开空仓（Signal=-1）。策略没有空仓状态，在开仓之后，
+# 直到反向信号出现，则反手开仓。」——「每次均线穿越的过程不加以区分，均满仓开仓。」
+#
+# 这一档是研报**自报 13.06% / 夏普 1.03** 的对照基准，不含它自称的三级改进，所以
+# 也不该有 Lev_ATR 闸、ΔTNR 闸与 U2P 强弱。
+
+
+def _crossover(bars, **kwargs):
+    from cta_continuous.signals import crossover_path
+
+    return crossover_path(
+        short_above_long=[b["short_above_long"] for b in bars],
+        widening=[b["widening"] for b in bars],
+        **kwargs,
+    )
+
+
+def test_crossover_waits_for_the_gap_to_widen_before_the_first_entry():
+    bars = _bars(3, {0: {"widening": False}, 1: {"widening": False}})
+
+    path = _crossover(bars)
+
+    assert [signal.direction for signal in path] == [
+        Direction.FLAT, Direction.FLAT, Direction.LONG,
+    ]
+
+
+def test_crossover_opens_every_position_at_full_size():
+    """§2.1：「每次均线穿越的过程不加以区分，均满仓开仓」—— 没有信号强弱。"""
+    path = _crossover(_bars(3))
+
+    assert [signal.value for signal in path] == [1.0, 1.0, 1.0]
+
+
+def test_crossover_holds_through_a_narrowing_gap():
+    """「策略没有空仓状态」：走阔只是开仓触发，不走阔不构成离场。"""
+    bars = _bars(4, {2: {"widening": False}, 3: {"widening": False}})
+
+    path = _crossover(bars)
+
+    assert [signal.direction for signal in path] == [Direction.LONG] * 4
+
+
+def test_crossover_needs_a_widening_gap_to_flip():
+    """反手要的是**反向信号**，而反向信号同样要求距离走阔。"""
+    bars = _bars(3, {1: {"short_above_long": False, "widening": False},
+                     2: {"short_above_long": False}})
+
+    path = _crossover(bars)
+
+    assert path[0].direction is Direction.LONG
+    assert path[1].direction is Direction.LONG
+    assert path[2].direction is Direction.SHORT
+
+
+def test_crossover_reverses_straight_into_a_full_short():
+    bars = _bars(2, {1: {"short_above_long": False}})
+
+    path = _crossover(bars)
+
+    assert path[1].direction is Direction.SHORT
+    assert path[1].value == -1.0
+
+
+def test_crossover_takes_no_atr_or_noise_gate_arguments():
+    """基线不含研报自称的任何改进；那两道闸在签名里根本不该出现。"""
+    import inspect
+
+    from cta_continuous.signals import crossover_path
+
+    parameters = inspect.signature(crossover_path).parameters
+    assert "atr_leverage" not in parameters
+    assert "delta_tnr" not in parameters
+    assert "u2p" not in parameters
+
+
+def test_crossover_respects_the_ma_orientation_switch():
+    """D2 的对照口径对基线一样要能跑到。"""
+    path = _crossover(_bars(2), ma_orientation="reversed")
+
+    assert [signal.direction for signal in path] == [Direction.SHORT] * 2

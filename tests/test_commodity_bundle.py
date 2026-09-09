@@ -684,12 +684,6 @@ def test_shared_builder_takes_the_session_asset_as_an_argument(tmp_path):
     assert chosen.session_rules == Path("/safe/commodity_minute_sessions.csv")
 
 
-def test_legacy_continuous_builder_delegates_to_shared_entry_point():
-    import scripts.commodity.build_panel as shared_builder
-    import scripts.continuous.build_panel as legacy_builder
-
-    assert legacy_builder.main is shared_builder.main
-
 
 def test_builder_keeps_shadow_panel_contexts_outside_monthly_universe():
     rb_choices = _roll_choices()

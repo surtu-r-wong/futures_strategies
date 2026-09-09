@@ -779,6 +779,14 @@ def test_repository_uses_only_the_session_exception_authority_contract():
     )
     # Batches A/C/D/E (149) plus F (74), G (304), G-3 (11), the two 2017
     # option-launch evenings, and H (15), all reviewed on 2026-08-25.
+    #
+    # Batch I, reviewed 2026-08-28, comes from the first capture over the
+    # continuous strategy's universe, which audits product-days Carry's pool
+    # never reached: the two 2018 INE post-holiday evenings (INE's SC only
+    # entered Carry's pool that September, so nobody had written them), and
+    # DCE EG's day-only span before it joined night trading on 2019-04-01, and
+    # GFEX PT, which like every other Guangzhou product has never had a night
+    # session and only lacked a row because it lists too recently.
     # 557 起于 2026-08-29：并入连续补采那轮裁决的两条 INE 节后无夜盘
     # （2018-05-02 / 2018-06-19），两条都带上交能源的公告直链。
     # 559 起于 2026-08-31：商品复刻的宇宙比 Carry 宽，两条转录缺口随之现形 ——

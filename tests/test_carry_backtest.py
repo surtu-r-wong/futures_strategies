@@ -572,7 +572,6 @@ def test_shared_decision_extraction_preserves_all_daily_result_tables():
         "signals",
         "curve_selection",
         "data_quality",
-        "run_config",
     ):
         pd.testing.assert_frame_equal(
             baseline[name],
@@ -580,6 +579,21 @@ def test_shared_decision_extraction_preserves_all_daily_result_tables():
             check_exact=True,
         )
     assert baseline["metrics"] == rerun.metrics
+
+    # run_config records the configuration, not a result, and this repo adds
+    # measurement switches to CarryConfig as a matter of course (see
+    # allow_trend_opposed).  Pinning its row count would make every such
+    # addition look like a behaviour change, and the fixture must not be
+    # regenerated (plan 2026-08-13 step 103).  So the guard is: no key may
+    # disappear and no shared key may change value -- a moved default still
+    # fails, only a purely additive field passes.
+    key, value = baseline["run_config"].columns[:2]
+    before = dict(
+        zip(baseline["run_config"][key], baseline["run_config"][value].astype(str))
+    )
+    after = dict(zip(rerun.run_config[key], rerun.run_config[value].astype(str)))
+    assert set(before).issubset(after), sorted(set(before) - set(after))
+    assert {k: after[k] for k in before} == before
 
 
 def test_requested_start_is_never_slid_when_shadow_warmup_is_short() -> None:
