@@ -140,18 +140,62 @@ class CurveResult:
     audit: pd.DataFrame
 
 
+def _liquidity_measure_rows(prices: pd.DataFrame, config) -> pd.DataFrame:
+    """Per-contract-day value the pool aggregates: turnover, or OI value."""
+    if getattr(config, "liquidity_measure", "turnover") != "open_interest_value":
+        return prices.loc[:, ["product", "trade_date", "turnover"]]
+
+    # The daily path carries no multiplier metadata.  Infer one per product as
+    # the expanding median of turnover / (volume * close) over bars that
+    # traded, so the estimate on day t only reads bars up to and including t.
+    ordered = prices.sort_values(
+        ["product", "trade_date", "contract"],
+        kind="mergesort",
+    )
+    traded = (ordered["volume"] > 0) & (ordered["turnover"] > 0)
+    ratio = (
+        ordered["turnover"] / (ordered["volume"] * ordered["close"])
+    ).where(traded)
+    # One multiplier per product-day: the median across that day's traded
+    # contracts, then the expanding median over days.
+    daily_ratio = (
+        ratio.groupby([ordered["product"], ordered["trade_date"]], sort=True)
+        .median()
+        .rename("daily_ratio")
+        .reset_index()
+        .sort_values(["product", "trade_date"], kind="mergesort")
+    )
+    daily_ratio["multiplier"] = daily_ratio.groupby("product", sort=False)[
+        "daily_ratio"
+    ].transform(lambda values: values.expanding(min_periods=1).median())
+    measure = ordered.loc[:, ["product", "trade_date", "oi", "close"]].merge(
+        daily_ratio.loc[:, ["product", "trade_date", "multiplier"]],
+        on=["product", "trade_date"],
+        how="left",
+        validate="many_to_one",
+    )
+    measure["turnover"] = measure["oi"] * measure["close"] * measure["multiplier"]
+    return measure.loc[:, ["product", "trade_date", "turnover"]]
+
+
 def aggregate_product_liquidity(prices: pd.DataFrame, config) -> pd.DataFrame:
-    """Aggregate product turnover and apply shifted liquidity eligibility."""
+    """Aggregate the product liquidity measure and apply shifted eligibility.
+
+    The aggregated column keeps its historical name ``product_turnover`` under
+    both measures; with ``liquidity_measure="open_interest_value"`` it holds
+    the product's open-interest value instead.
+    """
     if prices.empty:
         return pd.DataFrame(columns=_LIQUIDITY_COLUMNS)
 
     liquidity = (
-        prices.groupby(
+        _liquidity_measure_rows(prices, config)
+        .groupby(
             ["product", "trade_date"],
             as_index=False,
             sort=False,
         )["turnover"]
-        .sum()
+        .sum(min_count=1)
         .rename(columns={"turnover": "product_turnover"})
     )
     liquidity = liquidity.sort_values(

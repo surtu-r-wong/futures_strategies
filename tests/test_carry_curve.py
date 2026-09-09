@@ -404,3 +404,58 @@ def test_second_by_oi_skips_a_duplicate_listing_of_the_main_month() -> None:
     assert row["main_contract"] == "RB2405.SHF"
     assert row["secondary_contract"] == "RB2401.SHF"
     assert row["month_gap"] == -4
+
+
+def test_open_interest_value_pool_infers_multiplier_from_turnover_history() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=3).date.tolist()
+    # turnover / (volume * close) = 1_000 * ratio / (100 * 10) = ratio, so the
+    # expanding median over days runs 1.0 -> 2.0 (median of 1, 3) -> 1.0.
+    ratios = (1.0, 3.0, 1.0)
+    prices = _prices(
+        [
+            _bar(
+                trade_date,
+                contract,
+                close=10.0,
+                volume=100.0,
+                oi=oi,
+                turnover=1_000.0 * ratio,
+            )
+            for trade_date, ratio in zip(dates, ratios)
+            for contract, oi in (("RB2405.SHF", 300.0), ("RB2410.SHF", 200.0))
+        ]
+    )
+    config = CarryConfig(
+        liquidity_window=1,
+        liquidity_threshold=0.0,
+        carry_window=1,
+        liquidity_measure="open_interest_value",
+    )
+
+    liquidity = aggregate_product_liquidity(prices, config)
+
+    # sum(oi * close * multiplier) = 500 * 10 * {1.0, 2.0, 1.0}
+    assert liquidity["product_turnover"].tolist() == [5_000.0, 10_000.0, 5_000.0]
+    assert liquidity["liquidity_mean"].tolist()[1:] == [5_000.0, 10_000.0]
+
+
+def test_open_interest_value_pool_stays_out_until_a_contract_has_traded() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=2).date.tolist()
+    prices = _prices(
+        [
+            _bar(dates[0], "RB2405.SHF", close=10.0, volume=0.0, oi=300.0, turnover=0.0),
+            _bar(dates[1], "RB2405.SHF", close=10.0, volume=100.0, oi=300.0, turnover=2_000.0),
+        ]
+    )
+    config = CarryConfig(
+        liquidity_window=1,
+        liquidity_threshold=0.0,
+        carry_window=1,
+        liquidity_measure="open_interest_value",
+    )
+
+    liquidity = aggregate_product_liquidity(prices, config)
+
+    assert liquidity["product_turnover"].isna().tolist() == [True, False]
+    assert liquidity["product_turnover"].tolist()[1] == 6_000.0
+    assert liquidity["in_pool"].tolist() == [False, False]
