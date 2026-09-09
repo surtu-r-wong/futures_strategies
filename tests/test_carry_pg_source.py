@@ -275,3 +275,14 @@ def test_product_history_loader_rejects_incomplete_or_ambiguous_rows(
 
     with pytest.raises(ValueError, match=message):
         load_public_product_history_starts()
+
+
+def test_contract_query_unions_user_exclusions_with_financials():
+    _, params = _contract_query(
+        query_start=date(2022, 1, 1),
+        end=date(2024, 1, 1),
+        products=None,
+        excluded_products=["cu", " AL", "cu"],
+    )
+
+    assert params["excluded_products"] == sorted(FINANCIAL_FUTURES | {"AL", "CU"})

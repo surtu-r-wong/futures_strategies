@@ -116,6 +116,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--cost-bps", type=float)
     parser.add_argument("--prewarm-calendar-days", type=int)
+    # The term-structure index configuration (design 2026-09-09).  Each switch
+    # is opt-in; CarryConfig holds the baseline defaults.
+    parser.add_argument("--near-leg", choices=["main", "near_dominant"])
+    parser.add_argument("--weighting", choices=["risk_budget", "rank_linear"])
+    parser.add_argument(
+        "--no-stop-loss",
+        dest="stop_loss_enabled",
+        action="store_false",
+        default=None,
+        help="run without the chandelier stop",
+    )
+    parser.add_argument(
+        "--liquidity-measure",
+        choices=["turnover", "open_interest_value"],
+    )
+    parser.add_argument("--missing-open-policy", choices=["abort", "defer"])
+    parser.add_argument(
+        "--exclude-products",
+        help="comma-separated product codes dropped before the liquidity pool",
+    )
     return parser
 
 
@@ -135,6 +155,20 @@ def _parse_products(value: str | None) -> list[str] | None:
         return None
     products = {part.strip().upper() for part in value.split(",") if part.strip()}
     return sorted(products) or None
+
+
+def _exclude_products(
+    data: CarryDataSet,
+    excluded_products: list[str] | None,
+) -> CarryDataSet:
+    """Drop excluded products from a file-sourced data set (SQL does it for PG)."""
+    if not excluded_products:
+        return data
+    keep = ~data.prices["product"].isin(excluded_products)
+    return CarryDataSet(
+        prices=data.prices.loc[keep].copy().reset_index(drop=True),
+        data_quality=data.data_quality,
+    )
 
 
 def _validate_data_coverage(
@@ -159,6 +193,7 @@ def _runtime_config(
     execution_mode: str,
     products: list[str] | None,
     data: CarryDataSet,
+    excluded_products: list[str] | None = None,
 ) -> pd.DataFrame:
     dates = data.dates
     git_state = capture_git_state(_REPO_ROOT)
@@ -169,6 +204,10 @@ def _runtime_config(
             {
                 "key": "products",
                 "value": ",".join(products) if products else "ALL",
+            },
+            {
+                "key": "excluded_products",
+                "value": ",".join(excluded_products) if excluded_products else "NONE",
             },
             {"key": "code_version", "value": git_state.version},
             {"key": "code_dirty", "value": git_state.dirty},
@@ -291,6 +330,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     products = _parse_products(args.products)
+    excluded_products = _parse_products(args.exclude_products)
     try:
         if args.source == "files":
             if not args.data_dir:
@@ -301,12 +341,14 @@ def main(argv: list[str] | None = None) -> int:
                 start=query_start,
                 end=args.end,
             )
+            data = _exclude_products(data, excluded_products)
         else:
             data = load_public_carry_data(
                 start=args.start,
                 end=args.end,
                 config=config,
                 products=products,
+                excluded_products=excluded_products,
                 config_path=args.settings,
                 use_test=args.use_test,
             )
@@ -376,6 +418,7 @@ def main(argv: list[str] | None = None) -> int:
         execution_mode=args.execution,
         products=products,
         data=data,
+        excluded_products=excluded_products,
     )
     dirty_row = runtime_config["key"].eq("code_dirty")
     runtime_config.loc[dirty_row, "value"] = (

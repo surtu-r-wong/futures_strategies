@@ -19,7 +19,7 @@ from cta_carry.report import (
     curve_selection_excel_view,
     write_carry_outputs,
 )
-from cta_carry.__main__ import _config_from_args, build_parser, main
+from cta_carry.__main__ import _config_from_args, _parse_products, build_parser, main
 from cta_carry.config import CarryConfig
 from cta_carry.provenance import GitState
 from tests.carry_fixtures import make_carry_panel, small_config
@@ -510,6 +510,7 @@ def test_public_pg_cli_forwards_products_config_and_connection_options(
         "end": data.dates[-1],
         "config": small_config(),
         "products": ["A", "B", "C", "D", "E"],
+        "excluded_products": None,
         "config_path": "settings.yaml",
         "use_test": True,
     }
@@ -1222,3 +1223,52 @@ def test_sheet_preparation_failure_is_structured(tmp_path, monkeypatch):
 
     assert exc_info.value.stage == "prepare"
     assert "broken report shape" in str(exc_info.value)
+
+
+def test_cli_index_flags_override_config_and_exclusions_parse():
+    args = build_parser().parse_args(
+        [
+            "--start", "2020-01-01", "--end", "2020-12-31",
+            "--near-leg", "near_dominant",
+            "--weighting", "rank_linear",
+            "--no-stop-loss",
+            "--liquidity-measure", "open_interest_value",
+            "--missing-open-policy", "defer",
+            "--exclude-products", "cu, al,cu",
+        ]
+    )
+
+    config = _config_from_args(args)
+
+    assert config.near_leg == "near_dominant"
+    assert config.weighting == "rank_linear"
+    assert config.stop_loss_enabled is False
+    assert config.liquidity_measure == "open_interest_value"
+    assert config.missing_open_policy == "defer"
+    assert _parse_products(args.exclude_products) == ["AL", "CU"]
+
+
+def test_exclude_products_drops_only_the_named_products():
+    data = make_carry_panel()
+
+    kept = carry_cli._exclude_products(data, ["E", "B"])
+
+    assert sorted(kept.prices["product"].unique()) == ["A", "C", "D"]
+    assert carry_cli._exclude_products(data, None) is data
+
+
+def test_files_source_records_the_exclusion_list_in_run_config(tmp_path):
+    data = make_carry_panel()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    data.prices.to_csv(data_dir / "prices.csv", index=False)
+    prefix = tmp_path / "carry"
+    args = _small_cli_args(data_dir, prefix, data.dates[12], data.dates[-1])
+    args.extend(["--exclude-products", "zz, Z"])
+
+    assert main(args) == 0
+    run_config = pd.read_excel(
+        prefix.with_suffix(".xlsx"), sheet_name="run_config"
+    ).set_index("key")["value"]
+
+    assert run_config["excluded_products"] == "Z,ZZ"

@@ -24,6 +24,7 @@ def load_public_carry_data(
     end: date,
     config: CarryConfig,
     products: list[str] | None = None,
+    excluded_products: list[str] | None = None,
     config_path=None,
     use_test: bool = False,
 ) -> CarryDataSet:
@@ -37,6 +38,7 @@ def load_public_carry_data(
         query_start=query_start,
         end=end,
         products=products,
+        excluded_products=excluded_products,
     )
     with get_connection(pg) as conn:
         frame = _read_sql(sql, conn, params=params)
@@ -48,7 +50,13 @@ def _contract_query(
     query_start: date,
     end: date,
     products: list[str] | None,
+    excluded_products: list[str] | None = None,
 ) -> tuple[str, dict[str, object]]:
+    exclusions = set(FINANCIAL_FUTURES)
+    if excluded_products:
+        exclusions |= {
+            str(p).strip().upper() for p in excluded_products if str(p).strip()
+        }
     clauses = [
         "trade_date >= %(query_start)s",
         "trade_date <= %(end)s",
@@ -57,7 +65,7 @@ def _contract_query(
     params: dict[str, object] = {
         "query_start": query_start,
         "end": end,
-        "excluded_products": sorted(FINANCIAL_FUTURES),
+        "excluded_products": sorted(exclusions),
     }
     normalized_products = (
         sorted({str(p).strip().upper() for p in products if str(p).strip()})
