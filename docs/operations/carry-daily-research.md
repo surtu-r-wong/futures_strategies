@@ -151,7 +151,36 @@ cd /home/elfbob/claude-code/futures_strategies
 
 保留该开关只是为了**记录这个已验证的负面结果**，避免有人看到研报那句「等权分配资金」再试一遍。
 
-## 6. 已知边界
+## 6. 期限结构指数口径（2026-09-09 新增）
+
+把中信 CICSF025 期限结构指数的构造搬进本引擎的一组开关，设计与实测依据见
+`docs/plans/2026-09-09-carry-term-structure-index-config-design.md`。
+每个开关都是**独立可选**的，默认值全部复现基线（golden 夹具不用重生成）。
+
+| 开关 | 默认 | 开启值 / 含义 |
+|---|---|---|
+| `--near-leg` | `main` | `near_dominant`：近腿取交割月**早于**主力、持仓最高的合约（没有则用主力），R = (近 − 远) ÷ 近 ÷ 相隔月数 × 12（中信公式，分母是近腿） |
+| `--weighting` | `risk_budget` | `rank_linear`：全截面秩权重 w = (Rank − (1+N)/2) ÷ (N(1+N)/2)，和为零、无符号闸门；`--selection-fraction` 与 ATR 预算不再参与 |
+| `--no-stop-loss` | 关 | 不跑吊灯止损，档位永不下降 |
+| `--liquidity-measure` | `turnover` | `open_interest_value`：沉淀资金 = Σ 持仓量 × 收盘 × 乘数；乘数按品种日取「成交额 ÷（成交量 × 收盘）」的当日中位数，再做逐日扩展中位数（无前视）。列名仍叫 `product_turnover` |
+| `--missing-open-policy` | `abort` | `defer`：持仓合约当天没有开盘价 ⇒ 当日贡献记 0、按最后一次有效开盘价在下一个有价日一次性补记；目标合约没有开盘价 ⇒ **该品种整体**保持昨日权重与昨日状态，其余品种照常。每次写一行 `data_quality`（`object_type=execution`、`status=deferred`） |
+| `--exclude-products` | 无 | 逗号分隔代码，在流动性筛选之前剔除；`run_config` 记 `excluded_products` |
+
+目标命令（与研究复刻同口径，剔除名单 A）：
+
+```bash
+.venv/bin/python -m cta_carry --source public-pg --start 2012-01-04 --end <各所最后一天的最小值> \
+  --near-leg near_dominant --weighting rank_linear --no-stop-loss --no-trend-filter \
+  --carry-window 90 --liquidity-measure open_interest_value \
+  --liquidity-window 20 --liquidity-threshold 2e9 \
+  --exclude-products CU,BC,AL,AO,AD,ZN,PB,NI,SN,SS,AU,AG,PT,PD,EC,PK,CJ,AP,JD \
+  --missing-open-policy defer --output-prefix output/carry_tsindex
+```
+
+与研究复刻仍有的已知差异：主力按日重选（研究用只向后切换的链）、T+1 开盘成交
+（研究按收盘）、乘数用扩展中位数（研究用全样本中位数）。交叉验证时分歧只能归到这三条。
+
+## 7. 已知边界
 
 - 日线近似：原研报的 15 分钟吊灯止损改为**日收盘触发**，下一 5 分钟 VWAP 改为
   **下一交易日开盘**，ATR 默认 20 个合约交易日。
