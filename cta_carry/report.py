@@ -143,7 +143,9 @@ def curve_selection_excel_view(frame: pd.DataFrame) -> pd.DataFrame:
         ordered["role"].eq("secondary"),
         "",
     )
-    included_reasons = ~ordered["reason"].isin({"highest_oi", "later_highest_oi"})
+    included_reasons = ~ordered["reason"].isin(
+        {"highest_oi", "later_highest_oi", "earlier_highest_oi"}
+    )
     ordered["_exclusion_reason"] = (
         ordered["reason"]
         .astype(str)

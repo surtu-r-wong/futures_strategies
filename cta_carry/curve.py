@@ -113,11 +113,13 @@ _CURVE_COLUMNS = (
     "product",
     "main_contract",
     "secondary_contract",
+    "near_contract",
     "main_delivery_yyyymm",
     "secondary_delivery_yyyymm",
     "month_gap",
     "main_close",
     "secondary_close",
+    "near_close",
     "main_volume",
     "main_oi",
     "product_turnover",
@@ -313,6 +315,7 @@ def build_curve(prices: pd.DataFrame, config) -> CurveResult:
         )
         main = ranked.iloc[0]
         second_by_oi = config.secondary_selection == "second_by_oi"
+        near_dominant = getattr(config, "near_leg", "main") == "near_dominant"
         if second_by_oi:
             # Report variant: whatever ranks second on OI, nearer months
             # included.  The signed month gap below then carries the sign.
@@ -343,22 +346,44 @@ def build_curve(prices: pd.DataFrame, config) -> CurveResult:
             continue
 
         secondary = eligible.iloc[0]
-        month_gap = _month_gap(
-            main["delivery_yyyymm"],
-            secondary["delivery_yyyymm"],
-            allow_earlier=second_by_oi,
-        )
-        carry_raw = (
-            (main["close"] / secondary["close"] - 1.0)
-            * 12.0
-            / month_gap
-        )
+        near = main
+        if near_dominant:
+            # CITIC 3.5 step 1: the near leg is the highest-OI contract
+            # delivering before the main, or the main itself when none does.
+            earlier = ranked.loc[
+                ranked["delivery_yyyymm"] < main["delivery_yyyymm"]
+            ]
+            if not earlier.empty:
+                near = earlier.iloc[0]
+            month_gap = _month_gap(
+                near["delivery_yyyymm"],
+                secondary["delivery_yyyymm"],
+            )
+            # CITIC definition, near-leg denominator, annualised.
+            carry_raw = (
+                (near["close"] - secondary["close"])
+                / near["close"]
+                * 12.0
+                / month_gap
+            )
+        else:
+            month_gap = _month_gap(
+                main["delivery_yyyymm"],
+                secondary["delivery_yyyymm"],
+                allow_earlier=second_by_oi,
+            )
+            carry_raw = (
+                (main["close"] / secondary["close"] - 1.0)
+                * 12.0
+                / month_gap
+            )
         curve_rows.append(
             {
                 "trade_date": main["trade_date"],
                 "product": main["product"],
                 "main_contract": main["contract"],
                 "secondary_contract": secondary["contract"],
+                "near_contract": near["contract"],
                 "main_delivery_yyyymm": main["delivery_yyyymm"],
                 "secondary_delivery_yyyymm": secondary[
                     "delivery_yyyymm"
@@ -366,6 +391,7 @@ def build_curve(prices: pd.DataFrame, config) -> CurveResult:
                 "month_gap": month_gap,
                 "main_close": main["close"],
                 "secondary_close": secondary["close"],
+                "near_close": near["close"],
                 "main_volume": main["volume"],
                 "main_oi": main["oi"],
                 "product_turnover": main["product_turnover"],
@@ -383,6 +409,10 @@ def build_curve(prices: pd.DataFrame, config) -> CurveResult:
                 role = "secondary"
                 selected = True
                 reason = "later_highest_oi"
+            elif candidate.contract == near["contract"]:
+                role = "near"
+                selected = True
+                reason = "earlier_highest_oi"
             else:
                 role = "candidate"
                 selected = False

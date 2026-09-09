@@ -86,11 +86,13 @@ CURVE_COLUMNS = [
     "product",
     "main_contract",
     "secondary_contract",
+    "near_contract",
     "main_delivery_yyyymm",
     "secondary_delivery_yyyymm",
     "month_gap",
     "main_close",
     "secondary_close",
+    "near_close",
     "main_volume",
     "main_oi",
     "product_turnover",
@@ -459,3 +461,99 @@ def test_open_interest_value_pool_stays_out_until_a_contract_has_traded() -> Non
     assert liquidity["product_turnover"].isna().tolist() == [True, False]
     assert liquidity["product_turnover"].tolist()[1] == 6_000.0
     assert liquidity["in_pool"].tolist() == [False, False]
+
+
+def test_near_dominant_leg_picks_the_earlier_highest_oi_contract() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=2).date.tolist()
+    contracts = (
+        ("RB2401.SHF", 100.0, 999.0, 150.0),  # earlier, lower OI
+        ("RB2403.SHF", 104.0, 100.0, 200.0),  # earlier, highest OI -> near
+        ("RB2405.SHF", 110.0, 200.0, 300.0),  # main
+        ("RB2409.SHF", 120.0, 300.0, 250.0),  # far
+    )
+    prices = _prices(
+        [
+            _bar(trade_date, contract, close=close, volume=volume, oi=oi)
+            for trade_date in dates
+            for contract, close, volume, oi in contracts
+        ]
+    )
+    config = CarryConfig(
+        liquidity_window=1,
+        liquidity_threshold=0.0,
+        carry_window=1,
+        near_leg="near_dominant",
+    )
+
+    result = build_curve(prices, config)
+    row = result.curve.iloc[0]
+
+    assert row["main_contract"] == "RB2405.SHF"
+    assert row["near_contract"] == "RB2403.SHF"
+    assert row["near_close"] == 104.0
+    assert row["secondary_contract"] == "RB2409.SHF"
+    assert row["month_gap"] == 6
+    # (near - far) / near / months * 12
+    assert row["carry_raw"] == pytest.approx((104.0 - 120.0) / 104.0 / 6 * 12)
+    audit = result.audit.loc[result.audit["trade_date"] == dates[1]].set_index(
+        "contract"
+    )
+    assert audit.loc["RB2403.SHF", "role"] == "near"
+    assert audit.loc["RB2403.SHF", "reason"] == "earlier_highest_oi"
+    assert bool(audit.loc["RB2403.SHF", "selected"]) is True
+    assert audit.loc["RB2401.SHF", "role"] == "candidate"
+
+
+def test_near_dominant_leg_falls_back_to_the_main_contract() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=2).date.tolist()
+    contracts = (
+        ("RB2405.SHF", 110.0, 200.0, 300.0),
+        ("RB2409.SHF", 120.0, 300.0, 250.0),
+    )
+    prices = _prices(
+        [
+            _bar(trade_date, contract, close=close, volume=volume, oi=oi)
+            for trade_date in dates
+            for contract, close, volume, oi in contracts
+        ]
+    )
+    config = CarryConfig(
+        liquidity_window=1,
+        liquidity_threshold=0.0,
+        carry_window=1,
+        near_leg="near_dominant",
+    )
+
+    result = build_curve(prices, config)
+    row = result.curve.iloc[0]
+
+    assert row["near_contract"] == "RB2405.SHF"
+    assert row["carry_raw"] == pytest.approx((110.0 - 120.0) / 110.0 / 4 * 12)
+    pooled = result.audit.loc[result.audit["trade_date"] == dates[1]]
+    assert pooled.set_index("contract").loc["RB2405.SHF", "role"] == "main"
+
+
+def test_default_leg_records_main_as_near_and_keeps_the_far_denominator() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=2).date.tolist()
+    contracts = (
+        ("RB2403.SHF", 104.0, 100.0, 200.0),
+        ("RB2405.SHF", 110.0, 200.0, 300.0),
+        ("RB2409.SHF", 120.0, 300.0, 250.0),
+    )
+    prices = _prices(
+        [
+            _bar(trade_date, contract, close=close, volume=volume, oi=oi)
+            for trade_date in dates
+            for contract, close, volume, oi in contracts
+        ]
+    )
+    config = CarryConfig(liquidity_window=1, liquidity_threshold=0.0, carry_window=1)
+
+    result = build_curve(prices, config)
+    row = result.curve.iloc[0]
+
+    assert row["near_contract"] == "RB2405.SHF"
+    assert row["near_close"] == 110.0
+    assert row["month_gap"] == 4
+    assert row["carry_raw"] == pytest.approx((110.0 / 120.0 - 1.0) * 12 / 4)
+    assert "near" not in set(result.audit["role"])
