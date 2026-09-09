@@ -899,3 +899,101 @@ def test_close_plan_skips_the_chandelier_when_stop_loss_is_disabled() -> None:
     assert plan.states["A"].tranches_remaining == 3
     assert plan.states["A"].highest_high == 110.0
     assert plan.states["A"].locked_direction == 0
+
+
+def test_defer_helpers_split_unpriced_holdings_and_hold_a_whole_product() -> None:
+    from cta_carry.backtest import _defer_unpriced_targets, _split_marked_holdings
+
+    marked, deferred = _split_marked_holdings(
+        {"A2405": 0.2, "B2405": -0.1, "C2405": 0.0},
+        {"A2405": 100.0, "B2405": float("nan")},
+    )
+    assert marked == {"A2405": 0.2}
+    assert deferred == ["B2405"]
+
+    # A rolls 2405 -> 2409 but the old leg has no open: the whole product
+    # waits, while B's rebalance executes.
+    adjusted, held = _defer_unpriced_targets(
+        {"A2405": 0.2, "B2405": -0.1},
+        {"A2409": 0.2, "B2405": -0.3},
+        {"A2409": 101.0, "B2405": 50.0},
+        {"A2405": "A", "A2409": "A", "B2405": "B"},
+    )
+    assert adjusted == {"A2405": 0.2, "B2405": -0.3}
+    assert held == ["A"]
+
+
+def _drop_bar(data, trade_date, contract):
+    prices = data.prices
+    keep = ~((prices["trade_date"] == trade_date) & (prices["contract"] == contract))
+    return CarryDataSet(prices=prices.loc[keep].reset_index(drop=True), data_quality=data.data_quality)
+
+
+def _first_held(result):
+    positions = result.positions
+    held = positions.loc[positions["weight"] != 0.0].sort_values(["trade_date", "product"])
+    row = held.iloc[0]
+    return row["trade_date"], row["contract"], float(row["weight"])
+
+
+def test_abort_policy_still_raises_when_a_held_contract_loses_its_open() -> None:
+    data, baseline = _run_stateful()
+    held_date, contract, _ = _first_held(baseline)
+    gap_date = data.dates[data.dates.index(held_date) + 1]
+
+    with pytest.raises(ExecutionPriceError) as exc_info:
+        CarryBacktester(
+            _drop_bar(data, gap_date, contract),
+            small_config(),
+            start=baseline.daily_returns["trade_date"].iloc[0],
+            end=data.dates[-1],
+        ).run()
+
+    assert exc_info.value.contract == contract
+    assert exc_info.value.trade_date == gap_date
+
+
+def test_defer_policy_carries_a_held_contract_at_zero_return_and_catches_up() -> None:
+    data, baseline = _run_stateful()
+    held_date, contract, weight = _first_held(baseline)
+    index = data.dates.index(held_date)
+    gap_date, next_date = data.dates[index + 1], data.dates[index + 2]
+    start = baseline.daily_returns["trade_date"].iloc[0]
+    opens = data.prices.set_index(["trade_date", "contract"])["open"]
+
+    result = CarryBacktester(
+        _drop_bar(data, gap_date, contract),
+        small_config(missing_open_policy="defer"),
+        start=start,
+        end=data.dates[-1],
+    ).run()
+
+    daily = result.daily_returns.set_index("trade_date")
+    baseline_daily = baseline.daily_returns.set_index("trade_date")
+    # Gap day: the baseline return minus the unpriced contract's contribution.
+    dropped = weight * (opens[(gap_date, contract)] / opens[(held_date, contract)] - 1.0)
+    assert daily.loc[gap_date, "gross_return"] == pytest.approx(
+        baseline_daily.loc[gap_date, "gross_return"] - dropped
+    )
+    # Its weight is carried unchanged through the gap.
+    gap_positions = result.positions.loc[result.positions["trade_date"] == gap_date]
+    assert gap_positions.set_index("contract").loc[contract, "weight"] == pytest.approx(weight)
+    # Next day: two-day catch-up against the last valid open, others one-day.
+    held_weights = result.positions.loc[result.positions["trade_date"] == gap_date]
+    expected = 0.0
+    for row in held_weights.itertuples(index=False):
+        reference_date = held_date if row.contract == contract else gap_date
+        expected += row.weight * (
+            opens[(next_date, row.contract)] / opens[(reference_date, row.contract)] - 1.0
+        )
+    assert daily.loc[next_date, "gross_return"] == pytest.approx(expected)
+
+    audit = result.data_quality
+    deferred = audit.loc[audit["status"] == "deferred"]
+    held_rows = deferred.loc[deferred["object_id"] == contract]
+    assert held_rows["trade_date"].tolist() == [gap_date]
+    assert held_rows["check"].tolist() == ["open_price"]
+    assert held_rows["action"].tolist() == ["carried"]
+    assert set(deferred["object_type"]) == {"execution"}
+    # No cost was charged for the deferred contract on the gap day.
+    assert (result.trades.loc[result.trades["trade_date"] == gap_date, "contract"] != contract).all()

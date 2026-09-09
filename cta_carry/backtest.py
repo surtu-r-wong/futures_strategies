@@ -10,7 +10,7 @@ from common.errors import EquityDepletedError as EquityDepletedError
 from common.metrics import summarize
 
 from .config import CarryConfig
-from .data import CarryDataSet
+from .data import AUDIT_COLUMNS, CarryDataSet
 from .decision import (
     DailyResearch,
     SignalInputError as SignalInputError,
@@ -470,6 +470,82 @@ def _close_plan(
     )
 
 
+def _is_valid_price(value) -> bool:
+    try:
+        price = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return math.isfinite(price) and price > 0.0
+
+
+def _split_marked_holdings(weights, opens):
+    """Split holdings into those with a valid open today and those without.
+
+    Zero-weight contracts are dropped from both sides: nothing is held, so
+    nothing waits.
+    """
+    marked: dict[str, float] = {}
+    deferred: list[str] = []
+    for contract in sorted(weights):
+        weight = _finite_float(weights[contract], "weight")
+        if _is_valid_price(opens.get(contract, _MISSING)):
+            marked[contract] = weight
+        elif weight != 0.0:
+            deferred.append(contract)
+    return marked, deferred
+
+
+def _defer_unpriced_targets(old_weights, target_weights, opens, contract_products):
+    """Hold back every product whose rebalance touches a contract with no open.
+
+    A roll or a reversal changes two contracts of one product; executing the
+    priced leg alone would double or empty the exposure, so the product waits
+    as a whole and keeps its old weights.  Returns the adjusted targets and the
+    products held back, sorted.
+    """
+    changed_by_product: dict[str, list[str]] = {}
+    for contract in sorted(set(old_weights) | set(target_weights)):
+        old_weight = _finite_float(old_weights.get(contract, 0.0), "weight")
+        new_weight = _finite_float(target_weights.get(contract, 0.0), "weight")
+        if old_weight == new_weight:
+            continue
+        product = contract_products.get(contract)
+        if product is None:
+            raise ValueError(f"unknown product for contract {contract}")
+        changed_by_product.setdefault(product, []).append(contract)
+
+    adjusted = dict(target_weights)
+    deferred: list[str] = []
+    for product in sorted(changed_by_product):
+        contracts = changed_by_product[product]
+        if all(_is_valid_price(opens.get(c, _MISSING)) for c in contracts):
+            continue
+        deferred.append(product)
+        for contract in contracts:
+            old_weight = _finite_float(old_weights.get(contract, 0.0), "weight")
+            if old_weight == 0.0:
+                adjusted.pop(contract, None)
+            else:
+                adjusted[contract] = old_weight
+    return adjusted, deferred
+
+
+def _execution_audit_row(trade_date, object_id, reason) -> dict[str, object]:
+    return {
+        "object_type": "execution",
+        "object_id": object_id,
+        "trade_date": trade_date,
+        "check": "open_price",
+        "status": "deferred",
+        "action": "carried",
+        "reason": reason,
+    }
+
+
+_HELD_DEFERRED = "held contract has no open; position carried at zero return"
+_TARGET_DEFERRED = "target contract has no open; product rebalance deferred"
+
+
 def _validate_target_opens(
     old_weights,
     target_weights,
@@ -702,6 +778,13 @@ class CarryBacktester:
         pending_estimate = shadow.estimate()
         shadow_interval_enabled = False
         previous_open: dict[str, float] | None = None
+        # missing_open_policy="defer": returns are marked against the last
+        # valid open of each contract, and a product whose rebalance touches
+        # an unpriced contract keeps yesterday's weights and yesterday's state.
+        defer = self.config.missing_open_policy == "defer"
+        reference_open: dict[str, float] = {}
+        states_before_plan: dict[str, PositionState] = {}
+        execution_audit: list[dict[str, object]] = []
         vol_ready_date: date | None = None
         equity: float | None = None
 
@@ -728,7 +811,32 @@ class CarryBacktester:
 
             raw_gross = 0.0
             formal_gross = 0.0
-            if previous_open is not None:
+            if previous_open is not None and defer:
+                raw_marked, _ = _split_marked_holdings(raw_weights, current_open)
+                formal_marked, formal_deferred = _split_marked_holdings(
+                    formal_weights, current_open
+                )
+                raw_gross = contract_gross_return(
+                    raw_marked,
+                    reference_open,
+                    current_open,
+                    trade_date=trade_date,
+                    contract_products=contract_products,
+                    context="shadow_raw_holdings",
+                )
+                formal_gross = contract_gross_return(
+                    formal_marked,
+                    reference_open,
+                    current_open,
+                    trade_date=trade_date,
+                    contract_products=contract_products,
+                    context="formal_holdings",
+                )
+                execution_audit.extend(
+                    _execution_audit_row(trade_date, contract, _HELD_DEFERRED)
+                    for contract in formal_deferred
+                )
+            elif previous_open is not None:
                 raw_gross = contract_gross_return(
                     raw_weights,
                     previous_open,
@@ -748,22 +856,41 @@ class CarryBacktester:
 
             target_raw = dict(pending_raw)
             target_formal = dict(pending_formal)
-            _validate_target_opens(
-                raw_weights,
-                target_raw,
-                current_open,
-                trade_date=trade_date,
-                contract_products=contract_products,
-                context="shadow_raw_target",
-            )
-            _validate_target_opens(
-                formal_weights,
-                target_formal,
-                current_open,
-                trade_date=trade_date,
-                contract_products=contract_products,
-                context="formal_target",
-            )
+            if defer:
+                target_raw, _ = _defer_unpriced_targets(
+                    raw_weights, target_raw, current_open, contract_products
+                )
+                target_formal, deferred_products = _defer_unpriced_targets(
+                    formal_weights, target_formal, current_open, contract_products
+                )
+                for product in deferred_products:
+                    # The product did not act: its state stays where it was
+                    # before yesterday's plan, so tomorrow's close re-plans
+                    # the same move from the position actually held.
+                    states = dict(states)
+                    states[product] = states_before_plan.get(
+                        product, PositionState()
+                    )
+                    execution_audit.append(
+                        _execution_audit_row(trade_date, product, _TARGET_DEFERRED)
+                    )
+            else:
+                _validate_target_opens(
+                    raw_weights,
+                    target_raw,
+                    current_open,
+                    trade_date=trade_date,
+                    contract_products=contract_products,
+                    context="shadow_raw_target",
+                )
+                _validate_target_opens(
+                    formal_weights,
+                    target_formal,
+                    current_open,
+                    trade_date=trade_date,
+                    contract_products=contract_products,
+                    context="formal_target",
+                )
             raw_turnover = weight_turnover(raw_weights, target_raw)
             formal_turnover = weight_turnover(formal_weights, target_formal)
 
@@ -837,9 +964,18 @@ class CarryBacktester:
                 and pending_source_date >= signal_result.signal_ready_date
             )
             previous_open = current_open
+            if defer:
+                reference_open.update(
+                    {
+                        contract: float(price)
+                        for contract, price in current_open.items()
+                        if _is_valid_price(price)
+                    }
+                )
             if index == len(dates) - 1:
                 continue
 
+            states_before_plan = states
             plan = _close_plan(
                 states,
                 day_signals,
@@ -884,13 +1020,19 @@ class CarryBacktester:
         config_rows.extend(
             {"key": key, "value": value} for key, value in asdict(self.config).items()
         )
+        data_quality = self.data.data_quality.reset_index(drop=True)
+        if execution_audit:
+            data_quality = pd.concat(
+                [data_quality, _records_frame(execution_audit, AUDIT_COLUMNS)],
+                ignore_index=True,
+            )
         return CarryBacktestResult(
             daily_returns=daily,
             positions=positions,
             trades=trades,
             signals=signal_result.signals.reset_index(drop=True),
             curve_selection=curve_result.audit.reset_index(drop=True),
-            data_quality=self.data.data_quality.reset_index(drop=True),
+            data_quality=data_quality,
             run_config=_records_frame(config_rows, _RUN_CONFIG_COLUMNS),
             metrics=_summary_metrics(daily),
         )
