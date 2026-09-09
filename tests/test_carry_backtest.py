@@ -997,3 +997,30 @@ def test_defer_policy_carries_a_held_contract_at_zero_return_and_catches_up() ->
     assert set(deferred["object_type"]) == {"execution"}
     # No cost was charged for the deferred contract on the gap day.
     assert (result.trades.loc[result.trades["trade_date"] == gap_date, "contract"] != contract).all()
+
+
+def test_index_configuration_runs_end_to_end_with_zero_sum_rank_weights() -> None:
+    data = make_carry_panel(periods=40)
+    config = small_config(
+        near_leg="near_dominant",
+        weighting="rank_linear",
+        stop_loss_enabled=False,
+        trend_filter_enabled=False,
+        liquidity_measure="open_interest_value",
+        missing_open_policy="defer",
+    )
+
+    result = CarryBacktester(data, config, start=data.dates[20], end=data.dates[-1]).run()
+
+    positions = result.positions
+    assert not positions.empty
+    daily_raw = positions.groupby("trade_date")["raw_weight"].sum()
+    assert daily_raw.abs().max() < 1e-12
+    # five products, odd cross-section: four carry a side, the median sits out
+    assert positions.groupby("trade_date")["product"].count().eq(4).all()
+    assert not result.trades["reason"].str.startswith("stop_").any()
+    run_config = result.run_config.set_index("key")["value"]
+    assert run_config["weighting"] == "rank_linear"
+    assert run_config["near_leg"] == "near_dominant"
+    assert run_config["missing_open_policy"] == "defer"
+    assert result.metrics["n_periods"] == len(data.dates) - 20
