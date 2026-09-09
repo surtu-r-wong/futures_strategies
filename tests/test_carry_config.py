@@ -126,3 +126,28 @@ def test_no_trend_filter_flag_switches_the_filter_off() -> None:
 
     assert on.trend_filter_enabled is True
     assert off.trend_filter_enabled is False
+
+
+def test_index_configuration_fields_default_to_baseline_behaviour() -> None:
+    config = CarryConfig()
+
+    assert config.near_leg == "main"
+    assert config.weighting == "risk_budget"
+    assert config.stop_loss_enabled is True
+    assert config.liquidity_measure == "turnover"
+    assert config.missing_open_policy == "abort"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("near_leg", "far"),
+        ("weighting", "equal"),
+        ("liquidity_measure", "oi"),
+        ("missing_open_policy", "fill"),
+        ("stop_loss_enabled", 1),
+    ],
+)
+def test_index_configuration_fields_reject_unknown_values(field, value) -> None:
+    with pytest.raises(ValueError, match=field):
+        CarryConfig(**{field: value})

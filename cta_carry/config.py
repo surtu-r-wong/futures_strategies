@@ -28,6 +28,10 @@ _NONNEGATIVE_NUMERIC_FIELDS = (
 )
 
 _SECONDARY_SELECTIONS = frozenset({"strictly_later", "second_by_oi"})
+_NEAR_LEGS = frozenset({"main", "near_dominant"})
+_WEIGHTINGS = frozenset({"risk_budget", "rank_linear"})
+_LIQUIDITY_MEASURES = frozenset({"turnover", "open_interest_value"})
+_MISSING_OPEN_POLICIES = frozenset({"abort", "defer"})
 
 
 def _is_finite_number(value: Any) -> bool:
@@ -95,6 +99,32 @@ class CarryConfig:
     # each product on its own ATR budget and lets gross leverage scale with
     # breadth until the cap binds.
     equal_weight_capital: bool = False
+    # The five switches below make up the CITIC term-structure index
+    # configuration (design 2026-09-09).  Every default reproduces the
+    # baseline bit for bit; the index configuration is opt-in per switch.
+    #
+    # Which contract is the near leg of the spread.  "main" is the baseline:
+    # main against the secondary.  "near_dominant" takes the highest-OI
+    # contract delivering BEFORE the main (the main itself when there is
+    # none), and measures the CITIC roll yield (near - far) / near / months.
+    near_leg: str = "main"
+    # How the ranked cross-section becomes raw weights.  "risk_budget" is the
+    # baseline top/bottom selection on ATR budgets.  "rank_linear" gives every
+    # ready product w = (rank - (1+N)/2) / (N(1+N)/2): zero-sum, no sign gate,
+    # selection_fraction and the ATR budget unused.
+    weighting: str = "risk_budget"
+    # Whether the chandelier stop runs at all.  False leaves positions to the
+    # signal alone; tranches never move.
+    stop_loss_enabled: bool = True
+    # What the liquidity pool measures.  "turnover" is the baseline product
+    # turnover.  "open_interest_value" is CITIC's 沉淀资金: open interest times
+    # close times a multiplier inferred from turnover / (volume * close).
+    liquidity_measure: str = "turnover"
+    # What the engine does when a held or targeted contract has no valid open.
+    # "abort" is the baseline hard failure.  "defer" carries the position at
+    # zero return and postpones that product's rebalance, auditing each case;
+    # it never invents a price.
+    missing_open_policy: str = "abort"
     prewarm_calendar_days: int = 730
 
     def __post_init__(self) -> None:
@@ -137,3 +167,17 @@ class CarryConfig:
                 "secondary_selection must be one of "
                 + ", ".join(sorted(_SECONDARY_SELECTIONS))
             )
+
+        if type(self.stop_loss_enabled) is not bool:
+            raise ValueError("stop_loss_enabled must be a bool")
+
+        for field_name, allowed in (
+            ("near_leg", _NEAR_LEGS),
+            ("weighting", _WEIGHTINGS),
+            ("liquidity_measure", _LIQUIDITY_MEASURES),
+            ("missing_open_policy", _MISSING_OPEN_POLICIES),
+        ):
+            if getattr(self, field_name) not in allowed:
+                raise ValueError(
+                    f"{field_name} must be one of " + ", ".join(sorted(allowed))
+                )
