@@ -1,5 +1,20 @@
 # 国信 Bollinger / 道氏：与研报差距的归因
 
+> **🔖 接手点（2026-09-09）**
+>
+> - 分支 `feature/guosen-bollinger-dow` 停在 **`d471ab9`**（2026-09-03，worktree `.worktrees/guosen-bollinger-dow`），此后**原样未动**，工作区干净。
+> - 本地全套件 **1985 passed**（`pytest --collect-only` 同为 1985；下文 §5 写的 1962 是 09-02 时的旧数）。
+> - master 已走到 `988db90`，与本分支自分叉点 `97b66f8` 起各前进 67 / 113 个提交；`git merge-tree` 试合并**有冲突，11 个文件**：
+>   `common/minute/account.py`、`cta_continuous/{continuous,panel}.py`、`scripts/continuous/build_panel.py`、
+>   `config/carry_minute_day_only_regimes.csv`、`docs/ROADMAP.md`、5 个 carry/continuous 测试文件。
+>   **没有一个是 guosen 文件**（`cta_dow/`、`cta_bollinger/`、`output/guosen_*`、本目录四篇研究文档都能自动合并）——
+>   冲突来自分支上带着的 carry/continuous 旧改动，合回 master 时以 master 为准即可。
+> - 登记结果一个数没动；所有变体都是 `sensitivity_only`，旗标默认值不变。
+> - 待用户拍板的事全在 **§6**（面板提前到 2011 重建 / B、C 是否升为登记读法 / D5 入场参照是否改「第一高点」）；
+>   铁矿石逐层对表已完成，见 `2026-09-03-guosen-dow-iron-ore-layers.md`。
+> - 本文头部写的 HEAD `b1b9d31` 是 09-02 写作时的提交；`b1b9d31..d471ab9` 共 8 个提交（`4f7565d`…`d471ab9`），只动 `cta_dow/`（新增 `layers.py` 逐层重建、`state.py` 的 `prior_extreme` 读法 `a082bd1`）、
+>   `scripts/commodity/dow_layers.py`、4 个 `tests/test_dow_*.py` 和本目录两篇文档，11 个文件 +1620/−40，没碰登记产物与旗标默认值。
+
 日期：2026-09-02（用户：「和原文献差距太大，再看一下」）
 分支 `feature/guosen-bollinger-dow`，HEAD `b1b9d31`
 对象：`docs/research/2026-08-27-guosen-{bollinger,dow}-replication.md` 记录的缺口
