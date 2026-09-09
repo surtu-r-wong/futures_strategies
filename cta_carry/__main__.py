@@ -35,6 +35,7 @@ from common.minute.sessions import (
 from .pg_source import load_public_carry_data
 from .session_authority import load_absent_product_days, load_pricing_bases
 from .provenance import capture_git_state
+from .targets import infer_product_multipliers, lots_for_targets
 from .report import (
     ReportWriteError,
     console_summary,
@@ -136,7 +137,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--exclude-products",
         help="comma-separated product codes dropped before the liquidity pool",
     )
+    # The daily run: plan the last close too and write the weights for the
+    # following open (sheet next_targets + <prefix>_next_targets.csv).
+    parser.add_argument("--emit-next-targets", action="store_true", default=False)
+    parser.add_argument(
+        "--capital",
+        type=float,
+        help="account size in CNY; with --emit-next-targets, sizes lots",
+    )
     return parser
+
+
+def _validate_cli_args(args: argparse.Namespace) -> str | None:
+    """Return a message for an argument combination the run cannot honour."""
+    if args.emit_next_targets and args.execution != "daily":
+        return "--emit-next-targets supports --execution daily only"
+    if args.capital is not None and not args.capital > 0:
+        return "--capital must be positive"
+    return None
 
 
 def _config_from_args(args: argparse.Namespace) -> CarryConfig:
@@ -325,6 +343,9 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("start must be on or before end")
         if args.execution == "minute" and args.source != "public-pg":
             raise ValueError("--execution minute requires --source public-pg")
+        problem = _validate_cli_args(args)
+        if problem is not None:
+            raise ValueError(problem)
     except ValueError as exc:
         print(_describe(exc), file=sys.stderr)
         return 2
@@ -400,6 +421,7 @@ def main(argv: list[str] | None = None) -> int:
                 config=config,
                 start=args.start,
                 end=args.end,
+                emit_next_targets=args.emit_next_targets,
             ).run()
     except (
         EquityDepletedError,
@@ -424,6 +446,27 @@ def main(argv: list[str] | None = None) -> int:
     runtime_config.loc[dirty_row, "value"] = (
         runtime_config.loc[dirty_row, "value"].astype(str).str.lower()
     )
+    runtime_config = pd.concat(
+        [
+            runtime_config,
+            pd.DataFrame(
+                [
+                    {"key": "emit_next_targets", "value": str(args.emit_next_targets).lower()},
+                    {"key": "capital", "value": args.capital if args.capital is not None else "NONE"},
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
+    if args.emit_next_targets and args.capital is not None and not result.next_targets.empty:
+        result = replace(
+            result,
+            next_targets=lots_for_targets(
+                result.next_targets,
+                capital=args.capital,
+                multipliers=infer_product_multipliers(data.prices),
+            ),
+        )
     result = replace(
         result,
         run_config=pd.concat(
@@ -449,7 +492,27 @@ def main(argv: list[str] | None = None) -> int:
     print(console_summary(result))
     print(f"xlsx={xlsx.resolve()}")
     print(f"chart={png.resolve()}")
+    if args.emit_next_targets:
+        targets_path = Path(f"{args.output_prefix}_next_targets.csv")
+        result.next_targets.to_csv(targets_path, index=False)
+        print(f"next_targets={targets_path.resolve()}")
+        print(_format_next_targets(result.next_targets))
     return 0
+
+
+def _format_next_targets(targets: pd.DataFrame) -> str:
+    if targets.empty:
+        return "next_targets: none (vol window not ready or no signal on the last date)"
+    shown = [
+        c for c in (
+            "signal_date", "product", "contract", "direction", "close", "target_weight",
+            "current_weight", "weight_change", "multiplier", "notional", "lots", "reason",
+        )
+        if c in targets.columns
+    ]
+    ordered = targets.sort_values("target_weight", ascending=False)
+    with pd.option_context("display.width", 200, "display.max_rows", 500):
+        return ordered.loc[:, shown].to_string(index=False, float_format=lambda v: f"{v:.4f}")
 
 
 if __name__ == "__main__":

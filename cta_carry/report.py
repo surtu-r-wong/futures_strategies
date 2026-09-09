@@ -201,6 +201,11 @@ def _report_sheets(
         names = _DAILY_SHEET_NAMES[:-1] + _MINUTE_AUDIT_SHEETS + _DAILY_SHEET_NAMES[-1:]
     else:
         names = _DAILY_SHEET_NAMES
+    if not result.next_targets.empty:
+        # The daily run's next-open targets, kept next to run_config so a
+        # reader sees what was planned and under which configuration.
+        frames["next_targets"] = result.next_targets
+        names = names[:-1] + ("next_targets",) + names[-1:]
     return tuple((name, frames[name]) for name in names)
 
 

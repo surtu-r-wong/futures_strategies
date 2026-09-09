@@ -532,7 +532,7 @@ def test_public_pg_cli_constructs_only_the_selected_execution_engine(
     written_results = []
 
     class FakeDailyBacktester:
-        def __init__(self, data, config, *, start, end):
+        def __init__(self, data, config, *, start, end, emit_next_targets=False):
             engine_calls.append(("daily", data, config, start, end))
 
         def run(self):
@@ -1272,3 +1272,48 @@ def test_files_source_records_the_exclusion_list_in_run_config(tmp_path):
     ).set_index("key")["value"]
 
     assert run_config["excluded_products"] == "Z,ZZ"
+
+
+def test_emit_next_targets_writes_sheet_csv_and_lots(tmp_path, capsys):
+    data = make_carry_panel(periods=40)
+    data_dir = tmp_path / "input"
+    data_dir.mkdir()
+    data.prices.to_csv(data_dir / "prices.csv", index=False)
+    prefix = tmp_path / "output" / "carry"
+    args = _small_cli_args(data_dir, prefix, data.dates[20], data.dates[-1])
+    args.extend(
+        [
+            "--weighting", "rank_linear", "--no-stop-loss", "--no-trend-filter",
+            "--emit-next-targets", "--capital", "1000000",
+        ]
+    )
+
+    assert main(args) == 0
+
+    workbook = pd.ExcelFile(prefix.with_suffix(".xlsx"))
+    assert workbook.sheet_names[-2:] == ["next_targets", "run_config"]
+    csv_path = prefix.with_name("carry_next_targets.csv")
+    targets = pd.read_csv(csv_path, parse_dates=["signal_date"])
+    assert set(targets["signal_date"].dt.date) == {data.dates[-1]}
+    assert {"target_weight", "multiplier", "notional", "lots"} <= set(targets.columns)
+    assert targets["lots"].notna().all()
+    # notional / (close * multiplier), rounded, for every row
+    expected = (targets["notional"] / (targets["close"] * targets["multiplier"])).round()
+    assert targets["lots"].tolist() == expected.astype(int).tolist()
+    runtime = dict(
+        pd.read_excel(prefix.with_suffix(".xlsx"), sheet_name="run_config")[["key", "value"]]
+        .itertuples(index=False)
+    )
+    assert runtime["emit_next_targets"] == "true"
+    assert float(runtime["capital"]) == 1_000_000.0
+    out = capsys.readouterr().out
+    assert "next_targets=" in out
+    assert "lots" in out
+
+
+def test_emit_next_targets_is_refused_for_minute_execution():
+    args = build_parser().parse_args(
+        ["--start", "2024-01-01", "--end", "2024-02-01", "--execution", "minute", "--emit-next-targets"]
+    )
+
+    assert carry_cli._validate_cli_args(args) == "--emit-next-targets supports --execution daily only"
