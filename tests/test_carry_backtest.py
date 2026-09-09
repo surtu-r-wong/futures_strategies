@@ -1024,3 +1024,53 @@ def test_index_configuration_runs_end_to_end_with_zero_sum_rank_weights() -> Non
     assert run_config["near_leg"] == "near_dominant"
     assert run_config["missing_open_policy"] == "defer"
     assert result.metrics["n_periods"] == len(data.dates) - 20
+
+
+def _index_config(**overrides):
+    values = dict(
+        weighting="rank_linear",
+        stop_loss_enabled=False,
+        trend_filter_enabled=False,
+        near_leg="near_dominant",
+    )
+    values.update(overrides)
+    return small_config(**values)
+
+
+def test_next_targets_are_emitted_for_the_last_close_only_when_requested() -> None:
+    data = make_carry_panel(periods=40)
+    config = _index_config()
+    start, end = data.dates[20], data.dates[-1]
+
+    plain = CarryBacktester(data, config, start=start, end=end).run()
+    result = CarryBacktester(
+        data, config, start=start, end=end, emit_next_targets=True
+    ).run()
+
+    assert plain.next_targets.empty
+    targets = result.next_targets
+    assert list(targets.columns) == [
+        "signal_date", "product", "contract", "direction", "carry_ma", "close",
+        "raw_weight", "vol_scale", "target_weight", "current_weight",
+        "weight_change", "reason",
+    ]
+    assert set(targets["signal_date"]) == {end}
+    assert targets["raw_weight"].sum() == pytest.approx(0.0)
+    # four of five products carry a side; the median product sits out
+    assert (targets["direction"] != 0).sum() == 4
+    last = plain.positions.loc[plain.positions["trade_date"] == end].set_index(
+        "contract"
+    )["weight"]
+    for row in targets.itertuples(index=False):
+        assert row.current_weight == pytest.approx(last.get(row.contract, 0.0))
+    active = targets.loc[targets["raw_weight"] != 0.0]
+    assert active["target_weight"].tolist() == pytest.approx(
+        (active["raw_weight"] * active["vol_scale"]).tolist()
+    )
+    assert targets["vol_scale"].nunique() == 1 and targets["vol_scale"].iloc[0] > 0
+    assert targets["weight_change"].tolist() == pytest.approx(
+        (targets["target_weight"] - targets["current_weight"]).tolist()
+    )
+    for name in ("daily_returns", "positions", "trades", "signals", "data_quality"):
+        pd.testing.assert_frame_equal(getattr(plain, name), getattr(result, name))
+    assert plain.metrics == result.metrics

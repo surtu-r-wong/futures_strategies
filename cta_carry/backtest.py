@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 import math
 
+import numpy as np
 import pandas as pd
 
 from common.errors import EquityDepletedError as EquityDepletedError
@@ -19,6 +20,7 @@ from .decision import (
     build_daily_research,
     plan_signal_targets,
 )
+from .targets import TARGET_COLUMNS
 from .risk import (
     PositionState,
     ShadowVolWindow,
@@ -600,6 +602,7 @@ class CarryBacktestResult:
     data_quality: pd.DataFrame
     run_config: pd.DataFrame
     metrics: dict = field(default_factory=dict)
+    next_targets: pd.DataFrame = field(default_factory=pd.DataFrame)
     executions: pd.DataFrame = field(default_factory=pd.DataFrame)
     intraday_stops: pd.DataFrame = field(default_factory=pd.DataFrame)
     minute_data_quality: pd.DataFrame = field(default_factory=pd.DataFrame)
@@ -696,6 +699,57 @@ def _position_rows(
     return rows
 
 
+def _next_target_rows(
+    *,
+    trade_date: date,
+    plan: ClosePlan,
+    estimate,
+    formal_weights: dict[str, float],
+    day_signals: pd.DataFrame,
+    bars: dict[str, dict[str, float]],
+    contract_products: dict[str, str],
+    config: CarryConfig,
+) -> list[dict[str, object]]:
+    """Weights for the open after `trade_date`, next to what is held now."""
+    if estimate.ready:
+        vol_scale = float(estimate.vol_scale)
+        target_weights = scale_weights(plan.raw_weights, vol_scale, config)
+    else:
+        vol_scale = float("nan")
+        target_weights = {}
+    signals_by_contract = {
+        row.main_contract: row
+        for row in day_signals.itertuples(index=False)
+    }
+    rows: list[dict[str, object]] = []
+    for contract in sorted(set(formal_weights) | set(plan.raw_weights)):
+        product = contract_products.get(contract)
+        if product is None:
+            raise ValueError(f"unknown product for contract {contract}")
+        raw_weight = float(plan.raw_weights.get(contract, 0.0))
+        target_weight = float(target_weights.get(contract, 0.0)) if estimate.ready else float("nan")
+        current_weight = float(formal_weights.get(contract, 0.0))
+        signal = signals_by_contract.get(contract)
+        bar = bars.get(contract)
+        rows.append(
+            {
+                "signal_date": trade_date,
+                "product": product,
+                "contract": contract,
+                "direction": int(np.sign(raw_weight)),
+                "carry_ma": float(signal.carry_ma) if signal is not None else float("nan"),
+                "close": float(bar["close"]) if bar is not None else float("nan"),
+                "raw_weight": raw_weight,
+                "vol_scale": vol_scale,
+                "target_weight": target_weight,
+                "current_weight": current_weight,
+                "weight_change": target_weight - current_weight,
+                "reason": plan.reasons.get(product, "rebalance"),
+            }
+        )
+    return rows
+
+
 def _records_frame(records, columns) -> pd.DataFrame:
     return pd.DataFrame.from_records(records, columns=list(columns)).reset_index(
         drop=True
@@ -735,6 +789,7 @@ class CarryBacktester:
         *,
         start: date,
         end: date,
+        emit_next_targets: bool = False,
     ) -> None:
         if start > end:
             raise ValueError("start must be on or before end")
@@ -742,6 +797,9 @@ class CarryBacktester:
         self.config = config
         self.start = start
         self.end = end
+        # The daily run: also plan the close of the last date and report the
+        # weights meant for the following open, which the ledger never sees.
+        self.emit_next_targets = bool(emit_next_targets)
 
     def run(self) -> CarryBacktestResult:
         prices = self.data.prices.loc[self.data.prices["trade_date"] <= self.end].copy()
@@ -776,6 +834,7 @@ class CarryBacktester:
 
         shadow = ShadowVolWindow(self.config)
         pending_estimate = shadow.estimate()
+        next_target_rows: list[dict[str, object]] = []
         shadow_interval_enabled = False
         previous_open: dict[str, float] | None = None
         # missing_open_policy="defer": returns are marked against the last
@@ -973,6 +1032,17 @@ class CarryBacktester:
                     }
                 )
             if index == len(dates) - 1:
+                if self.emit_next_targets:
+                    next_target_rows = _next_target_rows(
+                        trade_date=trade_date,
+                        plan=_close_plan(states, day_signals, bars, atrs, self.config),
+                        estimate=shadow.estimate(),
+                        formal_weights=formal_weights,
+                        day_signals=day_signals,
+                        bars=bars,
+                        contract_products=contract_products,
+                        config=self.config,
+                    )
                 continue
 
             states_before_plan = states
@@ -1035,4 +1105,5 @@ class CarryBacktester:
             data_quality=data_quality,
             run_config=_records_frame(config_rows, _RUN_CONFIG_COLUMNS),
             metrics=_summary_metrics(daily),
+            next_targets=_records_frame(next_target_rows, TARGET_COLUMNS),
         )
