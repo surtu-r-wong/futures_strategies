@@ -53,16 +53,32 @@ def _finite_mask(values: pd.Series) -> pd.Series:
     return np.isfinite(values).fillna(False).astype(bool)
 
 
-def rank_linear_weights(ready: pd.DataFrame) -> pd.Series:
-    """CITIC 3.5 step 3: w = (rank - (1+N)/2) / (N(1+N)/2), carry_ma ascending.
+def rank_linear_weights(ready: pd.DataFrame, column: str = "carry_ma") -> pd.Series:
+    """CITIC 3.5 step 3: w = (rank - (1+N)/2) / (N(1+N)/2), `column` ascending.
 
     Zero-sum by construction; the median product of an odd cross-section gets
     exactly 0.  Ties resolve in row order, so pass a frame already sorted by
-    (carry_ma, product) for determinism.
+    (column, product) for determinism.  The basis-momentum leg ranks the same
+    way on `basis_momentum`, which is why the column is a parameter.
     """
     count = len(ready)
-    rank = ready["carry_ma"].rank(method="first", ascending=True)
+    rank = ready[column].rank(method="first", ascending=True)
     return (rank - (1 + count) / 2) / (count * (1 + count) / 2)
+
+
+def _rebalance_dates(trade_dates: pd.Series, cadence: str) -> set:
+    """Dates on which the basis-momentum leg re-ranks.
+
+    "monthly" takes the first trade date PRESENT in each calendar month, so a
+    month whose first day is missing -- a holiday, or a day the coverage gate
+    truncated away -- rebalances on the next day that is there rather than
+    skipping the month or re-ranking on stale data.
+    """
+    ordered = pd.Series(sorted(pd.unique(trade_dates)))
+    if cadence == "daily":
+        return set(ordered)
+    months = pd.to_datetime(ordered).dt.to_period("M")
+    return set(ordered.groupby(months).first())
 
 
 def _trend_states(signals: pd.DataFrame, config) -> list:
@@ -199,6 +215,17 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
     signals["effective_direction"] = 0
     signals["reason"] = ""
 
+    blending = float(getattr(config, "basis_momentum_weight", 0.0)) > 0.0
+    rebalance_dates: set = set()
+    struck: dict = {}
+    if blending:
+        signals["bmom_weight"] = 0.0
+        signals["blend_weight"] = 0.0
+        rebalance_dates = _rebalance_dates(
+            signals["trade_date"],
+            config.basis_momentum_rebalance,
+        )
+
     signal_ready_date = None
     for trade_date, daily in signals.groupby(
         "trade_date",
@@ -221,6 +248,40 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
             # long leg.  Magnitudes are sized in decision.plan_signal_targets.
             signals.loc[daily.index, "reason"] = "rank_linear"
             weights = rank_linear_weights(ready)
+            if blending:
+                if trade_date in rebalance_dates:
+                    eligible = ready.loc[
+                        ready["bmom_ready"].astype(bool)
+                    ].sort_values(["basis_momentum", "product"], kind="mergesort")
+                    struck = (
+                        dict(
+                            zip(
+                                eligible["product"],
+                                rank_linear_weights(
+                                    eligible,
+                                    "basis_momentum",
+                                ).to_numpy(),
+                            )
+                        )
+                        if len(eligible) >= 5
+                        else {}
+                    )
+                # A product that left the pool has no curve row today, so its
+                # leg is gone the same day rather than riding the struck rank
+                # to month end.  Recentre only when one actually left, so a
+                # full cross-section keeps the struck weights bit for bit.
+                held = ready["product"].map(struck)
+                surviving = held.dropna()
+                if len(surviving) != len(struck) and not surviving.empty:
+                    held.loc[surviving.index] = surviving - surviving.mean()
+                held = held.fillna(0.0)
+                share = float(config.basis_momentum_weight)
+                weights = (1.0 - share) * weights + share * held
+                signals.loc[ready.index, "bmom_weight"] = held.to_numpy()
+                signals.loc[ready.index, "blend_weight"] = weights.to_numpy()
+            # The blended weight, not the carry rank, decides the side: sizing
+            # downstream reads the same number, so a direction taken from the
+            # carry leg alone could be sized against itself.
             signals.loc[ready.index, "rank_direction"] = (
                 np.sign(weights).astype(int).to_numpy()
             )

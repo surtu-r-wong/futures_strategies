@@ -152,3 +152,32 @@ def test_rank_linear_sizing_is_independent_of_close_and_atr():
     plan = plan_signal_targets({}, rows, config)
 
     assert plan.raw_weights["B2405"] == pytest.approx(2 / 15)
+
+
+def test_blended_sizing_reads_the_weight_signals_struck_not_a_fresh_carry_rank():
+    # signals decided the side from the blend, so decision has to size from the
+    # same number: re-ranking carry_ma here would size D against the side its
+    # position was opened on.
+    config = small_config(
+        weighting="rank_linear",
+        trend_filter_enabled=False,
+        basis_momentum_weight=0.5,
+    )
+    rows = _rank_rows({"A": -0.3, "B": 0.4, "C": -0.1, "D": 0.2, "E": 0.05})
+    blend = {"A": 0.3, "B": -0.2, "C": 0.1, "D": -0.15, "E": -0.05}
+    rows["blend_weight"] = [blend[product] for product in rows["product"]]
+    rows["effective_direction"] = [
+        int(blend[product] > 0) - int(blend[product] < 0) for product in rows["product"]
+    ]
+
+    plan = plan_signal_targets({}, rows, config)
+
+    assert plan.raw_weights == pytest.approx(
+        {
+            "A2405": 0.3,
+            "B2405": -0.2,
+            "C2405": 0.1,
+            "D2405": -0.15,
+            "E2405": -0.05,
+        }
+    )

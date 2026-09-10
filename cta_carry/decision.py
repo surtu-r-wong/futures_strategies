@@ -110,11 +110,15 @@ def plan_signal_targets(
     rank_linear = getattr(config, "weighting", "risk_budget") == "rank_linear"
     rank_weights: dict[str, float] = {}
     if rank_linear and not signal_rows.empty:
-        ready = signal_rows.loc[signal_rows["input_ready"].astype(bool)].sort_values(
-            ["carry_ma", "product"],
-            kind="mergesort",
-        )
-        if len(ready) >= 5:
+        ready = signal_rows.loc[signal_rows["input_ready"].astype(bool)]
+        if "blend_weight" in ready.columns:
+            # The basis-momentum leg is on, and signals already struck the
+            # blend -- including the side each product trades.  Re-ranking
+            # carry_ma here would size a product against the direction its
+            # position was opened on.
+            rank_weights = dict(zip(ready["product"], ready["blend_weight"]))
+        elif len(ready) >= 5:
+            ready = ready.sort_values(["carry_ma", "product"], kind="mergesort")
             rank_weights = dict(
                 zip(ready["product"], rank_linear_weights(ready).to_numpy())
             )

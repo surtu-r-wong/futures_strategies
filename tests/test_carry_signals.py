@@ -727,3 +727,236 @@ def test_basis_momentum_columns_are_absent_when_the_leg_is_switched_off():
     signals = build_signals(curve, _config(weighting="rank_linear")).signals
 
     assert "basis_momentum" not in signals.columns
+
+
+def _blend_panel(dates, main_returns, carries):
+    """A multi-product panel with direct control over both legs and carry.
+
+    `basis_momentum_window=1` makes basis momentum simply today's main leg
+    return minus today's secondary leg return, so a test can state the ranking
+    it wants instead of solving for it.
+    """
+    rows = []
+    for day_index, trade_date in enumerate(dates):
+        for product, returns in main_returns.items():
+            if returns[day_index] is None:
+                continue  # product is out of the pool: build_curve emits no row
+            row = _row(trade_date, product, carries[product][day_index])
+            row["main_leg_return"] = returns[day_index]
+            row["secondary_leg_return"] = 0.0
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _blend_config(**overrides):
+    values = {
+        "momentum_window": 1,
+        "weighting": "rank_linear",
+        "basis_momentum_weight": 0.5,
+        "basis_momentum_window": 1,
+        "basis_momentum_min_coverage": 1.0,
+    }
+    values.update(overrides)
+    return _config(**values)
+
+
+_JAN_FEB = [date(2024, 1, 30), date(2024, 1, 31), date(2024, 2, 1), date(2024, 2, 2)]
+_SIX = ["A", "B", "C", "D", "E", "F"]
+
+
+def _flat_carry(dates, products=_SIX):
+    # Every product carries the same carry_ma, so the carry leg contributes an
+    # identical rank each day and any change in the blend comes from the other.
+    return {product: [0.1] * len(dates) for product in products}
+
+
+def _bmom_weights(signals, trade_date):
+    day = signals.loc[signals["trade_date"] == trade_date]
+    return dict(zip(day["product"], day["bmom_weight"]))
+
+
+def test_monthly_cadence_holds_the_rank_it_struck_on_the_first_day_of_the_month():
+    ascending = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+    descending = list(reversed(ascending))
+    returns = {
+        product: [ascending[i], descending[i], ascending[i], ascending[i]]
+        for i, product in enumerate(_SIX)
+    }
+    signals = build_signals(
+        _blend_panel(_JAN_FEB, returns, _flat_carry(_JAN_FEB)), _blend_config()
+    ).signals
+
+    struck = _bmom_weights(signals, date(2024, 1, 30))
+    assert _bmom_weights(signals, date(2024, 1, 31)) == struck
+    assert struck["A"] < 0.0 < struck["F"]
+
+
+def test_monthly_cadence_reranks_when_the_next_month_arrives():
+    ascending = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+    descending = list(reversed(ascending))
+    returns = {
+        product: [ascending[i], ascending[i], descending[i], descending[i]]
+        for i, product in enumerate(_SIX)
+    }
+    signals = build_signals(
+        _blend_panel(_JAN_FEB, returns, _flat_carry(_JAN_FEB)), _blend_config()
+    ).signals
+
+    january = _bmom_weights(signals, date(2024, 1, 30))
+    february = _bmom_weights(signals, date(2024, 2, 1))
+    assert january["A"] < 0.0 < january["F"]
+    assert february["F"] < 0.0 < february["A"]
+
+
+def test_a_product_that_flips_sides_between_rebalances_holds_its_old_side():
+    # A goes from the strongest to the weakest overnight.  A cadence gate that
+    # asked "did the direction cross zero?" would let this through; the leg has
+    # to stay on its old side until the next rebalance and then really flip.
+    dates = _JAN_FEB
+    returns = {
+        "A": [0.06, 0.01, 0.01, 0.01],
+        "B": [0.05, 0.02, 0.02, 0.02],
+        "C": [0.04, 0.03, 0.03, 0.03],
+        "D": [0.03, 0.04, 0.04, 0.04],
+        "E": [0.02, 0.05, 0.05, 0.05],
+        "F": [0.01, 0.06, 0.06, 0.06],
+    }
+    signals = build_signals(
+        _blend_panel(dates, returns, _flat_carry(dates)), _blend_config()
+    ).signals
+
+    struck = _bmom_weights(signals, date(2024, 1, 30))["A"]
+    assert struck > 0.0
+    assert _bmom_weights(signals, date(2024, 1, 31))["A"] == struck
+    assert _bmom_weights(signals, date(2024, 2, 1))["A"] == pytest.approx(-struck)
+
+
+def test_monthly_cadence_rebalances_on_the_first_date_present_not_the_first_of_the_month():
+    dates = [date(2024, 1, 30), date(2024, 1, 31), date(2024, 2, 2), date(2024, 2, 5)]
+    ascending = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+    descending = list(reversed(ascending))
+    returns = {
+        product: [ascending[i], ascending[i], descending[i], ascending[i]]
+        for i, product in enumerate(_SIX)
+    }
+    signals = build_signals(
+        _blend_panel(dates, returns, _flat_carry(dates)), _blend_config()
+    ).signals
+
+    # 2024-02-01 is not in the frame, so February's rank is struck on the 2nd
+    # and then held on the 5th even though the ranking reverses again.
+    february = _bmom_weights(signals, date(2024, 2, 2))
+    assert february["F"] < 0.0 < february["A"]
+    assert _bmom_weights(signals, date(2024, 2, 5)) == february
+
+
+def test_daily_cadence_reranks_every_day():
+    ascending = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+    descending = list(reversed(ascending))
+    returns = {
+        product: [ascending[i], descending[i], ascending[i], ascending[i]]
+        for i, product in enumerate(_SIX)
+    }
+    signals = build_signals(
+        _blend_panel(_JAN_FEB, returns, _flat_carry(_JAN_FEB)),
+        _blend_config(basis_momentum_rebalance="daily"),
+    ).signals
+
+    assert _bmom_weights(signals, date(2024, 1, 30))["A"] < 0.0
+    assert _bmom_weights(signals, date(2024, 1, 31))["A"] > 0.0
+
+
+def test_a_product_that_leaves_the_pool_loses_its_leg_the_same_day():
+    dates = _JAN_FEB
+    ascending = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+    returns = {
+        product: [ascending[i]] * len(dates) for i, product in enumerate(_SIX)
+    }
+    returns["F"] = [0.06, None, None, 0.06]  # out of the pool mid-month
+    signals = build_signals(
+        _blend_panel(dates, returns, _flat_carry(dates)), _blend_config()
+    ).signals
+
+    assert "F" not in _bmom_weights(signals, date(2024, 1, 31))
+
+
+def test_the_surviving_legs_are_recentred_so_the_leg_stays_zero_sum():
+    dates = _JAN_FEB
+    ascending = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+    returns = {
+        product: [ascending[i]] * len(dates) for i, product in enumerate(_SIX)
+    }
+    returns["F"] = [0.06, None, None, 0.06]
+    signals = build_signals(
+        _blend_panel(dates, returns, _flat_carry(dates)), _blend_config()
+    ).signals
+
+    survivors = _bmom_weights(signals, date(2024, 1, 31))
+    assert len(survivors) == 5
+    assert sum(survivors.values()) == pytest.approx(0.0, abs=1e-12)
+    day = signals.loc[signals["trade_date"] == date(2024, 1, 31)]
+    assert day["blend_weight"].sum() == pytest.approx(0.0, abs=1e-12)
+
+
+def test_lambda_zero_leaves_the_carry_leg_bit_for_bit():
+    dates = _JAN_FEB
+    ascending = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+    returns = {
+        product: [ascending[i]] * len(dates) for i, product in enumerate(_SIX)
+    }
+    carries = {
+        product: [0.1 * (i + 1)] * len(dates) for i, product in enumerate(_SIX)
+    }
+    panel = _blend_panel(dates, returns, carries)
+
+    baseline = build_signals(
+        panel, _config(momentum_window=1, weighting="rank_linear")
+    ).signals
+    off = build_signals(
+        panel,
+        _config(
+            momentum_window=1, weighting="rank_linear", basis_momentum_weight=0.0
+        ),
+    ).signals
+
+    pd.testing.assert_frame_equal(baseline, off)
+
+
+def test_the_blended_weight_decides_the_direction_not_the_carry_rank():
+    dates = _JAN_FEB
+    # Carry ranks A at the bottom (short); basis momentum ranks it at the top.
+    # The two legs are equal and opposite in rank, so the blend has to be
+    # decided on the numbers rather than on either leg's sign alone.
+    carries = {
+        product: [0.1 * (i + 1)] * len(dates) for i, product in enumerate(_SIX)
+    }
+    returns = {
+        product: [0.06 - 0.01 * i] * len(dates) for i, product in enumerate(_SIX)
+    }
+    signals = build_signals(
+        _blend_panel(dates, returns, carries), _blend_config()
+    ).signals
+
+    day = signals.loc[signals["trade_date"] == date(2024, 1, 30)].set_index("product")
+    # Equal and opposite legs cancel exactly, so nothing takes a side.
+    assert day["blend_weight"].abs().max() == pytest.approx(0.0, abs=1e-12)
+    assert set(day["rank_direction"]) == {0}
+
+
+def test_the_blend_follows_the_stronger_leg():
+    dates = _JAN_FEB
+    carries = {
+        product: [0.1 * (i + 1)] * len(dates) for i, product in enumerate(_SIX)
+    }
+    returns = {
+        product: [0.06 - 0.01 * i] * len(dates) for i, product in enumerate(_SIX)
+    }
+    signals = build_signals(
+        _blend_panel(dates, returns, carries),
+        _blend_config(basis_momentum_weight=0.75),
+    ).signals
+
+    day = signals.loc[signals["trade_date"] == date(2024, 1, 30)].set_index("product")
+    # A is carry's shortest and basis momentum's longest; at 0.75 the latter wins.
+    assert day.loc["A", "blend_weight"] > 0.0
+    assert day.loc["A", "rank_direction"] == 1
