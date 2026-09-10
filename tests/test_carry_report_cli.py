@@ -1344,3 +1344,29 @@ def test_emit_next_targets_refuses_a_lagging_exchange_with_exit_code_2(tmp_path,
     assert "next targets refused" in err and "A" in err and str(last) in err
     assert not prefix.with_suffix(".xlsx").exists()
     assert not prefix.with_name("carry_next_targets.csv").exists()
+
+
+def test_basis_momentum_switches_reach_the_config():
+    args = build_parser().parse_args(
+        [
+            "--start",
+            "2020-01-01",
+            "--end",
+            "2020-12-31",
+            "--basis-momentum-weight",
+            "0.5",
+            "--basis-momentum-window",
+            "250",
+            "--basis-momentum-min-coverage",
+            "0.8",
+            "--basis-momentum-rebalance",
+            "daily",
+        ]
+    )
+
+    config = _config_from_args(args)
+
+    assert config.basis_momentum_weight == 0.5
+    assert config.basis_momentum_window == 250
+    assert config.basis_momentum_min_coverage == 0.8
+    assert config.basis_momentum_rebalance == "daily"

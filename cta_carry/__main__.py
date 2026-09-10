@@ -134,6 +134,19 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["turnover", "open_interest_value"],
     )
     parser.add_argument("--missing-open-policy", choices=["abort", "defer"])
+    # The basis-momentum leg (design 2026-09-10).  Weight 0 leaves the carry
+    # leg alone, so omitting these reproduces the run as it was.
+    parser.add_argument(
+        "--basis-momentum-weight",
+        type=float,
+        help="share of the blended cross-section taken by basis momentum (0-1)",
+    )
+    parser.add_argument("--basis-momentum-window", type=int)
+    parser.add_argument("--basis-momentum-min-coverage", type=float)
+    parser.add_argument(
+        "--basis-momentum-rebalance",
+        choices=["monthly", "daily"],
+    )
     parser.add_argument(
         "--exclude-products",
         help="comma-separated product codes dropped before the liquidity pool",
