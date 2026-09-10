@@ -1295,7 +1295,7 @@ def test_emit_next_targets_writes_sheet_csv_and_lots(tmp_path, capsys):
     csv_path = prefix.with_name("carry_next_targets.csv")
     targets = pd.read_csv(csv_path, parse_dates=["signal_date"])
     assert set(targets["signal_date"].dt.date) == {data.dates[-1]}
-    assert {"target_weight", "multiplier", "notional", "lots"} <= set(targets.columns)
+    assert {"order_code", "target_weight", "multiplier", "notional", "lots"} <= set(targets.columns)
     assert targets["lots"].notna().all()
     # notional / (close * multiplier), rounded, for every row
     expected = (targets["notional"] / (targets["close"] * targets["multiplier"])).round()

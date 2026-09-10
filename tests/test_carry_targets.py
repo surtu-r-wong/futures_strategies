@@ -37,3 +37,22 @@ def test_lots_for_targets_rounds_notional_over_contract_value() -> None:
     assert sized["notional"].tolist()[:2] == pytest.approx([100_000.0, -34_900.0])
     assert sized["lots"].tolist()[:2] == [100, 0]
     assert pd.isna(sized["multiplier"].iloc[2]) and pd.isna(sized["lots"].iloc[2])
+
+
+@pytest.mark.parametrize(
+    "contract, expected",
+    [
+        ("PL2611.CZC", "PL611"),  # CZCE quotes a one-digit year: 2611 -> 611
+        ("SA2701.CZC", "SA701"),
+        ("TA611.CZC", "TA611"),  # already three digits (older rows): unchanged
+        ("M2701.DCE", "m2701"),  # DCE / SHFE / INE / GFEX instrument ids are lower case
+        ("RU2701.SHF", "ru2701"),
+        ("SC2610.INE", "sc2610"),
+        ("LC2701.GFE", "lc2701"),
+        ("A2410", "A2410"),  # no exchange suffix (synthetic panels): unchanged
+    ],
+)
+def test_order_code_is_the_exchange_instrument_id(contract, expected) -> None:
+    from cta_carry.targets import order_code
+
+    assert order_code(contract) == expected

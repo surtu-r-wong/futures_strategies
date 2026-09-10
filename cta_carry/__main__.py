@@ -507,7 +507,7 @@ def _format_next_targets(targets: pd.DataFrame) -> str:
         return "next_targets: none (vol window not ready or no signal on the last date)"
     shown = [
         c for c in (
-            "signal_date", "product", "contract", "direction", "close", "target_weight",
+            "signal_date", "product", "contract", "order_code", "direction", "close", "target_weight",
             "current_weight", "weight_change", "multiplier", "notional", "lots", "reason",
         )
         if c in targets.columns

@@ -22,6 +22,7 @@ from cta_carry.backtest import (
     weight_turnover,
 )
 from cta_carry.data import CarryDataSet
+from cta_carry.targets import order_code
 from cta_carry.risk import PositionState
 
 from tests.carry_fixtures import make_carry_panel, small_config
@@ -1051,10 +1052,11 @@ def test_next_targets_are_emitted_for_the_last_close_only_when_requested() -> No
     assert plain.next_targets.empty
     targets = result.next_targets
     assert list(targets.columns) == [
-        "signal_date", "product", "contract", "direction", "carry_ma", "close",
-        "raw_weight", "vol_scale", "target_weight", "current_weight",
+        "signal_date", "product", "contract", "order_code", "direction", "carry_ma",
+        "close", "raw_weight", "vol_scale", "target_weight", "current_weight",
         "weight_change", "reason",
     ]
+    assert targets["order_code"].tolist() == [order_code(c) for c in targets["contract"]]
     assert set(targets["signal_date"]) == {end}
     assert targets["raw_weight"].sum() == pytest.approx(0.0)
     # four of five products carry a side; the median product sits out
@@ -1075,6 +1077,25 @@ def test_next_targets_are_emitted_for_the_last_close_only_when_requested() -> No
     for name in ("daily_returns", "positions", "trades", "signals", "data_quality"):
         pd.testing.assert_frame_equal(getattr(plain, name), getattr(result, name))
     assert plain.metrics == result.metrics
+
+
+def test_next_targets_carry_the_exchange_order_code() -> None:
+    # Synthetic contracts have no exchange suffix, so give them DCE's: the
+    # order code must then be the lower-case id, not the stored contract.
+    data = make_carry_panel(periods=40)
+    prices = data.prices.assign(contract=lambda f: f["contract"] + ".DCE")
+    suffixed = CarryDataSet(prices=prices, data_quality=data.data_quality.copy())
+    config = _index_config()
+
+    targets = CarryBacktester(
+        suffixed, config, start=data.dates[20], end=data.dates[-1], emit_next_targets=True
+    ).run().next_targets
+
+    assert not targets.empty
+    assert targets["contract"].str.endswith(".DCE").all()
+    assert targets["order_code"].tolist() == [
+        c.removesuffix(".DCE").lower() for c in targets["contract"]
+    ]
 
 
 def test_next_targets_refuse_a_signal_date_missing_a_held_contract() -> None:

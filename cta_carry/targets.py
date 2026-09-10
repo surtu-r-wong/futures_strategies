@@ -12,6 +12,7 @@ TARGET_COLUMNS = (
     "signal_date",
     "product",
     "contract",
+    "order_code",
     "direction",
     "carry_ma",
     "close",
@@ -22,6 +23,23 @@ TARGET_COLUMNS = (
     "weight_change",
     "reason",
 )
+
+
+def order_code(contract: str) -> str:
+    """The exchange's own instrument id for a `<PRODUCT><YYMM>.<EXCH>` contract.
+
+    CZCE quotes a one-digit year (PL2611 -> PL611, upper case); DCE, SHFE, INE
+    and GFEX ids are the four-digit code in lower case. A contract without an
+    exchange suffix (synthetic panels) is returned unchanged.
+    """
+    code, sep, exchange = contract.partition(".")
+    if not sep:
+        return contract
+    if exchange == "CZC":
+        letters = code.rstrip("0123456789")
+        digits = code[len(letters) :]
+        return f"{letters}{digits[1:] if len(digits) == 4 else digits}"
+    return code.lower()
 
 
 def infer_product_multipliers(prices: pd.DataFrame, *, window: int = 60) -> dict[str, float]:
