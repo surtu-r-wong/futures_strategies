@@ -151,3 +151,28 @@ def test_index_configuration_fields_default_to_baseline_behaviour() -> None:
 def test_index_configuration_fields_reject_unknown_values(field, value) -> None:
     with pytest.raises(ValueError, match=field):
         CarryConfig(**{field: value})
+
+
+def test_basis_momentum_defaults_are_off_so_the_baseline_does_not_move():
+    config = CarryConfig()
+    assert config.basis_momentum_weight == 0.0
+    assert config.basis_momentum_window == 500
+    assert config.basis_momentum_min_coverage == 0.9
+    assert config.basis_momentum_rebalance == "monthly"
+
+
+@pytest.mark.parametrize("weight", [-0.01, 1.01, float("nan")])
+def test_basis_momentum_weight_outside_the_unit_interval_is_rejected(weight):
+    with pytest.raises(ValueError, match="basis_momentum_weight"):
+        CarryConfig(basis_momentum_weight=weight)
+
+
+@pytest.mark.parametrize("coverage", [0.0, 1.01])
+def test_basis_momentum_min_coverage_outside_zero_to_one_is_rejected(coverage):
+    with pytest.raises(ValueError, match="basis_momentum_min_coverage"):
+        CarryConfig(basis_momentum_min_coverage=coverage)
+
+
+def test_unknown_basis_momentum_rebalance_is_rejected():
+    with pytest.raises(ValueError, match="basis_momentum_rebalance"):
+        CarryConfig(basis_momentum_rebalance="fortnightly")

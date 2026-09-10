@@ -12,6 +12,7 @@ _POSITIVE_INTEGER_FIELDS = (
     "stop_tranches",
     "trend_confirm_days",
     "prewarm_calendar_days",
+    "basis_momentum_window",
 )
 
 _POSITIVE_NUMERIC_FIELDS = (
@@ -32,6 +33,7 @@ _NEAR_LEGS = frozenset({"main", "near_dominant"})
 _WEIGHTINGS = frozenset({"risk_budget", "rank_linear"})
 _LIQUIDITY_MEASURES = frozenset({"turnover", "open_interest_value"})
 _MISSING_OPEN_POLICIES = frozenset({"abort", "defer"})
+_BASIS_MOMENTUM_REBALANCES = frozenset({"monthly", "daily"})
 
 
 def _is_finite_number(value: Any) -> bool:
@@ -126,6 +128,30 @@ class CarryConfig:
     # it never invents a price.
     missing_open_policy: str = "abort"
     prewarm_calendar_days: int = 730
+    # The four switches below add the basis-momentum leg (design
+    # 2026-09-10-basis-momentum-design.md).  Weight 0.0 leaves the carry leg
+    # untouched, so every existing configuration reproduces bit for bit.
+    #
+    # Share of the blended cross-section taken by basis momentum, defined as
+    # cum(main chain) - cum(secondary chain) over the window below.  0.5 is the
+    # researched setting: it is the prior no-view split rather than a scan
+    # winner -- the 2021-2026 optimum was 0.75 and was deliberately not taken.
+    # Blending happens before the direction is derived, so the blended weight,
+    # not the carry rank, decides which side a product trades.
+    basis_momentum_weight: float = 0.0
+    # Lookback in trading days.  500 is an interior optimum under strict
+    # history; 750 is worse in both post-2015 eras.
+    basis_momentum_window: int = 500
+    # Fraction of the window that must be real observations on BOTH legs before
+    # a product may be ranked.  Rolling a zero-filled return series instead
+    # hands a product listed last year a lookback it has not lived through, and
+    # inflated every long window in the research code that found this setting.
+    basis_momentum_min_coverage: float = 0.9
+    # Cadence of the basis-momentum leg.  "monthly" re-ranks on the first trade
+    # date present in each calendar month and holds in between -- the original
+    # factor's cadence, and what keeps blended turnover near the carry leg's.
+    # "daily" exists so the cadence can be measured, not as a tuning knob.
+    basis_momentum_rebalance: str = "monthly"
 
     def __post_init__(self) -> None:
         for field_name in _POSITIVE_INTEGER_FIELDS:
@@ -171,11 +197,24 @@ class CarryConfig:
         if type(self.stop_loss_enabled) is not bool:
             raise ValueError("stop_loss_enabled must be a bool")
 
+        if (
+            not _is_finite_number(self.basis_momentum_weight)
+            or not 0.0 <= self.basis_momentum_weight <= 1.0
+        ):
+            raise ValueError("basis_momentum_weight must be in [0, 1]")
+
+        if (
+            not _is_finite_number(self.basis_momentum_min_coverage)
+            or not 0.0 < self.basis_momentum_min_coverage <= 1.0
+        ):
+            raise ValueError("basis_momentum_min_coverage must be in (0, 1]")
+
         for field_name, allowed in (
             ("near_leg", _NEAR_LEGS),
             ("weighting", _WEIGHTINGS),
             ("liquidity_measure", _LIQUIDITY_MEASURES),
             ("missing_open_policy", _MISSING_OPEN_POLICIES),
+            ("basis_momentum_rebalance", _BASIS_MOMENTUM_REBALANCES),
         ):
             if getattr(self, field_name) not in allowed:
                 raise ValueError(
