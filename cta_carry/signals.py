@@ -29,6 +29,16 @@ _SIGNAL_COLUMNS = (
 )
 
 
+# Present only when the basis-momentum leg is switched on, so a configuration
+# that leaves it off produces exactly the frame it produced before.
+_BLEND_COLUMNS = (
+    "basis_momentum",
+    "bmom_ready",
+    "bmom_weight",
+    "blend_weight",
+)
+
+
 @dataclass(frozen=True)
 class SignalResult:
     signals: pd.DataFrame
@@ -139,6 +149,30 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
             ).mean()
         )
 
+    if float(getattr(config, "basis_momentum_weight", 0.0)) > 0.0:
+        window = int(config.basis_momentum_window)
+        minimum = max(1, int(round(window * float(config.basis_momentum_min_coverage))))
+        by_product = signals.groupby("product", sort=False)
+        legs = {}
+        for leg in ("main_leg_return", "secondary_leg_return"):
+            # log1p sums skip NaN, so min_periods counts real observations and
+            # nothing else.  Never fillna(0.0) here: padding a young product's
+            # window with zero returns hands it a lookback it has not lived
+            # through, and lets it be ranked against products that have.
+            legs[leg] = by_product[leg].transform(
+                lambda values: np.expm1(
+                    np.log1p(values).rolling(window, min_periods=minimum).sum()
+                )
+            )
+        signals["basis_momentum"] = (
+            legs["main_leg_return"] - legs["secondary_leg_return"]
+        )
+        signals["bmom_ready"] = (
+            _finite_mask(signals["basis_momentum"])
+            & signals["main_leg_return"].notna()
+            & signals["secondary_leg_return"].notna()
+        )
+
     # Hysteresis trend state, carried forward per product over the curve rows.
     # It is a function of price alone -- close, price_ma and atr -- and never
     # reads position state, so stops and locks cannot perturb it.
@@ -239,7 +273,9 @@ def build_signals(curve_with_atr: pd.DataFrame, config) -> SignalResult:
             if strength > 0.0:
                 signals.at[index, "effective_direction"] = direction
 
+    columns = list(_SIGNAL_COLUMNS)
+    columns += [name for name in _BLEND_COLUMNS if name in signals.columns]
     return SignalResult(
-        signals=signals.loc[:, list(_SIGNAL_COLUMNS)],
+        signals=signals.loc[:, columns],
         signal_ready_date=signal_ready_date,
     )

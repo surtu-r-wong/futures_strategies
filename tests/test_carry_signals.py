@@ -641,3 +641,89 @@ def test_rank_linear_signals_go_long_the_top_of_an_all_contango_cross_section() 
     )
 
     assert [latest.loc[p, "rank_direction"] for p in "ABCDE"] == [-1, -1, 0, 1, 1]
+
+
+def _leg_return_curve(main, secondary, product="RB"):
+    """One product's curve rows carrying both legs' chain returns."""
+    dates = pd.bdate_range("2024-01-02", periods=len(main)).date.tolist()
+    rows = []
+    for trade_date, main_leg, secondary_leg in zip(dates, main, secondary):
+        row = _row(trade_date, product, 0.1)
+        row["main_leg_return"] = main_leg
+        row["secondary_leg_return"] = secondary_leg
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def test_basis_momentum_is_the_gap_between_the_two_chains_cumulative_returns():
+    curve = _leg_return_curve(main=[0.01, 0.01, 0.01], secondary=[0.0, 0.0, 0.0])
+    config = _config(
+        weighting="rank_linear",
+        basis_momentum_weight=0.5,
+        basis_momentum_window=3,
+        basis_momentum_min_coverage=1.0,
+    )
+
+    signals = build_signals(curve, config).signals
+
+    assert signals["basis_momentum"].iloc[-1] == pytest.approx(1.01**3 - 1.0)
+    assert bool(signals["bmom_ready"].iloc[-1])
+
+
+def test_basis_momentum_is_not_ready_until_the_window_has_real_observations():
+    curve = _leg_return_curve(main=[0.01, 0.01], secondary=[0.0, 0.0])
+    config = _config(
+        weighting="rank_linear",
+        basis_momentum_weight=0.5,
+        basis_momentum_window=3,
+        basis_momentum_min_coverage=1.0,
+    )
+
+    signals = build_signals(curve, config).signals
+
+    assert not signals["bmom_ready"].any()
+
+
+def test_a_gap_in_one_leg_does_not_borrow_coverage_from_the_other():
+    curve = _leg_return_curve(
+        main=[0.01, 0.01, 0.01],
+        secondary=[0.0, float("nan"), 0.0],
+    )
+    config = _config(
+        weighting="rank_linear",
+        basis_momentum_weight=0.5,
+        basis_momentum_window=3,
+        basis_momentum_min_coverage=1.0,
+    )
+
+    signals = build_signals(curve, config).signals
+
+    assert not bool(signals["bmom_ready"].iloc[-1])
+
+
+def test_a_young_product_is_not_handed_a_lookback_it_has_not_lived_through():
+    # Only two real observations inside a three-day window: padding them with a
+    # zero return would make this product rankable against products with a full
+    # window, which is the defect that inflated every long lookback.
+    curve = _leg_return_curve(
+        main=[float("nan"), 0.01, 0.01],
+        secondary=[float("nan"), 0.0, 0.0],
+    )
+    config = _config(
+        weighting="rank_linear",
+        basis_momentum_weight=0.5,
+        basis_momentum_window=3,
+        basis_momentum_min_coverage=1.0,
+    )
+
+    signals = build_signals(curve, config).signals
+
+    assert not bool(signals["bmom_ready"].iloc[-1])
+
+
+def test_basis_momentum_columns_are_absent_when_the_leg_is_switched_off():
+    curve = _leg_return_curve(main=[0.01, 0.01, 0.01], secondary=[0.0, 0.0, 0.0])
+
+    signals = build_signals(curve, _config(weighting="rank_linear")).signals
+
+    assert "basis_momentum" not in signals.columns
