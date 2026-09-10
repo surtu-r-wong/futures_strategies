@@ -32,6 +32,8 @@ _SIGNAL_COLUMNS = (
 # Present only when the basis-momentum leg is switched on, so a configuration
 # that leaves it off produces exactly the frame it produced before.
 _BLEND_COLUMNS = (
+    "main_leg_return",
+    "secondary_leg_return",
     "basis_momentum",
     "bmom_ready",
     "bmom_weight",

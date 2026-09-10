@@ -67,3 +67,36 @@ def build_leg_returns(prices: pd.DataFrame, chain: pd.DataFrame) -> pd.DataFrame
     )
     held = held.dropna(subset=["leg_return"])
     return held.loc[:, list(_RETURN_COLUMNS)].reset_index(drop=True)
+
+
+_LEG_SOURCES = (
+    ("main_contract", "main_delivery_yyyymm", "main_leg_return"),
+    ("secondary_contract", "secondary_delivery_yyyymm", "secondary_leg_return"),
+)
+
+
+def attach_leg_returns(prices: pd.DataFrame, curve: pd.DataFrame) -> pd.DataFrame:
+    """Add both legs' chain returns to a curve frame, one column per leg.
+
+    The curve already names the main and secondary contract for every pooled
+    product-day, so each leg only needs rolling forward and pricing.  Days the
+    chain could not price are left missing rather than filled, which is what
+    the strict-history gate in `build_signals` then refuses to rank.
+    """
+    attached = curve
+    for contract_column, delivery_column, target in _LEG_SOURCES:
+        picks = curve.loc[
+            :, ["trade_date", "product", contract_column, delivery_column]
+        ].rename(
+            columns={contract_column: "contract", delivery_column: "delivery_yyyymm"}
+        )
+        returns = build_leg_returns(prices, forward_only_chain(picks))
+        attached = attached.merge(
+            returns.loc[:, ["trade_date", "product", "leg_return"]].rename(
+                columns={"leg_return": target}
+            ),
+            on=["trade_date", "product"],
+            how="left",
+            validate="one_to_one",
+        )
+    return attached

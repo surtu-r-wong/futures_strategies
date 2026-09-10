@@ -7,6 +7,7 @@ import pandas as pd
 
 from .config import CarryConfig
 from .curve import CurveResult, build_curve
+from .legreturns import attach_leg_returns
 from .risk import (
     PositionState,
     apply_equal_weight_capital,
@@ -75,6 +76,8 @@ def build_daily_research(
         how="left",
         validate="one_to_one",
     )
+    if float(getattr(config, "basis_momentum_weight", 0.0)) > 0.0:
+        curve_with_atr = attach_leg_returns(prices, curve_with_atr)
     return DailyResearch(
         curve_result=curve_result,
         contract_atr=contract_atr,

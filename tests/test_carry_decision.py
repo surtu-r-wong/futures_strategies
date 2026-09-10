@@ -181,3 +181,50 @@ def test_blended_sizing_reads_the_weight_signals_struck_not_a_fresh_carry_rank()
             "E2405": -0.05,
         }
     )
+
+
+def test_chain_returns_reach_the_signals_only_when_the_blend_is_switched_on():
+    data = make_carry_panel(periods=24)
+
+    off = build_daily_research(data.prices, small_config(weighting="rank_linear"))
+    on = build_daily_research(
+        data.prices,
+        small_config(
+            weighting="rank_linear",
+            basis_momentum_weight=0.5,
+            basis_momentum_window=2,
+            basis_momentum_min_coverage=1.0,
+        ),
+    )
+
+    assert "basis_momentum" not in off.signal_result.signals.columns
+    assert "basis_momentum" in on.signal_result.signals.columns
+    assert on.signal_result.signals["bmom_ready"].any()
+
+
+def test_the_main_leg_return_prices_the_contract_the_chain_held_into_the_day():
+    data = make_carry_panel(periods=24)
+    research = build_daily_research(
+        data.prices,
+        small_config(
+            weighting="rank_linear",
+            basis_momentum_weight=0.5,
+            basis_momentum_window=2,
+            basis_momentum_min_coverage=1.0,
+        ),
+    )
+    curve = research.curve_result.curve.sort_values(["product", "trade_date"])
+    signals = research.signal_result.signals.sort_values(["product", "trade_date"])
+
+    product_curve = curve.loc[curve["product"] == "A"]
+    held = product_curve["main_contract"].iloc[0]
+    closes = data.prices.loc[data.prices["contract"] == held].set_index("trade_date")[
+        "close"
+    ]
+    dates = product_curve["trade_date"].tolist()
+    expected = closes.loc[dates[1]] / closes.loc[dates[0]] - 1.0
+
+    row = signals.loc[
+        (signals["product"] == "A") & (signals["trade_date"] == dates[1])
+    ].iloc[0]
+    assert row["main_leg_return"] == pytest.approx(expected)
