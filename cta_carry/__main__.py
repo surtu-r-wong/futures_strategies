@@ -15,6 +15,7 @@ from .backtest import (
     CarryBacktester,
     EquityDepletedError,
     ExecutionPriceError,
+    NextTargetDataError,
     SignalInputError,
     WarmupInsufficientError,
 )
@@ -427,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         EquityDepletedError,
         ExecutionPriceError,
         MinuteDataError,
+        NextTargetDataError,
         psycopg2.Error,
         SessionClockError,
         SignalInputError,

@@ -152,3 +152,24 @@ def _product_history_starts_query() -> tuple[str, dict[str, object]]:
         ORDER BY product
     """
     return sql, params
+
+
+def load_public_exchange_coverage(
+    *, config_path=None, since: date, use_test: bool = False
+) -> dict[str, date]:
+    """max(trade_date) per exchange suffix over rows on or after `since`."""
+    settings_path = config_path if config_path is not None else resolve_settings_path()
+    settings = load_config(settings_path)
+    pg = pg_config_from(settings, use_test=use_test).copy()
+    pg["schema"] = "public"
+    sql = """
+        SELECT split_part(symbol, '.', 2) AS exchange, MAX(trade_date) AS max_trade_date
+        FROM public.futures_daily
+        WHERE trade_date >= %(since)s
+        GROUP BY 1
+    """
+    with get_connection(pg) as conn, conn.cursor() as cur:
+        cur.execute("SET statement_timeout = '60s'")
+        cur.execute(sql, {"since": since})
+        rows = cur.fetchall()
+    return {str(exchange): max_trade_date for exchange, max_trade_date in rows}

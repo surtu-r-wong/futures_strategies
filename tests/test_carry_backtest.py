@@ -11,6 +11,7 @@ from cta_carry.backtest import (
     ClosePlan,
     ExecutionPriceError,
     EquityDepletedError,
+    NextTargetDataError,
     SignalInputError,
     WarmupInsufficientError,
     _close_plan,
@@ -1074,3 +1075,29 @@ def test_next_targets_are_emitted_for_the_last_close_only_when_requested() -> No
     for name in ("daily_returns", "positions", "trades", "signals", "data_quality"):
         pd.testing.assert_frame_equal(getattr(plain, name), getattr(result, name))
     assert plain.metrics == result.metrics
+
+
+def test_next_targets_refuse_a_signal_date_missing_a_held_contract() -> None:
+    # A lagging exchange (DCE arrives by hand, a day late) leaves the held
+    # contract without a bar on the signal date. That is missing data, not a
+    # signal exit: the plan must be refused, never emitted as "close A".
+    data = make_carry_panel(periods=40)
+    # The production daily run defers unpriced opens instead of aborting, so
+    # the hole must be caught by the target plan, not by the execution check.
+    config = _index_config(missing_open_policy="defer")
+    start, end = data.dates[20], data.dates[-1]
+    prices = data.prices
+    held = prices.loc[(prices["trade_date"] == end) & (prices["product"] == "A")]
+    assert not held.empty
+    truncated = CarryDataSet(prices=prices.drop(held.index).reset_index(drop=True))
+
+    # Without the emit flag the run is an ordinary backtest and still completes.
+    CarryBacktester(truncated, config, start=start, end=end).run()
+
+    with pytest.raises(NextTargetDataError) as excinfo:
+        CarryBacktester(
+            truncated, config, start=start, end=end, emit_next_targets=True
+        ).run()
+    assert excinfo.value.trade_date == end
+    assert excinfo.value.products == ["A"]
+    assert "A" in str(excinfo.value) and str(end) in str(excinfo.value)

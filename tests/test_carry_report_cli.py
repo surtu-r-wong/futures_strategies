@@ -1317,3 +1317,30 @@ def test_emit_next_targets_is_refused_for_minute_execution():
     )
 
     assert carry_cli._validate_cli_args(args) == "--emit-next-targets supports --execution daily only"
+
+
+def test_emit_next_targets_refuses_a_lagging_exchange_with_exit_code_2(tmp_path, capsys):
+    # DCE lands a day late: the held product A has no bar on the signal date.
+    data = make_carry_panel(periods=40)
+    prices = data.prices
+    last = data.dates[-1]
+    prices = prices.drop(prices.index[(prices["trade_date"] == last) & (prices["product"] == "A")])
+    data_dir = tmp_path / "input"
+    data_dir.mkdir()
+    prices.to_csv(data_dir / "prices.csv", index=False)
+    prefix = tmp_path / "output" / "carry"
+    args = _small_cli_args(data_dir, prefix, data.dates[20], last)
+    args.extend(
+        [
+            "--weighting", "rank_linear", "--no-stop-loss", "--no-trend-filter",
+            "--missing-open-policy", "defer",
+            "--emit-next-targets", "--capital", "1000000",
+        ]
+    )
+
+    assert main(args) == 2
+
+    err = capsys.readouterr().err
+    assert "next targets refused" in err and "A" in err and str(last) in err
+    assert not prefix.with_suffix(".xlsx").exists()
+    assert not prefix.with_name("carry_next_targets.csv").exists()

@@ -187,13 +187,23 @@ cd /home/elfbob/claude-code/futures_strategies
 「交易日开盘（含夜盘）成交」绩效无差别（2012–2026-08：18.90%/1.19 对 18.79%/1.18），可以放心。
 
 ```bash
-scripts/carry_tsindex_daily.sh <资金规模CNY> [end=今天]
+scripts/carry_tsindex_daily.sh <资金规模CNY> [as_of=今天]
 ```
+
+**截断日每次现算**：脚本先跑 `python -m cta_carry.coverage --as-of <as_of>`，取五家商品交易所
+（CZC / DCE / GFE / INE / SHF，不含中金所）各自 `max(trade_date)` 的**最小值**作 `--end`，
+不用全表 `max(trade_date)`、也不写死日期。原因：大商所没有可脚本化的日度接口、靠人工投递
+（实测 09-08 的行 09-08 16:51 才到，其余四所 09-09 的行 09-10 03:06 到），大多数早晨它落后一天；
+若照全表最大日跑，18 个大商所持仓品种当天没有 K 线，引擎会把它们全标成 `signal_exit` 出平仓单
+（2026-09-10 早实跑撞到）。滞后的交易所会打到 stderr 和 `daily.log`（`lagging DCE: max trade_date …`），
+此时出的是**最后一个完整日**的目标（与前一天相同），等大商所投递到位后**再跑一遍**。
+引擎侧还有一道闸：出单模式下持仓合约在 signal_date 没有 K 线 ⇒ `NextTargetDataError`、
+退出码 2、不写任何产物（`missing_open_policy=defer` 也不放行）。
 
 它以 `end − 60 天` 为 `--start` 跑一段短回测（prewarm 730 天保证 90 日因子与 252 日波动窗口就绪），
 再多算最后一天收盘的计划，输出：
 - 工作簿多一张 `next_targets` 表，另写 `<prefix>_next_targets.csv`，终端打印排序后的表；
-- 列：`signal_date`（= 最后一个有数据的交易日，**核对它是不是昨天**）、`product`、`contract`（持仓合约 = 主力）、
+- 列：`signal_date`（= 截断日，**核对它是不是昨天**；不是就是有交易所滞后，见上）、`product`、`contract`（持仓合约 = 主力）、
   `direction`、`close`、`raw_weight`（秩权重）、`vol_scale`、`target_weight`、`current_weight`（回测里此刻的持仓）、
   `weight_change`、`reason`；给了 `--capital` 再加 `multiplier`（近 60 个成交日
   成交额 ÷（成交量 × 收盘）的中位数）、`notional`、`lots`（四舍五入到整手）。

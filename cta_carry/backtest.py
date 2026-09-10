@@ -98,6 +98,23 @@ class ExecutionPriceError(RuntimeError):
         super().__init__(message)
 
 
+class NextTargetDataError(RuntimeError):
+    """The signal date has no bar for a contract the strategy still holds.
+
+    Seen live when one exchange lands a day late (DCE is delivered by hand):
+    the cross-section is incomplete, so the plan would read the hole as a
+    signal exit and tell the desk to close the position. Refuse instead.
+    """
+
+    def __init__(self, *, trade_date, products) -> None:
+        self.trade_date = trade_date
+        self.products = list(products)
+        super().__init__(
+            f"{trade_date} next targets refused: no bar on the signal date for held "
+            f"products {', '.join(self.products)} (data missing, not a signal exit)"
+        )
+
+
 class WarmupInsufficientError(RuntimeError):
     def __init__(
         self,
@@ -711,6 +728,15 @@ def _next_target_rows(
     config: CarryConfig,
 ) -> list[dict[str, object]]:
     """Weights for the open after `trade_date`, next to what is held now."""
+    unpriced = sorted(
+        {
+            contract_products.get(contract, contract)
+            for contract, weight in formal_weights.items()
+            if weight != 0.0 and contract not in bars
+        }
+    )
+    if unpriced:
+        raise NextTargetDataError(trade_date=trade_date, products=unpriced)
     if estimate.ready:
         vol_scale = float(estimate.vol_scale)
         target_weights = scale_weights(plan.raw_weights, vol_scale, config)
