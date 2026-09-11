@@ -39,6 +39,9 @@ def _parse_args(argv=None):
     parser.add_argument("--window", type=int, default=500)
     parser.add_argument("--min-observations", type=int, default=None,
                         help="default: 90%% of --window, the strict-history gate")
+    parser.add_argument("--smoothing", type=int, default=1,
+                        help="arithmetic mean of the factor over this many days "
+                             "(3.1's lookback, beside R)")
     parser.add_argument("--t1-leg", choices=("near_dominant", "main"),
                         default="near_dominant")
     gap = parser.add_mutually_exclusive_group()
@@ -101,6 +104,7 @@ def main(argv=None) -> int:
         factor_kind=args.factor_kind,
         window=args.window,
         min_observations=min_observations,
+        smoothing=args.smoothing,
         normalise_by_gap=args.normalise_by_gap,
         t1_leg=args.t1_leg,
         cadence=args.cadence,

@@ -99,3 +99,83 @@ def test_each_product_gets_its_own_window():
     last = out.loc[out["trade_date"] == date(2024, 1, 3)].set_index("product")
     assert last.loc["M", "basis_momentum"] == pytest.approx(0.08275, abs=1e-12)
     assert last.loc["Y", "basis_momentum"] == pytest.approx(-0.08275, abs=1e-12)
+
+
+def test_smoothing_averages_the_factor_over_the_lookback():
+    # Deviation 8.  025 spells this out -- "回望周期即将回望周期内的期限结构值
+    # 算术平均值作为...因子值" -- and 027 uses the same sentence with the four
+    # characters for "arithmetic mean" left out.  BM over a one-day window is
+    # just the day's leg difference, so three days of 0.10, 0.20, 0.30 divided
+    # by a gap of 1 average to 0.20.
+    frame = pd.DataFrame(
+        {
+            "trade_date": pd.bdate_range("2024-01-01", periods=3).date,
+            "product": "M",
+            "t1_return": [0.10, 0.20, 0.30],
+            "t2_return": [0.0, 0.0, 0.0],
+            "month_gap": 1,
+        }
+    )
+    out = basis_momentum(
+        frame, window=1, min_observations=1, normalise_by_gap=True, smoothing=3
+    )
+    assert out["basis_momentum"].iloc[-1] == pytest.approx(0.20)
+
+
+def test_smoothing_of_one_is_the_day_itself():
+    frame = pd.DataFrame(
+        {
+            "trade_date": pd.bdate_range("2024-01-01", periods=3).date,
+            "product": "M",
+            "t1_return": [0.10, 0.20, 0.30],
+            "t2_return": [0.0, 0.0, 0.0],
+            "month_gap": 1,
+        }
+    )
+    out = basis_momentum(frame, window=1, min_observations=1, smoothing=1)
+    assert out["basis_momentum"].iloc[-1] == pytest.approx(0.30)
+
+
+def test_smoothing_needs_a_full_window_before_it_reports():
+    # Averaging two days under a three-day smoother would quietly hand a young
+    # product a shorter lookback than everyone it is ranked against.
+    frame = pd.DataFrame(
+        {
+            "trade_date": pd.bdate_range("2024-01-01", periods=2).date,
+            "product": "M",
+            "t1_return": [0.10, 0.20],
+            "t2_return": [0.0, 0.0],
+            "month_gap": 1,
+        }
+    )
+    out = basis_momentum(frame, window=1, min_observations=1, smoothing=3)
+    assert out["basis_momentum"].isna().all()
+    assert not out["bm_ready"].any()
+
+
+def test_smoothing_is_per_product():
+    # Four days each under a three-day smoother, so each product can report on
+    # its own last two days and no others.  A smoother that ran over the frame
+    # rather than over each product would reach back into the product before it
+    # and report six values instead of four -- and the two it added would be
+    # averages of two different commodities.
+    days = pd.bdate_range("2024-01-01", periods=4).date
+    rows = []
+    for product, t1 in (("M", [0.10, 0.20, 0.30, 0.40]), ("Y", [-0.10, -0.20, -0.30, -0.40])):
+        rows.append(
+            pd.DataFrame(
+                {
+                    "trade_date": days, "product": product,
+                    "t1_return": t1, "t2_return": [0.0] * 4, "month_gap": 1,
+                }
+            )
+        )
+    out = basis_momentum(
+        pd.concat(rows, ignore_index=True), window=1, min_observations=1, smoothing=3
+    )
+    assert out["basis_momentum"].notna().sum() == 4
+    per_product = out.dropna(subset=["basis_momentum"]).groupby("product").size()
+    assert per_product.to_dict() == {"M": 2, "Y": 2}
+    last = out.loc[out["trade_date"] == days[-1]].set_index("product")
+    assert last.loc["M", "basis_momentum"] == pytest.approx(0.30)   # mean of .2 .3 .4
+    assert last.loc["Y", "basis_momentum"] == pytest.approx(-0.30)

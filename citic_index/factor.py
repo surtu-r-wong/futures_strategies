@@ -45,12 +45,24 @@ def basis_momentum(
     window: int,
     min_observations: int,
     normalise_by_gap: bool = True,
+    smoothing: int = 1,
 ) -> pd.DataFrame:
-    """Per product-day factor value over a trailing `window` of chain returns."""
+    """Per product-day factor value over a trailing `window` of chain returns.
+
+    `smoothing` is the lookback 3.1 gives the strategy beside R: the factor is
+    the arithmetic mean of BM over that many days.  027 writes "回望周期即将回望
+    周期内的基差动量值作为当前的...因子值" and leaves out the four characters for
+    "arithmetic mean" that 025's otherwise identical sentence carries, and 025's
+    step 2 says it again -- "求出 p 日(参数)...的平均值".  The two methodologies
+    are word for word the same through 3.2 to 3.5, so the omission is an
+    omission.  `smoothing=1` is the unsmoothed reading.
+    """
     if window < 1:
         raise ValueError("window must be at least one trading day")
     if min_observations < 1 or min_observations > window:
         raise ValueError("min_observations must be in [1, window]")
+    if smoothing < 1:
+        raise ValueError("smoothing must be at least one trading day")
     if legs.empty:
         return pd.DataFrame(columns=list(FACTOR_COLUMNS))
 
@@ -86,7 +98,19 @@ def basis_momentum(
     raw = frame["t1_cumulative"] - frame["t2_cumulative"]
     if normalise_by_gap:
         raw = raw / frame["month_gap"]
-    frame["basis_momentum"] = raw.where(frame["bm_ready"])
+    raw = raw.where(frame["bm_ready"])
+    if smoothing > 1:
+        # min_periods is the full window: averaging fewer days would hand a
+        # young product a shorter lookback than everyone it is ranked against,
+        # silently, which is the same defect the history gate exists to stop.
+        raw = (
+            raw.groupby(frame["product"], sort=False)
+            .rolling(smoothing, min_periods=smoothing)
+            .mean()
+            .reset_index(level=0, drop=True)
+        )
+        frame["bm_ready"] = frame["bm_ready"] & raw.notna()
+    frame["basis_momentum"] = raw
 
     frame = frame.sort_values(["trade_date", "product"], kind="mergesort")
     return frame.loc[:, list(FACTOR_COLUMNS)].reset_index(drop=True)

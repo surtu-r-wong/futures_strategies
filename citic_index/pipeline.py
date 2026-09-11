@@ -33,6 +33,7 @@ class ReplicaConfig:
     factor_kind: str = "basis_momentum"
     window: int = 500
     min_observations: int = 450
+    smoothing: int = 1
     normalise_by_gap: bool = True
     t1_leg: str = "near_dominant"
     cadence: str = "daily"
@@ -107,6 +108,7 @@ def build_replica(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaResult:
             window=config.window,
             min_observations=config.min_observations,
             normalise_by_gap=config.normalise_by_gap,
+            smoothing=config.smoothing,
         )
     elif config.factor_kind == "term_structure":
         factor = term_structure(
