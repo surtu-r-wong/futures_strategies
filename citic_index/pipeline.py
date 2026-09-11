@@ -18,7 +18,7 @@ import pandas as pd
 
 from cta_carry.legreturns import build_leg_returns, forward_only_chain
 
-from citic_index.factor import basis_momentum
+from citic_index.factor import basis_momentum, term_structure
 from citic_index.index import accumulate, blended_returns
 from citic_index.legs import select_legs
 from citic_index.universe import pool_membership
@@ -29,6 +29,7 @@ from citic_index.weights import assign_weights
 class ReplicaConfig:
     """Every switch the design doc's deviation table needs to be able to flip."""
 
+    factor_kind: str = "basis_momentum"
     window: int = 500
     min_observations: int = 450
     normalise_by_gap: bool = True
@@ -93,12 +94,28 @@ def build_replica(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaResult:
             validate="one_to_one",
         )
 
-    factor = basis_momentum(
-        legs,
-        window=config.window,
-        min_observations=config.min_observations,
-        normalise_by_gap=config.normalise_by_gap,
-    )
+    if config.factor_kind == "basis_momentum":
+        factor = basis_momentum(
+            legs,
+            window=config.window,
+            min_observations=config.min_observations,
+            normalise_by_gap=config.normalise_by_gap,
+        )
+    elif config.factor_kind == "term_structure":
+        factor = term_structure(
+            legs,
+            lookback=config.window,
+            min_observations=config.min_observations,
+            normalise_by_gap=config.normalise_by_gap,
+        )
+        # The ranking layer speaks one vocabulary.  Both factors are ranked the
+        # same way by the same 3.5 steps, so the control arm hands its column
+        # over under the names that layer already uses, keeping its own beside
+        # them so the output still says which factor produced the run.
+        factor["basis_momentum"] = factor["term_structure"]
+        factor["bm_ready"] = factor["ts_ready"]
+    else:
+        raise ValueError(f"unknown factor_kind {config.factor_kind!r}")
     factor = factor.merge(
         pool.loc[:, ["trade_date", "product", "in_pool"]],
         on=["trade_date", "product"],

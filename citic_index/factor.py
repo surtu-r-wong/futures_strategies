@@ -17,6 +17,16 @@ import numpy as np
 import pandas as pd
 
 
+TERM_STRUCTURE_COLUMNS = (
+    "trade_date",
+    "product",
+    "month_gap",
+    "roll_yield",
+    "ts_observations",
+    "ts_ready",
+    "term_structure",
+)
+
 FACTOR_COLUMNS = (
     "trade_date",
     "product",
@@ -80,3 +90,57 @@ def basis_momentum(
 
     frame = frame.sort_values(["trade_date", "product"], kind="mergesort")
     return frame.loc[:, list(FACTOR_COLUMNS)].reset_index(drop=True)
+
+
+def term_structure(
+    legs: pd.DataFrame,
+    *,
+    lookback: int,
+    min_observations: int,
+    normalise_by_gap: bool = True,
+) -> pd.DataFrame:
+    """CITIC 025's factor, the control arm for this engine.
+
+    3.5 step 1 gives the roll yield as
+    `(P_near - P_far) / P_near / months apart`, and step 2 ranks the arithmetic
+    mean of it over a p-day lookback -- "求出 p 日(参数)展期收益率 R_i 的平均值
+    meanR_i".  3.1 writes the same quantity with 12/(months apart) as an
+    exponent and annualised; the annualisation is one constant across the whole
+    cross-section, so it cannot move a rank and 3.5 is followed instead.
+
+    This exists to check the engine, not to ship a second strategy.  025 is
+    known replicable to 9.37%/1.90 against an official 9.31%/1.89, so a run
+    that cannot reproduce it says the fault is here rather than in 027.
+    """
+    if lookback < 1:
+        raise ValueError("lookback must be at least one trading day")
+    if min_observations < 1 or min_observations > lookback:
+        raise ValueError("min_observations must be in [1, lookback]")
+    if legs.empty:
+        return pd.DataFrame(columns=list(TERM_STRUCTURE_COLUMNS))
+
+    frame = legs.sort_values(["product", "trade_date"], kind="mergesort").copy()
+    raw = (frame["t1_close"] - frame["t2_close"]) / frame["t1_close"]
+    if normalise_by_gap:
+        raw = raw / frame["month_gap"]
+    frame["roll_yield"] = raw
+
+    grouped = frame["roll_yield"].groupby(frame["product"], sort=False)
+    frame["ts_observations"] = (
+        frame["roll_yield"].notna()
+        .groupby(frame["product"], sort=False)
+        .rolling(lookback, min_periods=1)
+        .sum()
+        .reset_index(level=0, drop=True)
+        .astype("Int64")
+    )
+    mean = (
+        grouped.rolling(lookback, min_periods=1).mean().reset_index(level=0, drop=True)
+    )
+    frame["ts_ready"] = (
+        frame["ts_observations"].ge(min_observations).fillna(False).astype(bool)
+    )
+    frame["term_structure"] = mean.where(frame["ts_ready"])
+
+    frame = frame.sort_values(["trade_date", "product"], kind="mergesort")
+    return frame.loc[:, list(TERM_STRUCTURE_COLUMNS)].reset_index(drop=True)

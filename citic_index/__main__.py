@@ -32,6 +32,10 @@ def _parse_args(argv=None):
     parser.add_argument("--output-prefix", required=True)
 
     # 3.1 / 3.5 step 1 -- the factor
+    parser.add_argument("--factor", dest="factor_kind",
+                        choices=("basis_momentum", "term_structure"),
+                        default="basis_momentum",
+                        help="term_structure is the 025 control arm for this engine")
     parser.add_argument("--window", type=int, default=500)
     parser.add_argument("--min-observations", type=int, default=None,
                         help="default: 90%% of --window, the strict-history gate")
@@ -89,6 +93,7 @@ def main(argv=None) -> int:
         else max(1, round(args.window * 0.9))
     )
     config = ReplicaConfig(
+        factor_kind=args.factor_kind,
         window=args.window,
         min_observations=min_observations,
         normalise_by_gap=args.normalise_by_gap,
