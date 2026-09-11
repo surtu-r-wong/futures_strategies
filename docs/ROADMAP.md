@@ -7,6 +7,10 @@
 
 ## 已交付
 
+- `citic_index`：中信策略指数纯复刻路径 **+ 每日出单已上生产**（2026-09-11）。
+  运行 `scripts/citic027_daily.sh <资金> [as_of]`，验收 `scripts/check_citic027_sheet.py`，
+  runbook `docs/operations/citic027-daily.md`。与 carry 日跑并行、各自日志与产物前缀。
+  ⚠️ **回测当天才跑出来、全样本内、无样本外**；风险边界见 runbook §4。
 - `citic_index`：中信策略指数**纯复刻路径**（2026-09-11）。与 `cta_carry` 平级，不碰生产出单。
   控制臂 CICSF025 复刻到 corr 0.673 / 夏普 1.92 对 1.92（引擎可信）；CICSF027 做到
   **corr 0.556**（生产腿出厂 0.201）。每条规则偏差都是命令行开关，归因阶梯逐条已量。
