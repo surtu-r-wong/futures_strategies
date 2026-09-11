@@ -8,6 +8,14 @@
 # usually lands a day late, and a run past its coverage would read every DCE
 # product as a signal exit. When an exchange lags, the targets are those of the
 # last complete day and the log says so; re-run after the delivery.
+#
+# The basis-momentum leg runs at weight 0.20 (user's call, 2026-09-11); window,
+# coverage and cadence stay at their defaults (500 / 0.9 / monthly), which is
+# the configuration the sensitivity sweep was run at.  The leg needs 500 traded
+# days of chain returns behind the signal date and the prewarm gives it roughly
+# 540, so check `signals.bmom_ready` in the workbook after a run: an all-False
+# column means the strict-history gate starved and the blend silently fell back
+# to carry alone.
 set -u
 cd "$(dirname "$0")/.." || exit 9
 CAPITAL=${1:?capital in CNY required}
@@ -32,6 +40,7 @@ echo "[start] $(date -Is) as_of=$AS_OF end=$END capital=$CAPITAL commit=$(git re
   --liquidity-window 20 --liquidity-threshold 2e9 \
   --exclude-products CU,BC,AL,AO,AD,ZN,PB,NI,SN,SS,AU,AG,PT,PD,EC,PK,CJ,AP,JD \
   --missing-open-policy defer \
+  --basis-momentum-weight 0.20 \
   --emit-next-targets --capital "$CAPITAL" \
   --output-prefix "$PREFIX" 2>&1 | tee -a "$LOG"
 RC=${PIPESTATUS[0]}

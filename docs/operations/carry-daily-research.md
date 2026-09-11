@@ -214,6 +214,30 @@ scripts/carry_tsindex_daily.sh <资金规模CNY> [as_of=今天]
   多空两侧各 0.74 左右、合计精确为 0，只有整手取整后的名义金额合计才不为零。
 - `vol_scale` 为空表示波动窗口未就绪（数据不足 252 个影子日），此时表为空、终端提示。
 
+#### 基差动量腿：2026-09-11 起以 0.20 开启
+
+脚本带 `--basis-momentum-weight 0.20`（用户裁决 2026-09-11）。`--basis-momentum-window`、
+`--basis-momentum-min-coverage`、`--basis-momentum-rebalance` 保持默认 500 / 0.9 / monthly ——
+这正是 `docs/plans/2026-09-10-basis-momentum-design.md` §11 敏感性表所用的配置，别单独动其中一个。
+
+**预期量级**：全期 Δ夏普 +0.03~0.05、成本 +0.02pp/年、Calmar 微升、回撤几乎不动。不是
+立项时报的 +0.17（那个数是两次噪声抽样的比值，§8 已更正）。JK 配对检验 p≈0.35，
+单段点估计都不显著，支持它的是**两段符号一致**与**截面 IC**（因子 t=5.12、控制 carry 后
+增量 t≈2.1）。
+
+**每次跑完必看的判据**：工作簿 `signals` 表应出现 `basis_momentum` / `bmom_ready` /
+`bmom_weight` / `blend_weight` 四列（关闭时这四列根本不存在）。若 `bmom_ready` 在尾部
+全是 False、或 `bmom_weight` 恒为 0，说明 500 日严格历史闸没吃饱 —— 日跑只给它
+`prewarm 730 天 ≈ 540 个交易日`，余量约 8% —— 此时出的单**等于 λ=0**，是静默退化，不是正常。
+补救是加大 `--prewarm-calendar-days`，但注意那会同时改动 `vol_scale`、乘数扩展中位数与
+流动性池，属于口径变更，不能当作纯粹的"多给点历史"。
+
+**开启当天的一次性调仓**：账上持的是 λ=0 那条路径的仓位，而开启后引擎 `current_weight`
+报的是"若一直按 λ=0.20 跑到今天本该持有的仓"，是个从未成交过的反事实账本。所以切换当天
+真正要下的手数 = **新单的 `target_weight` − 旧单（λ=0）的 `current_weight`**，不是新单自己的
+`weight_change`。做法：先用 `git stash` 或 `--basis-momentum-weight 0` 跑一份 λ=0 的单留作
+账面基准，再跑正式单，两份按 `product` 对齐相减。此后每天照常，不必再做。
+
 ## 7. 已知边界
 
 - 日线近似：原研报的 15 分钟吊灯止损改为**日收盘触发**，下一 5 分钟 VWAP 改为
