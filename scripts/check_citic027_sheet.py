@@ -13,6 +13,7 @@ it there.
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -63,6 +64,26 @@ def check(prefix: Path) -> list[str]:
     if not lots.eq(targets["lots"]).all():
         off = int((~lots.eq(targets["lots"])).sum())
         fail(f"{off} rows where lots do not equal notional / (close x multiplier)")
+
+    # --- the codes an order ticket will actually carry -------------------------
+    # Zhengzhou quotes a one-digit delivery year, so MA2701 is rejected at entry
+    # where MA701 is taken; the other four exchanges take the four-digit code in
+    # lower case.  The carry sheet has always got this right, and this is here so
+    # that it cannot quietly stop being right.
+    exchange = targets["contract"].str.split(".").str[1]
+    czce = exchange.eq("CZC")
+    wrong_czce = targets.loc[czce & ~targets["order_code"].str.fullmatch(r"[A-Z]+[0-9]{3}")]
+    if not wrong_czce.empty:
+        codes = ", ".join(wrong_czce["order_code"])
+        fail(
+            f"Zhengzhou order codes must be upper case with three digits: {codes}"
+        )
+    wrong_other = targets.loc[~czce & ~targets["order_code"].str.fullmatch(r"[a-z]+[0-9]{4}")]
+    if not wrong_other.empty:
+        codes = ", ".join(wrong_other["order_code"])
+        fail(
+            f"non-Zhengzhou order codes must be lower case with four digits: {codes}"
+        )
 
     # --- the sheet is for the day it says --------------------------------------
     if targets["signal_date"].nunique() != 1:

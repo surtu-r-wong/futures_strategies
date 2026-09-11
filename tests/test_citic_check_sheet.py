@@ -110,3 +110,38 @@ def test_every_failure_is_reported_not_just_the_first(tmp_path):
     # Short window, over the cap, and not netting to zero: three separate
     # problems, and a checker that stopped at the first would hide two.
     assert len(bad) >= 3
+
+
+def test_zhengzhou_codes_must_be_three_digits(tmp_path):
+    # The exchange quotes a one-digit year, so an order ticket carrying the
+    # four-digit form is rejected at entry.  The carry sheet has always done
+    # this; the check exists so it cannot quietly stop.
+    def four_digit(d):
+        return d.assign(
+            contract=["MA2701.CZC", "Y2701.DCE"],
+            order_code=["MA2701", "y2701"],
+        )
+
+    bad = check(_sheet(tmp_path, rows=four_digit))
+    assert any("MA2701" in m and "three digits" in m for m in bad)
+
+
+def test_a_correct_zhengzhou_code_passes(tmp_path):
+    def czce(d):
+        return d.assign(
+            contract=["MA2701.CZC", "Y2701.DCE"],
+            order_code=["MA701", "y2701"],
+        )
+
+    assert check(_sheet(tmp_path, rows=czce)) == []
+
+
+def test_the_other_exchanges_must_be_four_digits_lower_case(tmp_path):
+    def upper(d):
+        return d.assign(
+            contract=["M2701.DCE", "Y2701.DCE"],
+            order_code=["M2701", "y2701"],
+        )
+
+    bad = check(_sheet(tmp_path, rows=upper))
+    assert any("M2701" in m for m in bad)
