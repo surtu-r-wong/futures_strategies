@@ -2,9 +2,14 @@
 
     .venv/bin/python scripts/citic_index_fetch.py --out data/citic_index
 
-Two files land in `--out`: `prices.csv`, the daily bars of the thirty-seven
-products CITIC 3.2 names, and `official.csv`, the published index series to
-compare against.
+Two files land in `--out`: `prices.csv`, the daily bars the replica reads, and
+`official.csv`, the published index series to compare against.
+
+`--all-products` pulls every commodity product rather than the thirty-seven 3.2
+names.  The names are only "指数测试考虑" examples; 3.2's actual universe is
+whatever clears its liquidity and listing filters, which reached sixty-nine
+products by 2025.  The financial exchange is always excluded -- index and bond
+futures are not commodities.
 
 The pull is sliced by date and each slice gets its own short connection with
 its own retries.  This machine reaches the database over a DERP relay that
@@ -37,32 +42,55 @@ from common.db import pg_config_from  # noqa: E402
 # contract" cannot mean two things in one repo.
 _PRODUCT_EXPRESSION = "UPPER(substring(symbol from '^[A-Za-z]+'))"
 
-_PRICE_SQL = f"""
-    SELECT
-        trade_date,
-        symbol AS contract,
-        open::float AS open,
-        high::float AS high,
-        low::float AS low,
-        close::float AS close,
-        volume::float AS volume,
-        oi::float AS oi,
-        turnover::float AS turnover
-    FROM public.futures_daily
-    WHERE trade_date >= %(lo)s
-      AND trade_date <= %(hi)s
-      AND {_PRODUCT_EXPRESSION} = ANY(%(products)s)
-    ORDER BY trade_date, symbol
-"""
+# The predicate is assembled in Python rather than left as a runtime OR.
+# `(%(products)s IS NULL OR ...)` is not sargable: it turned a bounded range
+# scan into a full one, 135 seconds for a single month against 0.3 once the
+# clause is simply absent.
+def _predicate(products) -> str:
+    clauses = [
+        "trade_date >= %(lo)s",
+        "trade_date <= %(hi)s",
+        # Index and bond futures are not commodities.
+        "split_part(symbol, '.', 2) <> 'CFE'",
+    ]
+    if products is not None:
+        clauses.append(_PRODUCT_EXPRESSION + " = ANY(%(products)s)")
+    return "\n      AND ".join(clauses)
 
-_COUNT_SQL = f"""
-    SELECT to_char(trade_date, 'YYYY-MM') AS month, COUNT(*) AS n
-    FROM public.futures_daily
-    WHERE trade_date >= %(lo)s
-      AND trade_date <= %(hi)s
-      AND {_PRODUCT_EXPRESSION} = ANY(%(products)s)
-    GROUP BY 1
-"""
+
+def _params(lo, hi, products) -> dict:
+    params = {"lo": lo, "hi": hi}
+    if products is not None:
+        params["products"] = products
+    return params
+
+
+def _price_sql(products) -> str:
+    return f"""
+        SELECT
+            trade_date,
+            symbol AS contract,
+            open::float AS open,
+            high::float AS high,
+            low::float AS low,
+            close::float AS close,
+            volume::float AS volume,
+            oi::float AS oi,
+            turnover::float AS turnover,
+            settle::float AS settle
+        FROM public.futures_daily
+        WHERE {_predicate(products)}
+        ORDER BY trade_date, symbol
+    """
+
+
+def _count_sql(products) -> str:
+    return f"""
+        SELECT to_char(trade_date, 'YYYY-MM') AS month, COUNT(*) AS n
+        FROM public.futures_daily
+        WHERE {_predicate(products)}
+        GROUP BY 1
+    """
 
 _OFFICIAL_SQL = """
     SELECT index_code, trade_date, close::float AS close
@@ -121,10 +149,18 @@ def main(argv=None) -> int:
     parser.add_argument("--chunk-days", type=int, default=60)
     parser.add_argument("--attempts", type=int, default=6)
     parser.add_argument("--config", default=None)
+    parser.add_argument("--all-products", action="store_true",
+                        help="every commodity product, not just the named 37")
+    parser.add_argument("--extra-products", default=None)
     args = parser.parse_args(argv)
 
     dsn = _dsn(args.config)
-    products = sorted(NAMED_37)
+    # 3.2's liquidity and listing filters are the actual universe; the
+    # thirty-seven are only "指数测试考虑" examples.  Pull every commodity
+    # product so the open-universe arm has something to open onto.
+    products = sorted(NAMED_37 | set(args.extra_products.split(",") if args.extra_products else []))
+    if args.all_products:
+        products = None
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -133,8 +169,8 @@ def main(argv=None) -> int:
         started = time.time()
         frame, attempt = _query(
             dsn,
-            _PRICE_SQL,
-            {"lo": lo, "hi": hi, "products": products},
+            _price_sql(products),
+            _params(lo, hi, products),
             attempts=args.attempts,
             timeout="180s",
         )
@@ -150,8 +186,8 @@ def main(argv=None) -> int:
 
     counts, _ = _query(
         dsn,
-        _COUNT_SQL,
-        {"lo": args.start, "hi": args.end, "products": products},
+        _count_sql(products),
+        _params(args.start, args.end, products),
         attempts=args.attempts,
         timeout="300s",
     )
