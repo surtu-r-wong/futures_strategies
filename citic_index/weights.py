@@ -12,6 +12,10 @@ basis-momentum leg strikes once a month and holds, a cadence taken from the
 Boons & Prado paper rather than from this methodology; that is deviation 3 and
 `cadence="monthly"` reproduces it, re-centring the survivors when a product
 drops out mid-month exactly as the production leg does.
+
+A `limit_locked` column, when present, takes those products out of the struck
+cross-section -- 3.2's "将其排除在策略之外" -- which also shrinks N and so moves
+everyone else's weight.  It bites only on a strike day.
 """
 
 import pandas as pd
@@ -65,10 +69,21 @@ def assign_weights(
         if len(cross_section) < min_products:
             continue
         if trade_date in rebalance_days:
+            # 3.2's special adjustment, judged where the document puts it: on
+            # the day the weights are struck.  A product locked up after the
+            # strike is one you cannot trade, not one you have stopped holding,
+            # so it keeps whatever it was given.
+            eligible = cross_section
+            if "limit_locked" in cross_section.columns:
+                eligible = cross_section.loc[
+                    ~cross_section["limit_locked"].fillna(False).astype(bool)
+                ]
+            if len(eligible) < min_products:
+                continue
             struck = dict(
                 zip(
-                    cross_section["product"],
-                    rank_linear_weights(cross_section, "basis_momentum").to_numpy(),
+                    eligible["product"],
+                    rank_linear_weights(eligible, "basis_momentum").to_numpy(),
                 )
             )
         held = cross_section["product"].map(struck)
@@ -82,7 +97,9 @@ def assign_weights(
             held.loc[surviving.index] = surviving - surviving.mean()
         cross_section = cross_section.assign(
             weight=held.to_numpy(),
-            n_products=len(cross_section),
+            # N is the size of the cross-section the weights were struck over --
+            # it is in the formula -- not the number of rows standing today.
+            n_products=len(struck),
         )
         rows.append(cross_section.loc[cross_section["weight"].notna()])
 

@@ -44,6 +44,7 @@ class ReplicaConfig:
     min_listing_calendar_days: int = 90
     restrict_to_named: bool = True
     min_products: int = 2
+    exclude_limit_locked: bool = True
     base_date: date = date(2010, 1, 4)
     base_value: float = 1000.0
 
@@ -170,8 +171,17 @@ def build_from_panel(panel: ReplicaPanel, config: ReplicaConfig) -> ReplicaResul
     # 3.2 gates who may be ranked; the factor itself is computed regardless.
     factor["rankable"] = factor["bm_ready"].astype(bool) & factor["in_pool"]
 
+    ranked = factor.assign(bm_ready=factor["rankable"])
+    if config.exclude_limit_locked:
+        ranked = ranked.merge(
+            legs.loc[:, ["trade_date", "product", "main_limit_locked"]].rename(
+                columns={"main_limit_locked": "limit_locked"}
+            ),
+            on=["trade_date", "product"],
+            how="left",
+        )
     weights = assign_weights(
-        factor.assign(bm_ready=factor["rankable"]),
+        ranked,
         cadence=config.cadence,
         min_products=config.min_products,
     )

@@ -70,6 +70,11 @@ def _parse_args(argv=None):
                              "close_to_close is the tradeable convention")
     parser.add_argument("--cadence", choices=("daily", "monthly"), default="daily")
     parser.add_argument("--min-products", type=int, default=2)
+    locked = parser.add_mutually_exclusive_group()
+    locked.add_argument("--exclude-limit-locked", dest="exclude_limit_locked",
+                        action="store_true", default=True)
+    locked.add_argument("--keep-limit-locked", dest="exclude_limit_locked",
+                        action="store_false")
     roll = parser.add_mutually_exclusive_group()
     roll.add_argument("--roll-blend", dest="roll_blend",
                       action="store_true", default=True)
@@ -115,6 +120,7 @@ def main(argv=None) -> int:
         min_listing_calendar_days=args.min_listing_calendar_days,
         restrict_to_named=args.restrict_to_named,
         min_products=args.min_products,
+        exclude_limit_locked=args.exclude_limit_locked,
         base_date=args.base_date,
         base_value=args.base_value,
     )

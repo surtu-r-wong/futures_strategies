@@ -34,6 +34,7 @@ LEG_COLUMNS = (
     "t2_delivery_yyyymm",
     "t2_close",
     "month_gap",
+    "main_limit_locked",
 )
 
 _T1_LEGS = ("near_dominant", "main")
@@ -47,6 +48,20 @@ def _highest_oi_first(prices: pd.DataFrame) -> pd.DataFrame:
         ascending=[True, True, False, True],
         kind="mergesort",
     )
+
+
+def _limit_locked(frame: pd.DataFrame) -> pd.Series:
+    """A dominant contract whose bar has no range at all.
+
+    3.2 puts a product limit-locked on the adjustment day outside the strategy:
+    there is no liquidity to take a position in.  A daily bar shows that as a
+    high equal to its low.  Bars with no high or low at all are missing data,
+    not a locked board, and are left alone.
+    """
+    if not {"high", "low"} <= set(frame.columns):
+        return pd.Series(False, index=frame.index)
+    both = frame["high"].notna() & frame["low"].notna()
+    return (frame["high"] == frame["low"]) & both
 
 
 def _rename_leg(frame: pd.DataFrame, prefix: str) -> pd.DataFrame:
@@ -75,6 +90,7 @@ def select_legs(prices: pd.DataFrame, *, t1_leg: str = "near_dominant") -> pd.Da
     ordered = _highest_oi_first(prices)
     main = ordered.drop_duplicates(_KEY, keep="first")
     legs = _rename_leg(main, "main")
+    legs["main_limit_locked"] = _limit_locked(main).to_numpy()
 
     # `ordered` is already open-interest descending, so the first surviving row
     # of each group is the most heavily held one on that side of the dominant.
