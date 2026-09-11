@@ -45,6 +45,12 @@ class ReplicaConfig:
     restrict_to_named: bool = True
     min_products: int = 2
     exclude_limit_locked: bool = True
+    # Sizing, mirroring the production carry runner so two books facing the
+    # same question answer it the same way.
+    target_vol: float = 0.15
+    vol_window: int = 252
+    max_gross_leverage: float = 4.0
+    cost_bps: float = 4.0
     base_date: date = date(2010, 1, 4)
     base_value: float = 1000.0
 
