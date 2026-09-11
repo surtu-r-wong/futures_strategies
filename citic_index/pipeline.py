@@ -16,10 +16,11 @@ from datetime import date
 
 import pandas as pd
 
-from cta_carry.legreturns import build_leg_returns, forward_only_chain
+from cta_carry.legreturns import forward_only_chain
 
 from citic_index.factor import basis_momentum, term_structure
-from citic_index.index import accumulate, blended_returns
+from citic_index.index import accumulate
+from citic_index.returns import chain_returns
 from citic_index.legs import select_legs
 from citic_index.universe import pool_membership
 from citic_index.weights import assign_weights
@@ -36,6 +37,7 @@ class ReplicaConfig:
     t1_leg: str = "near_dominant"
     cadence: str = "daily"
     roll_blend: bool = True
+    return_basis: str = "close_to_prev_settle"
     liquidity_window: int = 20
     liquidity_threshold: float = 2e9
     min_listing_calendar_days: int = 90
@@ -60,7 +62,7 @@ class ReplicaResult:
     index: pd.DataFrame
 
 
-def _chain_returns(prices: pd.DataFrame, legs: pd.DataFrame, prefix: str) -> pd.DataFrame:
+def _leg_returns(prices, legs, prefix, *, basis, roll_blend) -> pd.DataFrame:
     picks = legs.loc[
         :, ["trade_date", "product", f"{prefix}_contract", f"{prefix}_delivery_yyyymm"]
     ].rename(
@@ -69,9 +71,11 @@ def _chain_returns(prices: pd.DataFrame, legs: pd.DataFrame, prefix: str) -> pd.
             f"{prefix}_delivery_yyyymm": "delivery_yyyymm",
         }
     )
-    returns = build_leg_returns(prices, forward_only_chain(picks))
-    return returns.loc[:, ["trade_date", "product", "leg_return"]].rename(
-        columns={"leg_return": f"{prefix}_return"}
+    returns = chain_returns(
+        prices, forward_only_chain(picks), basis=basis, roll_blend=roll_blend
+    )
+    return returns.loc[:, ["trade_date", "product", "product_return"]].rename(
+        columns={"product_return": f"{prefix}_return"}
     )
 
 
@@ -88,7 +92,10 @@ def build_replica(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaResult:
     legs = select_legs(prices, t1_leg=config.t1_leg)
     for prefix in ("t1", "t2"):
         legs = legs.merge(
-            _chain_returns(prices, legs, prefix),
+            _leg_returns(
+                prices, legs, prefix,
+                basis=config.return_basis, roll_blend=config.roll_blend,
+            ),
             on=["trade_date", "product"],
             how="left",
             validate="one_to_one",
@@ -141,7 +148,9 @@ def build_replica(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaResult:
             }
         )
     )
-    returns = blended_returns(prices, main_chain, roll_blend=config.roll_blend)
+    returns = chain_returns(
+        prices, main_chain, basis=config.return_basis, roll_blend=config.roll_blend
+    )
 
     index = accumulate(
         weights,

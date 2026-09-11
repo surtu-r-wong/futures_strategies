@@ -36,6 +36,9 @@ def _panel():
                         "contract": f"{product}{str(_DELIVERY[leg])[2:]}.DCE",
                         "delivery_yyyymm": _DELIVERY[leg],
                         "close": close,
+                        # Settlement one percent under the close on every bar, so
+                        # the two return conventions are distinguishable.
+                        "settle": close * 0.99,
                         "volume": 100.0,
                         "oi": _OI[leg],
                         "turnover": close * 100.0 * 10.0,
@@ -52,6 +55,9 @@ def _config(**overrides):
         liquidity_threshold=0.0,
         min_listing_calendar_days=0,
         base_date=DAYS[0],
+        # The hand-computed figures below are close-to-close; the settlement
+        # convention gets its own test rather than being folded into all of them.
+        return_basis="close_to_close",
     )
     base.update(overrides)
     return ReplicaConfig(**base)
@@ -125,3 +131,24 @@ def test_a_product_outside_the_named_universe_is_ranked_out_not_dropped_from_the
     assert factor.loc[(DAYS[2], "SA"), "basis_momentum"] == pytest.approx(-0.0475)
     assert bool(factor.loc[(DAYS[2], "SA"), "rankable"]) is False
     assert set(result.weights["product"]) == {"M", "Y"}
+
+
+def test_the_settlement_basis_reaches_the_factor_and_the_index():
+    # Settlement sits one percent under every close, so each leg return becomes
+    # (1+r)/0.99 and a two-day product picks up 1/0.99**2 = 1/0.9801.
+    #   T1: 1.21/0.9801 - 1 = 0.2345679,  T2: 1/0.9801 - 1 = 0.0203041
+    #   BM = (0.2345679 - 0.0203041) / 4 = 0.0535660
+    result = build_replica(_panel(), _config(return_basis="close_to_prev_settle"))
+    factor = result.factor.set_index(["trade_date", "product"])["basis_momentum"]
+    assert factor[(DAYS[2], "M")] == pytest.approx(0.05356596, abs=1e-8)
+
+    # The accrual is the same for every product, so it cannot move a rank.
+    weights = result.weights.set_index(["trade_date", "product"])["weight"]
+    assert weights[(DAYS[2], "M")] == pytest.approx(1 / 6)
+    assert weights[(DAYS[2], "C")] == pytest.approx(-1 / 6)
+
+    # It does move the index: M's dominant earns 102/99 - 1 and C's 96/99 - 1,
+    # so the day is (1/6)(0.0303030) + (-1/6)(-0.0303030) = 0.0101010.
+    index = result.index.set_index("trade_date")
+    assert index.loc[DAYS[3], "daily_return"] == pytest.approx(0.01010101, abs=1e-8)
+    assert index.loc[DAYS[3], "index_value"] == pytest.approx(1010.10101, abs=1e-4)

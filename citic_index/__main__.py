@@ -60,6 +60,11 @@ def _parse_args(argv=None):
                         help="comma-separated codes dropped before pooling")
 
     # 3.5 steps 2-5 -- ranking and accumulation
+    parser.add_argument("--return-basis",
+                        choices=("close_to_prev_settle", "close_to_close"),
+                        default="close_to_prev_settle",
+                        help="CITIC divides by the previous settlement; "
+                             "close_to_close is the tradeable convention")
     parser.add_argument("--cadence", choices=("daily", "monthly"), default="daily")
     parser.add_argument("--min-products", type=int, default=2)
     roll = parser.add_mutually_exclusive_group()
@@ -100,6 +105,7 @@ def main(argv=None) -> int:
         t1_leg=args.t1_leg,
         cadence=args.cadence,
         roll_blend=args.roll_blend,
+        return_basis=args.return_basis,
         liquidity_window=args.liquidity_window,
         liquidity_threshold=args.liquidity_threshold,
         min_listing_calendar_days=args.min_listing_calendar_days,
