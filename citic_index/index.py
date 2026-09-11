@@ -132,7 +132,11 @@ def accumulate(
         n_products=("product", "size"), daily_return=("contribution", "sum")
     )
 
-    days = [day for day in calendar if day >= base_date]
+    # The base date carries no return -- nothing has been struck yet -- so it is
+    # absent from both inputs and has to be put on the calendar deliberately.
+    # A published index that does not start at its own base point is wrong on
+    # its first row, and every level after it is quoted against nothing.
+    days = sorted({day for day in calendar if day >= base_date} | {base_date})
     out = pd.DataFrame({"trade_date": days}).join(per_day, on="trade_date")
     out["n_products"] = out["n_products"].fillna(0).astype(int)
     out["daily_return"] = out["daily_return"].fillna(0.0)
