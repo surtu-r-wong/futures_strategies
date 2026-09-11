@@ -11,6 +11,11 @@ it is the step list the index is computed from, and it matches the near leg in
 the term-structure methodology -- so 3.5 wins.  `t1_leg="main"` reproduces the
 other reading, which is what the shipped basis-momentum leg does; it is a
 switch so the attribution task can price the difference.
+
+`t1_leg="top_two_by_oi"` is 3.1's own reading, which neither of those matches:
+"较早到期的主力合约 T1" and "较晚到期的次主力合约 T2" against a 主力 that is the
+most held and a 次主力 that is the next most held, reads as the two most held
+contracts sorted by delivery -- so the dominant can land on either side.
 """
 
 import pandas as pd
@@ -37,7 +42,7 @@ LEG_COLUMNS = (
     "main_limit_locked",
 )
 
-_T1_LEGS = ("near_dominant", "main")
+_T1_LEGS = ("near_dominant", "main", "top_two_by_oi")
 _KEY = ["trade_date", "product"]
 
 
@@ -92,6 +97,9 @@ def select_legs(prices: pd.DataFrame, *, t1_leg: str = "near_dominant") -> pd.Da
     legs = _rename_leg(main, "main")
     legs["main_limit_locked"] = _limit_locked(main).to_numpy()
 
+    if t1_leg == "top_two_by_oi":
+        return _top_two_legs(ordered, main, legs)
+
     # `ordered` is already open-interest descending, so the first surviving row
     # of each group is the most heavily held one on that side of the dominant.
     with_main = ordered.merge(
@@ -130,6 +138,28 @@ def select_legs(prices: pd.DataFrame, *, t1_leg: str = "near_dominant") -> pd.Da
     legs["month_gap"] = [
         _month_gap(near, far)
         for near, far in zip(legs["t1_delivery_yyyymm"], legs["t2_delivery_yyyymm"])
+    ]
+    legs = legs.sort_values(_KEY, kind="mergesort")
+    return legs.loc[:, list(LEG_COLUMNS)].reset_index(drop=True)
+
+
+def _top_two_legs(ordered, main, legs):
+    """3.1's pair: the two most held contracts, ordered by delivery."""
+    top_two = ordered.groupby(_KEY, sort=False).head(2)
+    counts = top_two.groupby(_KEY, sort=False)["contract"].transform("size")
+    top_two = top_two.loc[counts.eq(2)]
+    if top_two.empty:
+        return pd.DataFrame(columns=list(LEG_COLUMNS))
+    by_delivery = top_two.sort_values(
+        _KEY + ["delivery_yyyymm"], kind="mergesort"
+    )
+    near = by_delivery.drop_duplicates(_KEY, keep="first")
+    far = by_delivery.drop_duplicates(_KEY, keep="last")
+    legs = legs.merge(_rename_leg(near, "t1"), on=_KEY, how="inner")
+    legs = legs.merge(_rename_leg(far, "t2"), on=_KEY, how="inner")
+    legs["month_gap"] = [
+        _month_gap(a, b)
+        for a, b in zip(legs["t1_delivery_yyyymm"], legs["t2_delivery_yyyymm"])
     ]
     legs = legs.sort_values(_KEY, kind="mergesort")
     return legs.loc[:, list(LEG_COLUMNS)].reset_index(drop=True)

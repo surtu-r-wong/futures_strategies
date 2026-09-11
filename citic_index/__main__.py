@@ -42,8 +42,11 @@ def _parse_args(argv=None):
     parser.add_argument("--smoothing", type=int, default=1,
                         help="arithmetic mean of the factor over this many days "
                              "(3.1's lookback, beside R)")
-    parser.add_argument("--t1-leg", choices=("near_dominant", "main"),
-                        default="near_dominant")
+    parser.add_argument("--t1-leg",
+                        choices=("near_dominant", "main", "top_two_by_oi"),
+                        default="near_dominant",
+                        help="3.5 step 1 reads near_dominant; 3.1 reads "
+                             "top_two_by_oi; main is what the shipped leg does")
     gap = parser.add_mutually_exclusive_group()
     gap.add_argument("--normalise-by-gap", dest="normalise_by_gap",
                      action="store_true", default=True)

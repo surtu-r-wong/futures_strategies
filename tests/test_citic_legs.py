@@ -138,3 +138,44 @@ def test_every_product_day_gets_its_own_row():
         (date(2024, 3, 4), "M"),
     ]
     assert legs.loc[legs["product"] == "Y", "t1_contract"].item() == "Y2405.DCE"
+
+
+def test_top_two_by_oi_orders_the_two_most_held_contracts_by_expiry():
+    # 3.1's reading: 主力 is the most held and 次主力 the next most held, then
+    # T1 is "较早到期的主力合约" and T2 "较晚到期的次主力合约" -- so the pair is
+    # the top two on open interest, sorted by delivery.  Here that is M2405 and
+    # M2403, which makes T1 the nearer of them and T2 the further.
+    frame = _day(
+        [
+            ("M2401.DCE", 202401, 10000, 3200.0),
+            ("M2403.DCE", 202403, 60000, 3100.0),
+            ("M2405.DCE", 202405, 90000, 3000.0),
+            ("M2409.DCE", 202409, 50000, 2950.0),
+        ]
+    )
+    row = select_legs(frame, t1_leg="top_two_by_oi").iloc[0]
+    assert row["main_contract"] == "M2405.DCE"
+    assert row["t1_contract"] == "M2403.DCE"
+    assert row["t2_contract"] == "M2405.DCE"
+    assert row["month_gap"] == 2   # 202403 -> 202405
+
+
+def test_top_two_by_oi_can_put_the_dominant_on_the_near_side():
+    # When the second most held expires after the dominant, the dominant is the
+    # near leg -- the pair is ordered by expiry, not by which is dominant.
+    frame = _day(
+        [
+            ("M2405.DCE", 202405, 90000, 3000.0),
+            ("M2409.DCE", 202409, 60000, 2950.0),
+            ("M2401.DCE", 202401, 10000, 3200.0),
+        ]
+    )
+    row = select_legs(frame, t1_leg="top_two_by_oi").iloc[0]
+    assert row["t1_contract"] == "M2405.DCE"
+    assert row["t2_contract"] == "M2409.DCE"
+    assert row["month_gap"] == 4
+
+
+def test_top_two_by_oi_drops_a_product_with_only_one_contract():
+    frame = _day([("M2405.DCE", 202405, 90000, 3000.0)])
+    assert select_legs(frame, t1_leg="top_two_by_oi").empty
