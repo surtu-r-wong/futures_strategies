@@ -59,5 +59,13 @@ echo "[start] $(date -Is) as_of=$AS_OF end=$END capital=$CAPITAL commit=$(git re
   --emit-next-targets --capital "$CAPITAL" \
   --output-prefix "$PREFIX" 2>&1 | tee -a "$LOG"
 RC=${PIPESTATUS[0]}
+# Accept-or-reject the sheet before anyone trades it. This only reports: the run's
+# own exit code still decides. Swap the last line for `exit "$CHECK_RC"` (or `exit
+# $(( RC || CHECK_RC ))`) to make a failed check block the sheet.
+if [ "$RC" -eq 0 ]; then
+  .venv/bin/python scripts/check_daily_sheet.py "${PREFIX}.xlsx" 2>&1 | tee -a "$LOG"
+  CHECK_RC=${PIPESTATUS[0]}
+  echo "[check] $(date -Is) end=$END check_rc=$CHECK_RC" >> "$LOG"
+fi
 echo "[exit] $(date -Is) end=$END rc=$RC" >> "$LOG"
 exit "$RC"
