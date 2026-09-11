@@ -80,8 +80,25 @@ def _leg_returns(prices, legs, prefix, *, basis, roll_blend) -> pd.DataFrame:
     )
 
 
-def build_replica(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaResult:
-    """Run the whole pipeline over normalised contract bars."""
+@dataclass(frozen=True)
+class ReplicaPanel:
+    """Everything that does not depend on the factor's parameters.
+
+    The pool, the legs, their chain returns and the index leg are fixed once the
+    universe, the T1 rule and the return basis are chosen; R, the smoothing and
+    the cadence only enter afterwards.  Splitting there turns a parameter sweep
+    from ninety seconds a point into a few, which is the difference between
+    scanning a grid and reporting one point of it.
+    """
+
+    prices: pd.DataFrame
+    pool: pd.DataFrame
+    legs: pd.DataFrame
+    returns: pd.DataFrame
+
+
+def build_panel(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaPanel:
+    """The factor-independent half of the pipeline."""
     pool = pool_membership(
         prices,
         liquidity_window=config.liquidity_window,
@@ -102,6 +119,25 @@ def build_replica(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaResult:
             validate="one_to_one",
         )
 
+    main_chain = forward_only_chain(
+        legs.loc[
+            :, ["trade_date", "product", "main_contract", "main_delivery_yyyymm"]
+        ].rename(
+            columns={
+                "main_contract": "contract",
+                "main_delivery_yyyymm": "delivery_yyyymm",
+            }
+        )
+    )
+    returns = chain_returns(
+        prices, main_chain, basis=config.return_basis, roll_blend=config.roll_blend
+    )
+    return ReplicaPanel(prices=prices, pool=pool, legs=legs, returns=returns)
+
+
+def build_from_panel(panel: ReplicaPanel, config: ReplicaConfig) -> ReplicaResult:
+    """The factor-dependent half: rank, weigh and accumulate."""
+    legs, pool = panel.legs, panel.pool
     if config.factor_kind == "basis_momentum":
         factor = basis_momentum(
             legs,
@@ -140,26 +176,22 @@ def build_replica(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaResult:
         min_products=config.min_products,
     )
 
-    main_chain = forward_only_chain(
-        legs.loc[
-            :, ["trade_date", "product", "main_contract", "main_delivery_yyyymm"]
-        ].rename(
-            columns={
-                "main_contract": "contract",
-                "main_delivery_yyyymm": "delivery_yyyymm",
-            }
-        )
-    )
-    returns = chain_returns(
-        prices, main_chain, basis=config.return_basis, roll_blend=config.roll_blend
-    )
-
     index = accumulate(
         weights,
-        returns,
+        panel.returns,
         base_date=config.base_date,
         base_value=config.base_value,
     )
     return ReplicaResult(
-        pool=pool, legs=legs, factor=factor, weights=weights, returns=returns, index=index
+        pool=pool,
+        legs=legs,
+        factor=factor,
+        weights=weights,
+        returns=panel.returns,
+        index=index,
     )
+
+
+def build_replica(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaResult:
+    """Both halves, for a single run."""
+    return build_from_panel(build_panel(prices, config), config)
