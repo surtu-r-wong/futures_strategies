@@ -1,5 +1,17 @@
 # 国信道氏理论：全历史复刻验收
 
+> **⚠️ 2026-09-15：登记读法已变更，本文全部数字是变更前的（`--breakout-reference segment`）**
+>
+> 用户裁决把 D5 入场参照升为「第一高点」（`prior_extreme` —— 研报公式块的 `lastmax_1`、
+> 图 13 标注的那个点），CLI 默认与保真度台账已改（commit 见 git log）。
+> **本文一个数都不改**：结论表、逐年表、状态机计数、成交计价、选池历史都是 `segment`
+> 读法下那一次真跑的记录，改了它就不再是那次跑的记录。
+>
+> 新读法下的对照数已在 `2026-09-03-guosen-dow-iron-ore-layers.md` §6 跑出来 ——
+> 样本内 **5.79% / 夏普 0.36 / 回撤 28.8%**，样本外 **−0.1% / −0.01**，
+> 毛 **18.3% / 1.16**，成本 11.3%/年，日换手 3.57 —— 但那是标着 `sensitivity_only`
+> 的旁路产物。**新的登记产物与本文的替代版待重跑**，见 §11。
+
 日期：2026-09-02
 分支 `feature/guosen-bollinger-dow`，运行 commit `679dd7e`（代码状态见 §1.1）
 复刻对象：国信证券《CTA 系列专题之四：基于道氏理论的商品期货交易策略》
@@ -256,3 +268,20 @@ literal 产物：`output/guosen_dow_literal.{xlsx,png,audit.json}` + `guosen_dow
 - 没有调任何参数、没有改状态机规则、没有换成本假设（计划硬规）。
 - 没有在样本外做任何口径选择（`IN_SAMPLE_END` 之后的段只看不动）。
 - 研报的成本口径与调仓节拍未披露，本文不猜；毛/净两口径都给出，由读者判断。
+
+## 11. 待重跑：登记读法改为 `prior_extreme` 之后（2026-09-15）
+
+D5 升为登记读法后，本文的登记产物 `output/guosen_dow.*` 是旧读法下的，需要重发一次：
+
+1. 在 WSL2 上用**新默认**（不传 `--breakout-reference`）重跑全历史，面板
+   `output/commodity-panel-v1`，区间 2012-01-04..2026-01-30，其余参数不动。
+2. 产出的 `audit.json` 必须满足 `run_config.breakout_reference == "prior_extreme"`
+   且 `sensitivity_only == false`（`tests/test_dow_cli.py::test_the_default_run_is_not_a_sensitivity`
+   钉的就是这一条 —— 升级读法时最容易漏掉 `sensitivity_only` 那一侧的判定）。
+3. 按本文结构重写一份验收，与 §0 逐项对照；预期落在 09-03 文档 §6 的
+   `guosen_dow_prior` 那一行附近，但**以重跑结果为准，不要照抄**。
+4. 顺带核一件事：新读法下 D6 的 latched / literal 之分在持续趋势里会消失
+   （突破从「创新高」的增量条件变成「越过上一同向段极值」的水平条件），
+   §7 的 literal 敏感性因此会与 latched 趋同。`--run-literal-sensitivity` 仍然照跑，
+   但那一节的解读要改写。合成夹具上的这个性质已被
+   `tests/test_dow_shadow.py::test_under_the_registered_reading_the_literal_gate_stops_biting` 钉住。

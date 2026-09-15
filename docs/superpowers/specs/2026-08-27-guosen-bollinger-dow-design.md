@@ -314,7 +314,17 @@ lastmax1 < lastmax2
 Close_t <= tempmin_before_t
 ```
 
-最后一个条件先比较当前收盘价和本 bar 之前的临时极值，再把当前 bar 的高低价纳入极值。若先更新极值，`Close >= current High` 或 `Close <= current Low` 几乎只会在收盘恰等于最高/最低价时成立，与“突破”语义不符。
+最后一个条件先比较当前收盘价和本 bar 之前的极值，再把当前 bar 的高低价纳入极值。若先更新极值，`Close >= current High` 或 `Close <= current Low` 几乎只会在收盘恰等于最高/最低价时成立，与“突破”语义不符。
+
+> **⚠️ 2026-09-15 用户裁决：参照物已改，上面公式块里的 `tempmax_before_t` / `tempmin_before_t` 不再是登记读法。**
+>
+> 登记读法改为**上一同向段的整段极值** `lastmax_1` / `lastmin_1`（即 `Close_t >= lastmax1` / `Close_t <= lastmin1`）——研报公式块定义了它、图 13 标注的也是它，而研报正文的条件没用上。规格两处矛盾时取公式块＋配图。CLI 默认 `--breakout-reference prior_extreme`；本节原文那条读法降为变体 `--breakout-reference segment`，产物标 `sensitivity_only`。
+>
+> 「先比较、后纳入」这条顺序**两条读法都适用**，没有变。
+>
+> 两者形状不同：`prior_extreme` 是**水平**条件（参照物在整段内固定，价格不跌回去就一直成立），`segment` 是**增量**条件（每次都要创新高）。因此下一段「不要求每根 bar 重复突破」在新读法下的可观测性大为降低——持续趋势里每根都算突破，D6 的 latched / literal 变体会趋同。
+>
+> 依据与实测见 `docs/research/2026-09-02-guosen-replication-gap-diagnosis.md` §7.3 与 `2026-09-03-guosen-dow-iron-ore-layers.md` §6。
 
 入场后锁存方向，持有到初步趋势切换或拐点条件失效。不要求每根 bar 重复突破临时极值。报告另跑“不锁存、逐 bar 重验全部三道闸”的字面敏感性变体，但不得据此挑选结果。
 
