@@ -63,9 +63,7 @@ def assign_weights(
     struck: dict = {}
     rows = []
     for trade_date, day in ready.groupby("trade_date", sort=True):
-        cross_section = day.sort_values(
-            ["basis_momentum", "product"], kind="mergesort"
-        )
+        cross_section = day.sort_values(["basis_momentum", "product"], kind="mergesort")
         if len(cross_section) < min_products:
             continue
         if trade_date in rebalance_days:
@@ -108,3 +106,27 @@ def assign_weights(
     out = pd.concat(rows, ignore_index=True)
     out = out.sort_values(["trade_date", "product"], kind="mergesort")
     return out.loc[:, list(WEIGHT_COLUMNS)].reset_index(drop=True)
+
+
+def equal_vol_weights(cross_section: pd.DataFrame) -> pd.Series:
+    """CITIC 026's 3.3: equal-volatility sizing, signed by 3.5 step 2.
+
+        w_1 sigma_1^2 = ... = w_N sigma_N^2,  sum(w) = 1
+
+    which solves to `w_i proportional to 1/sigma_i^2`, normalised.  The sizes
+    are set by volatility alone; `direction` only orients them, so a product
+    sitting flat keeps its share of the budget at zero weight rather than
+    handing it to the others.
+
+    **The result is not zero-sum.** 3.3 fixes the sizes to sum to one and 3.5
+    step 2 signs each independently, so 026 carries net exposure -- unlike
+    023/025/027, whose rank weights cancel by construction.
+    """
+    if cross_section.empty:
+        return pd.Series(dtype="float64")
+    sigma = cross_section["sigma"].astype("float64")
+    if not (sigma > 0).all():
+        raise ValueError("equal_vol_weights: sigma must be positive for every product")
+    inverse_variance = 1.0 / sigma.pow(2)
+    sizes = inverse_variance / inverse_variance.sum()
+    return sizes * cross_section["direction"].astype("float64")

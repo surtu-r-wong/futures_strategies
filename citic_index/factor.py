@@ -27,6 +27,15 @@ TERM_STRUCTURE_COLUMNS = (
     "term_structure",
 )
 
+TS_MOMENTUM_COLUMNS = (
+    "trade_date",
+    "product",
+    "ts_momentum",
+    "direction",
+    "sigma",
+    "ts_ready",
+)
+
 WAREHOUSE_RECEIPT_COLUMNS = (
     "trade_date",
     "product",
@@ -161,7 +170,8 @@ def term_structure(
 
     grouped = frame["roll_yield"].groupby(frame["product"], sort=False)
     frame["ts_observations"] = (
-        frame["roll_yield"].notna()
+        frame["roll_yield"]
+        .notna()
         .groupby(frame["product"], sort=False)
         .rolling(lookback, min_periods=1)
         .sum()
@@ -242,9 +252,7 @@ def warehouse_receipt(
     if receipts.empty:
         return pd.DataFrame(columns=list(WAREHOUSE_RECEIPT_COLUMNS))
 
-    frame = receipts.sort_values(
-        ["product", "trade_date"], kind="mergesort"
-    ).copy()
+    frame = receipts.sort_values(["product", "trade_date"], kind="mergesort").copy()
     values = frame["receipts"].astype("float64")
     by_product = values.groupby(frame["product"], sort=False)
 
@@ -258,22 +266,23 @@ def warehouse_receipt(
         shifted.groupby(frame["product"], sort=False),
         lambda g: g.rolling(baseline_window, min_periods=baseline_window).mean(),
     )
-    frame["wr_observations"] = (
-        _per_product(
-            shifted.notna().groupby(frame["product"], sort=False),
-            lambda g: g.rolling(baseline_window, min_periods=1).sum(),
-        )
-        .astype("Int64")
-    )
+    frame["wr_observations"] = _per_product(
+        shifted.notna().groupby(frame["product"], sort=False),
+        lambda g: g.rolling(baseline_window, min_periods=1).sum(),
+    ).astype("Int64")
     if smoothing_target == "level":
         frame["wr_recent"] = _per_product(
             by_product, lambda g: g.rolling(lookback, min_periods=lookback).mean()
         )
         frame["wr_ready"] = (
-            frame["wr_recent"].notna()
-            & frame["wr_baseline"].notna()
-            & frame["wr_baseline"].gt(0)
-        ).fillna(False).astype(bool)
+            (
+                frame["wr_recent"].notna()
+                & frame["wr_baseline"].notna()
+                & frame["wr_baseline"].gt(0)
+            )
+            .fillna(False)
+            .astype(bool)
+        )
         raw = frame["wr_recent"] / frame["wr_baseline"] - 1.0
     else:
         # Each day divided by the baseline standing under it, then averaged.
@@ -292,3 +301,67 @@ def warehouse_receipt(
     frame = frame.sort_values(["trade_date", "product"], kind="mergesort")
     return frame.loc[:, list(WAREHOUSE_RECEIPT_COLUMNS)].reset_index(drop=True)
 
+
+def time_series_momentum(
+    returns: pd.DataFrame,
+    *,
+    lookback: int,
+    vol_window: int,
+) -> pd.DataFrame:
+    """CITIC 026's factor, per 3.1 and 3.5 steps 1-3.
+
+        r_k = prod(1 + r_nk) over the lookback, direction = sign(r_k - 1)
+
+    026 is not a cross-sectional strategy.  3.5 step 2 reads each product's own
+    momentum sign to decide long or short, where 023/025/027 rank products
+    against each other; the sizing then comes from `weights.equal_vol_weights`.
+
+    3.1 writes the factor as a *sum* of returns, `I(sum r > 0)`, while 3.5 step 1
+    writes a *product*, `prod(1 + r)`.  They agree in sign for small moves and
+    can disagree for large ones (+50% then -40% sums to +10% but compounds to
+    -10%), so the operational section is followed.
+
+    A momentum of exactly zero takes no position rather than a short.  `I(.)`
+    is false at zero by the letter, but shorting something that has not moved is
+    an artefact of the notation rather than a statement about the market.
+
+    `vol_window` has to be a parameter even though 3.1 says the strategy
+    "只有一个参数即回望周期": 3.5 step 3 begins "历史波动率定义为" and never
+    finishes the sentence, so the document does not define it.
+    """
+    if lookback < 1:
+        raise ValueError("lookback must be at least one trading day")
+    if vol_window < 2:
+        raise ValueError("vol_window must be at least two trading days")
+    if returns.empty:
+        return pd.DataFrame(columns=list(TS_MOMENTUM_COLUMNS))
+
+    frame = returns.sort_values(["product", "trade_date"], kind="mergesort").copy()
+    r = frame["product_return"].astype("float64")
+    grouped = (1.0 + r).groupby(frame["product"], sort=False)
+
+    compounded = (
+        grouped.rolling(lookback, min_periods=lookback)
+        .apply(np.prod, raw=True)
+        .reset_index(level=0, drop=True)
+    )
+    frame["ts_momentum"] = compounded - 1.0
+    frame["sigma"] = (
+        r.groupby(frame["product"], sort=False)
+        .rolling(vol_window, min_periods=vol_window)
+        .std()
+        .reset_index(level=0, drop=True)
+    )
+    frame["ts_ready"] = (
+        (frame["ts_momentum"].notna() & frame["sigma"].notna() & frame["sigma"].gt(0))
+        .fillna(False)
+        .astype(bool)
+    )
+    frame["direction"] = (
+        np.sign(frame["ts_momentum"]).where(frame["ts_ready"], 0.0).astype("int64")
+    )
+    frame["ts_momentum"] = frame["ts_momentum"].where(frame["ts_ready"])
+    frame["sigma"] = frame["sigma"].where(frame["ts_ready"])
+
+    frame = frame.sort_values(["trade_date", "product"], kind="mergesort")
+    return frame.loc[:, list(TS_MOMENTUM_COLUMNS)].reset_index(drop=True)
