@@ -155,3 +155,52 @@ def test_an_empty_frame_returns_the_declared_columns():
     )
     assert tuple(out.columns) == WAREHOUSE_RECEIPT_COLUMNS
     assert out.empty
+
+
+def test_the_two_smoothing_targets_agree_while_the_baseline_stands_still():
+    """023's §3.1 says the p-day mean is of 仓单数量 -- the level -- and §3.5 step 1
+    repeats it as 仓单平均值/仓单平均值.  025's §3.1 averages the *factor* instead:
+    "回望周期即将回望周期内的期限结构值算术平均值作为…因子值", which is what
+    `term_structure` implements.
+
+    With one constant baseline under both recent days the two coincide:
+    mean(150,250)/100 - 1 = 1.0, and mean(150/100-1, 250/100-1) = 1.0.
+    """
+    values = [100, 100, 100, 100, 150, 250]
+    kw = dict(lookback=2, baseline_lag=2, baseline_window=1)
+    level = warehouse_receipt(_receipts(values), smoothing_target="level", **kw)
+    ratio = warehouse_receipt(_receipts(values), smoothing_target="ratio", **kw)
+    assert level["warehouse_receipt"].iloc[-1] == pytest.approx(1.0, abs=1e-12)
+    assert ratio["warehouse_receipt"].iloc[-1] == pytest.approx(1.0, abs=1e-12)
+
+
+def test_the_two_smoothing_targets_separate_once_the_baseline_moves():
+    """Baselines 100 and 200 under the two recent days.
+
+    level divides the averaged numerator by the baseline standing at t:
+        mean(150,250) / 200 - 1 = 0.0
+    ratio divides each day by its own baseline, then averages:
+        mean(150/100 - 1, 250/200 - 1) = mean(0.5, 0.25) = 0.375
+
+    023's document is demonstrably a rewrite of 025's -- it carries 025's 升贴水
+    through a sentence whose every other term was changed to receipts -- so a
+    rewrite of the code that kept 025's placement of the mean is a live
+    possibility, and this is the shape it would take.
+    """
+    values = [999, 999, 100, 200, 150, 250]
+    kw = dict(lookback=2, baseline_lag=2, baseline_window=1)
+    level = warehouse_receipt(_receipts(values), smoothing_target="level", **kw)
+    ratio = warehouse_receipt(_receipts(values), smoothing_target="ratio", **kw)
+    assert level["warehouse_receipt"].iloc[-1] == pytest.approx(0.0, abs=1e-12)
+    assert ratio["warehouse_receipt"].iloc[-1] == pytest.approx(0.375, abs=1e-12)
+
+
+def test_an_unknown_smoothing_target_is_refused():
+    with pytest.raises(ValueError, match="smoothing_target"):
+        warehouse_receipt(
+            _receipts([100, 100, 10, 10, 150, 250]),
+            lookback=2,
+            baseline_lag=4,
+            baseline_window=2,
+            smoothing_target="moon",
+        )

@@ -89,6 +89,10 @@ def _parse_args(argv=None):
                         help="023 only: the baseline window ends this many days back")
     parser.add_argument("--baseline-window", type=int, default=100,
                         help="023 only: how many days that baseline window spans")
+    parser.add_argument("--smoothing-target", default="level",
+                        choices=("level", "ratio"),
+                        help="023 only: average the receipt level (023's wording)"
+                        " or the daily factor (025's placement)")
     parser.add_argument("--base-value", type=float, default=1000.0)
     return parser.parse_args(argv)
 
@@ -162,6 +166,7 @@ def main(argv=None) -> int:
         exclude_limit_locked=args.exclude_limit_locked,
         baseline_lag=args.baseline_lag,
         baseline_window=args.baseline_window,
+        smoothing_target=args.smoothing_target,
         base_date=args.base_date,
         base_value=args.base_value,
     )

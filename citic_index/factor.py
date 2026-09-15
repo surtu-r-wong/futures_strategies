@@ -186,6 +186,7 @@ def warehouse_receipt(
     lookback: int,
     baseline_lag: int = 200,
     baseline_window: int = 100,
+    smoothing_target: str = "level",
 ) -> pd.DataFrame:
     """CITIC 023's factor, per 3.1 and 3.5 step 1.
 
@@ -211,6 +212,22 @@ def warehouse_receipt(
     paper gives no guard for it (§3.1 has none and §3.2's special adjustments
     cover only limit-locked and delisted products), so the house rule applies:
     no evidence, no coverage.
+
+    ``smoothing_target`` is where the p-day mean is taken, and the two readings
+    are not equivalent once the baseline moves:
+
+    - ``"level"`` (default, 023's own words) averages the receipt counts and
+      divides once: 3.1's "多少个回望周期 p 的平均仓单数量", repeated by 3.5
+      step 1 as "仓单平均值/仓单平均值".
+    - ``"ratio"`` averages the daily factor instead, which is what 025's 3.1
+      prescribes -- "回望周期即将回望周期内的期限结构值算术平均值作为…因子值" --
+      and what ``term_structure`` above implements.
+
+    The second is worth being able to test because 023's document is demonstrably
+    a rewrite of 025's: it carries 025's 升贴水 through a sentence whose every
+    other term was changed to receipts.  A rewrite of the *code* that kept 025's
+    placement of the mean would look exactly like this switch.  The default
+    follows 023's own words; anything else has to be argued from evidence.
     """
     if lookback < 1:
         raise ValueError("lookback must be at least one trading day")
@@ -218,6 +235,10 @@ def warehouse_receipt(
         raise ValueError("baseline_lag must be at least one trading day")
     if baseline_window < 1:
         raise ValueError("baseline_window must be at least one trading day")
+    if smoothing_target not in ("level", "ratio"):
+        raise ValueError(
+            f"smoothing_target must be 'level' or 'ratio'; got {smoothing_target!r}"
+        )
     if receipts.empty:
         return pd.DataFrame(columns=list(WAREHOUSE_RECEIPT_COLUMNS))
 
@@ -232,9 +253,6 @@ def warehouse_receipt(
 
     # min_periods equal to the window means a NaN anywhere in it yields NaN,
     # so a gap cannot be averaged away by the surviving days.
-    frame["wr_recent"] = _per_product(
-        by_product, lambda g: g.rolling(lookback, min_periods=lookback).mean()
-    )
     shifted = values.groupby(frame["product"], sort=False).shift(baseline_lag)
     frame["wr_baseline"] = _per_product(
         shifted.groupby(frame["product"], sort=False),
@@ -247,14 +265,29 @@ def warehouse_receipt(
         )
         .astype("Int64")
     )
-    frame["wr_ready"] = (
-        frame["wr_recent"].notna()
-        & frame["wr_baseline"].notna()
-        & frame["wr_baseline"].gt(0)
-    ).fillna(False).astype(bool)
-    frame["warehouse_receipt"] = (
-        frame["wr_recent"] / frame["wr_baseline"] - 1.0
-    ).where(frame["wr_ready"])
+    if smoothing_target == "level":
+        frame["wr_recent"] = _per_product(
+            by_product, lambda g: g.rolling(lookback, min_periods=lookback).mean()
+        )
+        frame["wr_ready"] = (
+            frame["wr_recent"].notna()
+            & frame["wr_baseline"].notna()
+            & frame["wr_baseline"].gt(0)
+        ).fillna(False).astype(bool)
+        raw = frame["wr_recent"] / frame["wr_baseline"] - 1.0
+    else:
+        # Each day divided by the baseline standing under it, then averaged.
+        daily = (values / frame["wr_baseline"] - 1.0).where(frame["wr_baseline"].gt(0))
+        frame["wr_recent"] = _per_product(
+            values.groupby(frame["product"], sort=False),
+            lambda g: g.rolling(lookback, min_periods=lookback).mean(),
+        )
+        raw = _per_product(
+            daily.groupby(frame["product"], sort=False),
+            lambda g: g.rolling(lookback, min_periods=lookback).mean(),
+        )
+        frame["wr_ready"] = raw.notna().fillna(False).astype(bool)
+    frame["warehouse_receipt"] = raw.where(frame["wr_ready"])
 
     frame = frame.sort_values(["trade_date", "product"], kind="mergesort")
     return frame.loc[:, list(WAREHOUSE_RECEIPT_COLUMNS)].reset_index(drop=True)

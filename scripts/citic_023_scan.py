@@ -50,6 +50,9 @@ def main(argv=None) -> int:
         default="close_to_prev_settle",
         choices=("close_to_prev_settle", "close_to_close"),
     )
+    parser.add_argument(
+        "--smoothing-target", default="level", choices=("level", "ratio")
+    )
     parser.add_argument("--out", default="output/citic/scan_023.csv")
     args = parser.parse_args(argv)
 
@@ -68,6 +71,7 @@ def main(argv=None) -> int:
         factor_kind="warehouse_receipt",
         restrict_to_named=not args.open_universe,
         return_basis=args.return_basis,
+        smoothing_target=args.smoothing_target,
     )
     started = time.time()
     panel = build_panel(prices, base, receipts=receipts)
@@ -82,6 +86,7 @@ def main(argv=None) -> int:
             baseline_window=args.baseline_window,
             restrict_to_named=not args.open_universe,
             return_basis=args.return_basis,
+            smoothing_target=args.smoothing_target,
         )
         began = time.time()
         result = build_from_panel(panel, config)

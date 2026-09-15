@@ -37,6 +37,10 @@ class ReplicaConfig:
     # ending at t-200.  Only the warehouse_receipt factor reads these.
     baseline_lag: int = 200
     baseline_window: int = 100
+    # Where 023's p-day mean is taken: "level" is its own wording (average the
+    # receipt counts, divide once), "ratio" is 025's placement (average the
+    # daily factor).  See citic_index.factor.warehouse_receipt.
+    smoothing_target: str = "level"
     min_observations: int = 450
     smoothing: int = 1
     normalise_by_gap: bool = True
@@ -192,6 +196,7 @@ def build_from_panel(panel: ReplicaPanel, config: ReplicaConfig) -> ReplicaResul
             lookback=config.window,
             baseline_lag=config.baseline_lag,
             baseline_window=config.baseline_window,
+            smoothing_target=config.smoothing_target,
         )
         # Same handover as the control arm -- the ranking layer speaks one
         # vocabulary -- but with the sign flipped, and that is not cosmetic.
