@@ -45,14 +45,23 @@ def test_switch_closes_the_previous_segment_and_starts_with_current_bar() -> Non
     assert state.segment_low == 7.0
 
 
-def test_correction_uses_current_running_extreme_but_breakout_uses_prior_extreme() -> (
+def test_correction_uses_current_running_extreme_but_breakout_uses_the_pre_bar_extreme() -> (
     None
 ):
+    """`segment` 变体：突破参照是本 bar 之前的段内极值。（名字里的「pre bar」说的是
+    bar 的先后，不是 `prior_extreme` 那条读法 —— 后者自 2026-09-15 起才是登记默认。）"""
     state = prepared_up_state(
         segment_high=12.0, segment_low=10.0, last_down_lows=(9.0, 8.0)
     )
 
-    decision = inspect_bar(state, trend=Trend.UP, high=13.0, low=9.5, close=12.1)
+    decision = inspect_bar(
+        state,
+        trend=Trend.UP,
+        high=13.0,
+        low=9.5,
+        close=12.1,
+        breakout_reference="segment",
+    )
 
     assert isinstance(decision, SegmentDecision)
     assert decision.turning_valid is True
@@ -68,7 +77,14 @@ def test_a_close_equal_to_the_prior_peak_is_a_breakout() -> None:
         segment_high=12.0, segment_low=10.0, last_down_lows=(9.0, 8.0)
     )
 
-    decision = inspect_bar(state, trend=Trend.UP, high=12.0, low=11.0, close=12.0)
+    decision = inspect_bar(
+        state,
+        trend=Trend.UP,
+        high=12.0,
+        low=11.0,
+        close=12.0,
+        breakout_reference="segment",
+    )
 
     assert decision.close_breakout is True
 
@@ -80,7 +96,14 @@ def test_the_breakout_is_measured_before_this_bar_joins_the_extreme() -> None:
         segment_high=12.0, segment_low=10.0, last_down_lows=(9.0, 8.0)
     )
 
-    decision = inspect_bar(state, trend=Trend.UP, high=20.0, low=11.0, close=12.5)
+    decision = inspect_bar(
+        state,
+        trend=Trend.UP,
+        high=20.0,
+        low=11.0,
+        close=12.5,
+        breakout_reference="segment",
+    )
 
     assert decision.close_breakout is True
     assert decision.next_state.segment_high == 20.0
@@ -115,7 +138,14 @@ def test_down_mirrors_up() -> None:
         segment_high=10.0, segment_low=8.0, last_up_highs=(11.0, 12.0)
     )
 
-    decision = inspect_bar(state, trend=Trend.DOWN, high=10.5, low=7.0, close=7.9)
+    decision = inspect_bar(
+        state,
+        trend=Trend.DOWN,
+        high=10.5,
+        low=7.0,
+        close=7.9,
+        breakout_reference="segment",
+    )
 
     assert decision.turning_valid is True  # candidate high 10.5 < 11.0
     assert decision.dow_resonance is True  # 11.0 < 12.0
@@ -209,7 +239,7 @@ def test_prior_extreme_reference_measures_the_breakout_against_the_last_same_sid
 ):
     """研报公式块在上升趋势下定义了 lastmax_1（上一上升段最高价），正文条件却没用它；
     图 13 标注的也是「第一高点」。这条读法把突破参照换成它：收盘要越过上一上升段的整段高点，
-    而不是本段此前的临时高点。默认读法不动。"""
+    而不是本段此前的临时高点。2026-09-15 用户裁决升为登记默认；`segment` 留作变体。"""
     state = prepared_up_state(
         segment_high=12.0, segment_low=10.0, last_down_lows=(9.0, 8.0)
     )
@@ -231,7 +261,12 @@ def test_prior_extreme_reference_measures_the_breakout_against_the_last_same_sid
     assert below.close_breakout is False
     assert (
         inspect_bar(
-            state, trend=Trend.UP, high=13.0, low=11.0, close=12.5
+            state,
+            trend=Trend.UP,
+            high=13.0,
+            low=11.0,
+            close=12.5,
+            breakout_reference="segment",
         ).close_breakout
         is True
     )
@@ -264,6 +299,10 @@ def test_prior_extreme_reference_has_no_breakout_without_a_previous_same_side_se
 
 
 def test_prior_extreme_reference_mirrors_for_a_down_segment() -> None:
+    """下降段：收盘要跌破上一下降段的整段低点。
+
+    三个点都要测。原先只有 close == 8.0 那个边界点，而 `close <= 8.0` 与 `close >= 8.0`
+    在该点同为真 —— 把比较方向整个反过来用例也不红（2026-09-15 变异验证抓到）。"""
     state = SegmentState(
         trend=Trend.DOWN,
         segment_high=12.0,
@@ -271,16 +310,55 @@ def test_prior_extreme_reference_mirrors_for_a_down_segment() -> None:
         last_up_highs=(13.0, 14.0),
         last_down_lows=(8.0,),
     )
-    decision = inspect_bar(
-        state,
-        trend=Trend.DOWN,
-        high=11.0,
-        low=7.5,
-        close=8.0,
-        breakout_reference="prior_extreme",
+
+    def at(close: float, *, low: float = 7.5):
+        return inspect_bar(
+            state,
+            trend=Trend.DOWN,
+            high=11.0,
+            low=low,
+            close=close,
+            breakout_reference="prior_extreme",
+        )
+
+    on_the_line = at(8.0)
+    assert on_the_line.close_breakout is True  # 边界：收盘恰等于前低算突破
+    assert on_the_line.dow_resonance is True
+    assert at(7.5).close_breakout is True  # 跌破
+    assert at(8.5, low=8.2).close_breakout is False  # 没跌破 —— 方向钉在这一行
+
+
+def test_inspect_bar_defaults_to_the_prior_extreme_reading() -> None:
+    """登记默认自 2026-09-15 起是 `prior_extreme`。`run_shadow_product` 总是把读法显式
+    传下来，所以这个默认值只有这条用例钉得住 —— 漏了它，默认悄悄退回 segment 不会有人红。
+
+    夹具刻意选在两条读法给出相反答案的点上：收盘 12.5 越过了本段临时高点 12.0（segment
+    会判突破），但没到上一上升段的 15.0（prior_extreme 不判）。"""
+    state = prepared_up_state(
+        segment_high=12.0, segment_low=10.0, last_down_lows=(9.0, 8.0)
     )
-    assert decision.close_breakout is True
-    assert decision.dow_resonance is True
+    state = SegmentState(
+        trend=state.trend,
+        segment_high=state.segment_high,
+        segment_low=state.segment_low,
+        last_up_highs=(15.0,),
+        last_down_lows=state.last_down_lows,
+    )
+
+    implied = inspect_bar(state, trend=Trend.UP, high=13.0, low=11.0, close=12.5)
+
+    assert implied.close_breakout is False
+    assert (
+        implied.close_breakout
+        == inspect_bar(
+            state,
+            trend=Trend.UP,
+            high=13.0,
+            low=11.0,
+            close=12.5,
+            breakout_reference="prior_extreme",
+        ).close_breakout
+    )
 
 
 def test_inspect_bar_rejects_an_unknown_breakout_reference() -> None:

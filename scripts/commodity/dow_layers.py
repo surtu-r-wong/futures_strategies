@@ -36,6 +36,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--end", required=True, type=date.fromisoformat)
     parser.add_argument("--atr-frequency", choices=("bar", "daily"), default="bar")
     parser.add_argument(
+        "--breakout-reference",
+        choices=("prior_extreme", "segment"),
+        default="prior_extreme",
+        help=(
+            "影子层的入场突破参照，决定 l3_breakout_latched 那一列；默认跟登记读法。"
+            "要复现 2026-09-03 的逐层对表（那时登记读法还是 segment）必须显式传 segment"
+        ),
+    )
+    parser.add_argument(
         "--signal-mode", choices=("latched", "literal"), default="latched"
     )
     parser.add_argument("--cost-bps", type=float, default=1.3)
@@ -102,6 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         signal_mode=args.signal_mode,
         atr_frequency=args.atr_frequency,
         cost_bps=args.cost_bps,
+        breakout_reference=args.breakout_reference,
     )
     signals = _with_segments(result.signals, bars)
     report = layer_report(

@@ -102,12 +102,12 @@ _FIDELITY_ROWS: tuple[dict[str, str], ...] = SHARED_FIDELITY_ROWS + (
     },
     {
         "rule_id": "D5",
-        "paper_text": "收盘价突破临时极值",
-        "implementation": "先比较当前收盘与本 bar 之前的临时极值，再把本 bar 纳入极值",
-        "basis": "先更新极值则该条件退化为「收盘恰等于本 bar 最高价」",
-        "status": "preregistered_default",
-        "variant": "none",
-        "impact": "决定入场 bar 的判定，是最容易写反的一处",
+        "paper_text": "收盘价突破前期高点：正文写「临时高点」，公式块定义 lastmax_1、图 13 标「第一高点」",
+        "implementation": "与上一同向段的整段极值比较；本 bar 在判定之后才纳入极值",
+        "basis": "正文与公式块矛盾时取公式块＋配图（2026-09-15 用户裁决）：铁矿石逐层六列因此对上研报表 3",
+        "status": "paper_explicit",
+        "variant": "segment",
+        "impact": "决定入场 bar 的判定，是最容易写反的一处；退回 segment 读法毛夏普 1.16→0.99",
     },
     {
         "rule_id": "D6",

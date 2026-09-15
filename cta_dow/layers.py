@@ -12,6 +12,14 @@ Two of the layers admit more than one reading of the paper's words, and the
 registered defaults (D4 stand-down, D6 latched breakout entry) are one side of
 each. The other readings are computed here as diagnostics only: nothing in
 this module feeds the registered results.
+
+``l3_breakout_latched`` takes its breakout from the shadow's own
+``close_breakout`` column, so it follows whatever ``breakout_reference`` that
+run used -- since 2026-09-15 that default is ``prior_extreme``.
+``l3_prior_high_breakout`` always computes the first-high reading itself, and
+also reads D4 as stand-down rather than reversal, so the two columns differ on
+two axes at once. To reproduce the 2026-09-03 layer table, run the shadow with
+``--breakout-reference segment``: that is what the registered default was then.
 """
 
 from __future__ import annotations
@@ -117,8 +125,9 @@ def layer_positions(signals: pd.DataFrame) -> pd.DataFrame:
         if latched == 0 and reversal != 0 and resonance and bool(row.close_breakout):
             latched = reversal
 
-        # 研报公式块定义了上一同向段的极值（lastmax_1 / lastmin_1）却没在条件里用到；
-        # 图 13 标的也是「第一高点」与「临时高点」。这条读法把入场参照换成它。
+        # 这一列恒用「第一高点」（lastmax_1 / lastmin_1）+ D4 的 stand-down 读法，与上面的
+        # l3_breakout_latched 在两处都不同。2026-09-15 起第一高点本身已是登记读法，于是
+        # 两列在 D5 那一维不再对照 —— 要拿回那一维，影子层得跑 --breakout-reference segment。
         close = float(row.signal_close)
         if stand_down == 1:
             stand_resonance = dow_up

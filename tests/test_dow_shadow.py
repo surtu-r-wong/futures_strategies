@@ -187,12 +187,35 @@ def test_future_bars_do_not_change_earlier_output() -> None:
 
 
 def test_literal_mode_never_holds_without_a_fresh_breakout() -> None:
-    latched = _run(signal_mode="latched")
-    literal = _run(signal_mode="literal")
+    """D6 的 literal 变体：没有新突破就不持有。**显式跑在 `segment` 读法上** —— 登记读法
+    `prior_extreme` 下突破是「收盘 ≥ 上一同向段极值」这个水平条件，价格不跌回去就一直为真，
+    这个锯齿夹具里闸一次都不关，两种 signal_mode 产出相同（见下一条用例）。"""
+    latched = _run(signal_mode="latched", breakout_reference="segment")
+    literal = _run(signal_mode="literal", breakout_reference="segment")
 
     assert (latched.signals["action"] == "latched_hold").any()
     assert not (literal.signals["action"] == "latched_hold").any()
     assert (literal.signals["action"] == "literal_gate_closed").any()
+
+
+def test_under_the_registered_reading_the_literal_gate_stops_biting() -> None:
+    """登记读法升到 `prior_extreme`（2026-09-15）的副作用，钉在这里免得下次被当成缺陷：
+    突破从「创新高」这个增量条件变成「越过上一同向段极值」这个水平条件，于是在一段持续
+    趋势里每根都算突破，D6 的 latched / literal 之分在这个夹具上消失。"""
+    latched = _run(signal_mode="latched")
+    literal = _run(signal_mode="literal")
+
+    assert not (literal.signals["action"] == "literal_gate_closed").any()
+    assert not (literal.signals["action"] == "no_breakout").any()
+    assert (
+        literal.signals["action"].eq("literal_hold").sum()
+        == latched.signals["action"].eq("latched_hold").sum()
+    )
+    assert literal.signals["target_weight"].equals(latched.signals["target_weight"])
+
+    # 而同一个夹具在 segment 变体下，两者是分得开的。
+    segment_literal = _run(signal_mode="literal", breakout_reference="segment")
+    assert (segment_literal.signals["action"] == "literal_gate_closed").any()
 
 
 def test_the_warmup_prefix_cannot_trade() -> None:
@@ -584,7 +607,8 @@ def test_shadow_rejects_an_unknown_atr_frequency() -> None:
 
 def test_prior_extreme_breakout_reference_reaches_every_signal_row() -> None:
     """`breakout_reference="prior_extreme"` 下，signals 表里每一根上升段 bar 的突破判定都
-    是「收盘 ≥ 第一高点」，下降段对称；没有上一同向段就没有突破。默认读法不受影响。"""
+    是「收盘 ≥ 第一高点」，下降段对称；没有上一同向段就没有突破。自 2026-09-15 起这是登记
+    默认，对照的是 `segment` 变体。"""
     frame = _dow_bars(_zigzag(120, 100.0), "RB1804.SHF", 0, "2017-06-01")
 
     prior = run_shadow_product(
@@ -593,7 +617,12 @@ def test_prior_extreme_breakout_reference_reaches_every_signal_row() -> None:
         roll_fills=_empty_rolls(),
         breakout_reference="prior_extreme",
     )
-    default = run_shadow_product(frame, product="RB", roll_fills=_empty_rolls())
+    segment_read = run_shadow_product(
+        frame,
+        product="RB",
+        roll_fills=_empty_rolls(),
+        breakout_reference="segment",
+    )
 
     signals = prior.signals
     judged = signals["trend_changed"].eq(False) & signals["atr_adjusted"].notna()
@@ -610,7 +639,7 @@ def test_prior_extreme_breakout_reference_reaches_every_signal_row() -> None:
         signals.loc[down, "close_breakout"].tolist()
         == expected_down[down].fillna(False).tolist()
     )
-    assert not default.signals["close_breakout"].equals(signals["close_breakout"])
+    assert not segment_read.signals["close_breakout"].equals(signals["close_breakout"])
 
 
 def test_shadow_rejects_an_unknown_breakout_reference() -> None:

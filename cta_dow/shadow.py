@@ -195,7 +195,7 @@ def run_shadow_product(
     atr_window: int = 20,
     atr_frequency: str = "bar",
     cost_bps: float = 1.3,
-    breakout_reference: str = "segment",
+    breakout_reference: str = "prior_extreme",
 ) -> ShadowResult:
     """Run one product without the portfolio-level volatility multiplier.
 
@@ -205,9 +205,9 @@ def run_shadow_product(
     *daily* move and averages completed trading days, so a bar sees the ATR
     as of the previous day. The threshold and the ATR leverage both take it.
     ``breakout_reference`` is likewise a reading (see ``inspect_bar``): the
-    registered default measures the entry close against the current segment's
-    running extreme; ``"prior_extreme"`` against the previous same-side
-    segment's extreme.
+    registered default ``"prior_extreme"`` measures the entry close against the
+    previous same-side segment's extreme; ``"segment"`` against the current
+    segment's running extreme.
     """
     nonempty_string(product, "product")
     mode = _resolve_mode(signal_mode)

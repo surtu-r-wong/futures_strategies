@@ -63,7 +63,7 @@ class Options:
     run_literal_sensitivity: bool
     atr_frequency: str = "bar"
     allocation: str = "active"
-    breakout_reference: str = "segment"
+    breakout_reference: str = "prior_extreme"
     ema_spans: tuple[int, int, int] = EMA_SPANS
     atr_window: int = ATR_WINDOW
     target_vol: float = TARGET_ANNUAL_VOL
@@ -111,11 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--breakout-reference",
-        choices=("segment", "prior_extreme"),
-        default="segment",
+        choices=("prior_extreme", "segment"),
+        default="prior_extreme",
         help=(
-            "入场突破的参照：本段此前的临时极值（登记默认 D5）或上一同向段的整段极值"
-            "（研报公式块的 lastmax_1、图 13 的「第一高点」）；prior_extreme 的产物一律标为敏感性"
+            "入场突破的参照：上一同向段的整段极值（登记默认 D5 —— 研报公式块的 lastmax_1、"
+            "图 13 标注的「第一高点」，2026-09-15 用户裁决升为登记读法）或本段此前的临时极值"
+            "（研报正文的措辞）；segment 的产物一律标为敏感性"
         ),
     )
     parser.add_argument(
@@ -244,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
             options.signal_mode == "literal"
             or options.atr_frequency == "daily"
             or options.allocation == "selected"
-            or options.breakout_reference == "prior_extreme"
+            or options.breakout_reference == "segment"
         ),
     )
     if options.run_literal_sensitivity:

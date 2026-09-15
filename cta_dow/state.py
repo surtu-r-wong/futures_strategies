@@ -138,16 +138,22 @@ def inspect_bar(
     high: float,
     low: float,
     close: float,
-    breakout_reference: str = "segment",
+    breakout_reference: str = "prior_extreme",
 ) -> SegmentDecision:
     """Advance one traded bar and report the gates it leaves open.
 
-    ``breakout_reference`` picks what the close must clear: ``"segment"`` (the
-    registered default) is the running extreme of the current segment before
-    this bar joins it; ``"prior_extreme"`` is the whole previous same-side
+    ``breakout_reference`` picks what the close must clear: ``"prior_extreme"``
+    (the registered default since 2026-09-15) is the whole previous same-side
     segment's extreme -- ``lastmax_1`` in the paper's formula block, the
     "第一高点" of its figure 13 -- so a breakout is a higher high in the Dow
-    sense, not merely a new high within the segment.
+    sense, not merely a new high within the segment. ``"segment"`` is the
+    variant reading the paper's prose suggests: the running extreme of the
+    current segment before this bar joins it.
+
+    The two have different shapes, and it matters downstream: ``"prior_extreme"``
+    is a *level* condition (the reference is fixed for the whole segment, so it
+    keeps holding while price stays above it), ``"segment"`` an *incremental*
+    one (a new high is required each time).
     """
     if not isinstance(state, SegmentState):
         raise ValueError("dow_state: expected a SegmentState")
