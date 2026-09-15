@@ -27,6 +27,16 @@ TERM_STRUCTURE_COLUMNS = (
     "term_structure",
 )
 
+WAREHOUSE_RECEIPT_COLUMNS = (
+    "trade_date",
+    "product",
+    "wr_recent",
+    "wr_baseline",
+    "wr_observations",
+    "wr_ready",
+    "warehouse_receipt",
+)
+
 FACTOR_COLUMNS = (
     "trade_date",
     "product",
@@ -168,3 +178,84 @@ def term_structure(
 
     frame = frame.sort_values(["trade_date", "product"], kind="mergesort")
     return frame.loc[:, list(TERM_STRUCTURE_COLUMNS)].reset_index(drop=True)
+
+
+def warehouse_receipt(
+    receipts: pd.DataFrame,
+    *,
+    lookback: int,
+    baseline_lag: int = 200,
+    baseline_window: int = 100,
+) -> pd.DataFrame:
+    """CITIC 023's factor, per 3.1 and 3.5 step 1.
+
+        TS_it = mean(C, last p days) / mean(C, the t-300..t-200 window) - 1
+
+    `C` is the standard warehouse receipt quantity, a daily stock.  3.1 names
+    the denominator "前 300 个交易日到前 200 个交易日的平均仓单数量", which is a
+    day ambiguous at each end; this reads it as the 100 trading days ending at
+    t-200, i.e. [t-299, t-200].  A neighbouring reading moves a 100-day mean by
+    one day and cannot move a rank.
+
+    **Absence is filled upstream, not here.**  That is the opposite of the rule
+    this module opens with, and the difference is in the data rather than in the
+    taste: a day the price chain could not price has no return, but a day a
+    receipt series omits usually *is* a zero -- DCE writes one zero and then
+    stops emitting rows, so 25.4% of its product-days are zero while only 2.1%
+    say so.  `citic_index.receipts` resolves that before the factor sees it.  A
+    NaN reaching here is therefore a genuine gap and blocks the day.
+
+    A zero *value*, by contrast, is signal: receipts really do go to zero on a
+    mass cancellation, and 3.5 step 2 ranks that to the long end.  Only a zero
+    *baseline* is refused, because the ratio has nothing to divide by -- the
+    paper gives no guard for it (§3.1 has none and §3.2's special adjustments
+    cover only limit-locked and delisted products), so the house rule applies:
+    no evidence, no coverage.
+    """
+    if lookback < 1:
+        raise ValueError("lookback must be at least one trading day")
+    if baseline_lag < 1:
+        raise ValueError("baseline_lag must be at least one trading day")
+    if baseline_window < 1:
+        raise ValueError("baseline_window must be at least one trading day")
+    if receipts.empty:
+        return pd.DataFrame(columns=list(WAREHOUSE_RECEIPT_COLUMNS))
+
+    frame = receipts.sort_values(
+        ["product", "trade_date"], kind="mergesort"
+    ).copy()
+    values = frame["receipts"].astype("float64")
+    by_product = values.groupby(frame["product"], sort=False)
+
+    def _per_product(series, fn):
+        return fn(series).reset_index(level=0, drop=True)
+
+    # min_periods equal to the window means a NaN anywhere in it yields NaN,
+    # so a gap cannot be averaged away by the surviving days.
+    frame["wr_recent"] = _per_product(
+        by_product, lambda g: g.rolling(lookback, min_periods=lookback).mean()
+    )
+    shifted = values.groupby(frame["product"], sort=False).shift(baseline_lag)
+    frame["wr_baseline"] = _per_product(
+        shifted.groupby(frame["product"], sort=False),
+        lambda g: g.rolling(baseline_window, min_periods=baseline_window).mean(),
+    )
+    frame["wr_observations"] = (
+        _per_product(
+            shifted.notna().groupby(frame["product"], sort=False),
+            lambda g: g.rolling(baseline_window, min_periods=1).sum(),
+        )
+        .astype("Int64")
+    )
+    frame["wr_ready"] = (
+        frame["wr_recent"].notna()
+        & frame["wr_baseline"].notna()
+        & frame["wr_baseline"].gt(0)
+    ).fillna(False).astype(bool)
+    frame["warehouse_receipt"] = (
+        frame["wr_recent"] / frame["wr_baseline"] - 1.0
+    ).where(frame["wr_ready"])
+
+    frame = frame.sort_values(["trade_date", "product"], kind="mergesort")
+    return frame.loc[:, list(WAREHOUSE_RECEIPT_COLUMNS)].reset_index(drop=True)
+

@@ -22,6 +22,7 @@ import pandas as pd
 from cta_carry.data import normalize_contract_daily
 
 from citic_index.pipeline import ReplicaConfig, build_replica
+from citic_index.receipts import fill_absent_zeros
 
 
 def _parse_args(argv=None):
@@ -33,9 +34,10 @@ def _parse_args(argv=None):
 
     # 3.1 / 3.5 step 1 -- the factor
     parser.add_argument("--factor", dest="factor_kind",
-                        choices=("basis_momentum", "term_structure"),
+                        choices=("basis_momentum", "term_structure", "warehouse_receipt"),
                         default="basis_momentum",
-                        help="term_structure is the 025 control arm for this engine")
+                        help="term_structure is the 025 control arm for this engine;"
+                        " warehouse_receipt is 023")
     parser.add_argument("--window", type=int, default=500)
     parser.add_argument("--min-observations", type=int, default=None,
                         help="default: 90%% of --window, the strict-history gate")
@@ -83,6 +85,10 @@ def _parse_args(argv=None):
                       action="store_true", default=True)
     roll.add_argument("--no-roll-blend", dest="roll_blend", action="store_false")
     parser.add_argument("--base-date", type=date.fromisoformat, default=date(2010, 1, 4))
+    parser.add_argument("--baseline-lag", type=int, default=200,
+                        help="023 only: the baseline window ends this many days back")
+    parser.add_argument("--baseline-window", type=int, default=100,
+                        help="023 only: how many days that baseline window spans")
     parser.add_argument("--base-value", type=float, default=1000.0)
     return parser.parse_args(argv)
 
@@ -99,6 +105,36 @@ def load_prices(data_dir: str, *, start: date, end: date) -> pd.DataFrame:
     prices = data.prices
     prices = prices.loc[prices["trade_date"] <= end]
     return prices.reset_index(drop=True)
+
+
+def load_receipts(
+    data_dir: str, *, calendar, through
+) -> pd.DataFrame:
+    """023's factor input, with absences resolved before the factor sees them.
+
+    The calendar is the bundle's own trading days rather than a separate
+    source, so a receipt day and a price day cannot disagree about which days
+    exist.  `through` is the run's end, which resolves a product whose series
+    ends on a zero -- JD does, forty days before the others.
+    """
+    path = Path(data_dir) / "receipts.csv"
+    if not path.exists():
+        raise SystemExit(
+            f"{path} not found -- re-fetch the bundle (scripts/citic_index_fetch.py)"
+        )
+    raw = pd.read_csv(path)
+    raw["trade_date"] = pd.to_datetime(raw["trade_date"]).dt.date
+    frame, report = fill_absent_zeros(
+        raw, calendar, through=through, with_report=True
+    )
+    print(
+        f"receipts: {len(frame):,} product-days,"
+        f" {frame['product'].nunique()} products;"
+        f" filled {report['filled_zero']:,} absent days as zero,"
+        f" left {report['left_missing']:,} as genuine gaps",
+        flush=True,
+    )
+    return frame
 
 
 def main(argv=None) -> int:
@@ -124,6 +160,8 @@ def main(argv=None) -> int:
         restrict_to_named=args.restrict_to_named,
         min_products=args.min_products,
         exclude_limit_locked=args.exclude_limit_locked,
+        baseline_lag=args.baseline_lag,
+        baseline_window=args.baseline_window,
         base_date=args.base_date,
         base_value=args.base_value,
     )
@@ -140,8 +178,16 @@ def main(argv=None) -> int:
         flush=True,
     )
 
+    receipts = None
+    if config.factor_kind == "warehouse_receipt":
+        receipts = load_receipts(
+            args.data_dir,
+            calendar=sorted(prices["trade_date"].unique()),
+            through=prices["trade_date"].max(),
+        )
+
     started = time.time()
-    result = build_replica(prices, config)
+    result = build_replica(prices, config, receipts=receipts)
     print(f"built in {time.time() - started:.0f}s", flush=True)
 
     prefix = Path(args.output_prefix)

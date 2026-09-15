@@ -18,7 +18,7 @@ import pandas as pd
 
 from cta_carry.legreturns import forward_only_chain
 
-from citic_index.factor import basis_momentum, term_structure
+from citic_index.factor import basis_momentum, term_structure, warehouse_receipt
 from citic_index.index import accumulate
 from citic_index.returns import chain_returns
 from citic_index.legs import select_legs
@@ -32,6 +32,11 @@ class ReplicaConfig:
 
     factor_kind: str = "basis_momentum"
     window: int = 500
+    # 023's baseline window, per 3.1's "前 300 个交易日到前 200 个交易日".  The
+    # phrase is a day ambiguous at each end; this reads the 100 trading days
+    # ending at t-200.  Only the warehouse_receipt factor reads these.
+    baseline_lag: int = 200
+    baseline_window: int = 100
     min_observations: int = 450
     smoothing: int = 1
     normalise_by_gap: bool = True
@@ -102,9 +107,17 @@ class ReplicaPanel:
     pool: pd.DataFrame
     legs: pd.DataFrame
     returns: pd.DataFrame
+    # Raw receipt levels do not depend on p, so they belong to the panel: a
+    # sweep over p loads them once.
+    receipts: pd.DataFrame | None = None
 
 
-def build_panel(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaPanel:
+def build_panel(
+    prices: pd.DataFrame,
+    config: ReplicaConfig,
+    *,
+    receipts: pd.DataFrame | None = None,
+) -> ReplicaPanel:
     """The factor-independent half of the pipeline."""
     pool = pool_membership(
         prices,
@@ -139,7 +152,9 @@ def build_panel(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaPanel:
     returns = chain_returns(
         prices, main_chain, basis=config.return_basis, roll_blend=config.roll_blend
     )
-    return ReplicaPanel(prices=prices, pool=pool, legs=legs, returns=returns)
+    return ReplicaPanel(
+        prices=prices, pool=pool, legs=legs, returns=returns, receipts=receipts
+    )
 
 
 def build_from_panel(panel: ReplicaPanel, config: ReplicaConfig) -> ReplicaResult:
@@ -166,6 +181,23 @@ def build_from_panel(panel: ReplicaPanel, config: ReplicaConfig) -> ReplicaResul
         # them so the output still says which factor produced the run.
         factor["basis_momentum"] = factor["term_structure"]
         factor["bm_ready"] = factor["ts_ready"]
+    elif config.factor_kind == "warehouse_receipt":
+        if panel.receipts is None:
+            raise ValueError(
+                "citic_pipeline: factor_kind 'warehouse_receipt' needs a panel "
+                "built with receipts=..."
+            )
+        factor = warehouse_receipt(
+            panel.receipts,
+            lookback=config.window,
+            baseline_lag=config.baseline_lag,
+            baseline_window=config.baseline_window,
+        )
+        # Same handover as the control arm: the ranking layer speaks one
+        # vocabulary, so the factor lends its column to those names and keeps
+        # its own beside them.
+        factor["basis_momentum"] = factor["warehouse_receipt"]
+        factor["bm_ready"] = factor["wr_ready"]
     else:
         raise ValueError(f"unknown factor_kind {config.factor_kind!r}")
     factor = factor.merge(
@@ -208,6 +240,11 @@ def build_from_panel(panel: ReplicaPanel, config: ReplicaConfig) -> ReplicaResul
     )
 
 
-def build_replica(prices: pd.DataFrame, config: ReplicaConfig) -> ReplicaResult:
+def build_replica(
+    prices: pd.DataFrame,
+    config: ReplicaConfig,
+    *,
+    receipts: pd.DataFrame | None = None,
+) -> ReplicaResult:
     """Both halves, for a single run."""
-    return build_from_panel(build_panel(prices, config), config)
+    return build_from_panel(build_panel(prices, config, receipts=receipts), config)

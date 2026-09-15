@@ -92,6 +92,21 @@ def _count_sql(products) -> str:
         GROUP BY 1
     """
 
+# 023's factor input.  Receipts live in commodity_research, catalogued the same
+# way the six-factor path's inventory series are, so the pull goes through the
+# catalog rather than naming EDB codes here.
+_RECEIPTS_SQL = """
+    SELECT sc.product_code AS product,
+           o.observation_date AS trade_date,
+           o.raw_value::float AS receipts
+    FROM commodity_research.fundamental_observation o
+    JOIN commodity_research.series_catalog sc
+      ON sc.catalog_version = o.catalog_version AND sc.series_id = o.series_id
+    WHERE o.catalog_version = %(catalog)s
+      AND sc.metric_role = 'warehouse_receipt'
+    ORDER BY 1, 2
+"""
+
 _OFFICIAL_SQL = """
     SELECT index_code, trade_date, close::float AS close
     FROM stock_selector.index_daily
@@ -152,6 +167,10 @@ def main(argv=None) -> int:
     parser.add_argument("--all-products", action="store_true",
                         help="every commodity product, not just the named 37")
     parser.add_argument("--extra-products", default=None)
+    parser.add_argument("--catalog-version", default="v2",
+                        help="commodity_research catalog to read receipts from")
+    parser.add_argument("--no-receipts", action="store_true",
+                        help="skip the warehouse receipt pull (023's factor input)")
     args = parser.parse_args(argv)
 
     dsn = _dsn(args.config)
@@ -216,6 +235,27 @@ def main(argv=None) -> int:
             f" {group['trade_date'].min()}..{group['trade_date'].max()}"
         )
     print(f"wrote {out / 'official.csv'}")
+
+    if not args.no_receipts:
+        receipts, _ = _query(
+            dsn,
+            _RECEIPTS_SQL,
+            {"catalog": args.catalog_version},
+            attempts=args.attempts,
+            timeout="300s",
+        )
+        if receipts.empty:
+            print(
+                f"\nNO RECEIPTS in catalog {args.catalog_version!r}"
+                " -- 023 cannot run off this bundle"
+            )
+            return 4
+        receipts.to_csv(out / "receipts.csv", index=False)
+        print(
+            f"wrote {out / 'receipts.csv'}: {len(receipts):,} rows,"
+            f" {receipts['product'].nunique()} products,"
+            f" {receipts['trade_date'].min()}..{receipts['trade_date'].max()}"
+        )
     return 0
 
 
