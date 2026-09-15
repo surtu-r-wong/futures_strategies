@@ -193,10 +193,20 @@ def build_from_panel(panel: ReplicaPanel, config: ReplicaConfig) -> ReplicaResul
             baseline_lag=config.baseline_lag,
             baseline_window=config.baseline_window,
         )
-        # Same handover as the control arm: the ranking layer speaks one
-        # vocabulary, so the factor lends its column to those names and keeps
-        # its own beside them.
-        factor["basis_momentum"] = factor["warehouse_receipt"]
+        # Same handover as the control arm -- the ranking layer speaks one
+        # vocabulary -- but with the sign flipped, and that is not cosmetic.
+        #
+        # 023's 3.5 step 2 sorts 从大到小 while the ranking layer sorts
+        # ascending, so the factor is negated to reproduce the paper's
+        # direction: the largest receipt growth takes Rank 1 and the most
+        # negative weight, which is what 第 1 页 asks for -- "选择仓单增加的商品
+        # 做空（做空当前库存充足的品种）".
+        #
+        # The trap is that step 3's weight formula is word-for-word 027's, so
+        # reusing the section wholesale looks safe and silently inverts the
+        # strategy.  Measured: without the negation the full-history replica
+        # correlates -0.50 with the published series rather than +0.50.
+        factor["basis_momentum"] = -factor["warehouse_receipt"]
         factor["bm_ready"] = factor["wr_ready"]
     else:
         raise ValueError(f"unknown factor_kind {config.factor_kind!r}")

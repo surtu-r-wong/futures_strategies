@@ -152,3 +152,52 @@ def test_the_settlement_basis_reaches_the_factor_and_the_index():
     index = result.index.set_index("trade_date")
     assert index.loc[DAYS[3], "daily_return"] == pytest.approx(0.01010101, abs=1e-8)
     assert index.loc[DAYS[3], "index_value"] == pytest.approx(1010.10101, abs=1e-4)
+
+
+def _receipts(series):
+    """series: {product: [d1..d4]} laid on the shared DAYS."""
+    rows = []
+    for product, values in series.items():
+        for day, value in zip(DAYS, values):
+            rows.append(
+                {"trade_date": day, "product": product, "receipts": float(value)}
+            )
+    return pd.DataFrame(rows)
+
+
+def test_023_sorts_descending_so_growing_receipts_are_sold():
+    """023's §3.5 step 2 sorts 从大到小; the ranking layer sorts ascending.
+
+    The two papers differ here even though their step-3 weight formulas are
+    word-for-word identical, which is exactly the trap: reusing the section
+    wholesale gets the sign backwards.  Ranked the paper's way, the product
+    whose receipts grew takes Rank 1 and the most negative weight -- 第 1 页's
+    "选择仓单增加的商品做空" -- and the one whose receipts fell goes long.
+
+    Measured consequence of getting it wrong: the full-history replica
+    correlates -0.50 with the published series instead of +0.50.
+    """
+    receipts = _receipts(
+        {
+            "M": [100, 100, 100, 200],  # receipts doubled -> should be sold
+            "Y": [100, 100, 100, 100],  # flat -> middle
+            "C": [100, 100, 100, 50],   # receipts halved -> should be bought
+        }
+    )
+    result = build_replica(
+        _panel(),
+        _config(
+            factor_kind="warehouse_receipt",
+            window=1,
+            min_observations=1,
+            baseline_lag=2,
+            baseline_window=1,
+        ),
+        receipts=receipts,
+    )
+    last = result.weights[result.weights["trade_date"] == DAYS[-1]]
+    weights = last.set_index("product")["weight"]
+    assert weights["M"] < 0 < weights["C"], (
+        f"growing receipts must be sold: {weights.to_dict()}"
+    )
+
