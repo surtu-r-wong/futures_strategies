@@ -199,9 +199,13 @@ def test_literal_mode_never_holds_without_a_fresh_breakout() -> None:
 
 
 def test_under_the_registered_reading_the_literal_gate_stops_biting() -> None:
-    """登记读法升到 `prior_extreme`（2026-09-15）的副作用，钉在这里免得下次被当成缺陷：
-    突破从「创新高」这个增量条件变成「越过上一同向段极值」这个水平条件，于是在一段持续
-    趋势里每根都算突破，D6 的 latched / literal 之分在这个夹具上消失。"""
+    """登记读法 `prior_extreme` 下，**这个锯齿夹具上** D6 的 latched / literal 之分消失：
+    突破从「创新高」的增量条件变成「越过上一同向段极值」的水平条件，趋势不回撤就一直成立。
+
+    ⚠️ **这是夹具的性质，不要外推。** 2026-09-15 的全历史重跑显示真实面板上两者差得很远
+    （`literal_gate_closed` 25,259 次、样本内净 6.69% 对 3.21%、换手 3.567 对 4.764）。
+    新读法确实**削弱**了 literal 闸 —— 旧读法下换手是 2.11 倍、净 −10.14%，新读法下降到
+    1.34 倍、净 +3.21% —— 但削弱不是趋同。夹具里没有回撤到前段极值以下的走势，真实行情有。"""
     latched = _run(signal_mode="latched")
     literal = _run(signal_mode="literal")
 

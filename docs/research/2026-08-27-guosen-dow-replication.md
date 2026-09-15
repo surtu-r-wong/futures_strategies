@@ -7,10 +7,8 @@
 > **本文一个数都不改**：结论表、逐年表、状态机计数、成交计价、选池历史都是 `segment`
 > 读法下那一次真跑的记录，改了它就不再是那次跑的记录。
 >
-> 新读法下的对照数已在 `2026-09-03-guosen-dow-iron-ore-layers.md` §6 跑出来 ——
-> 样本内 **5.79% / 夏普 0.36 / 回撤 28.8%**，样本外 **−0.1% / −0.01**，
-> 毛 **18.3% / 1.16**，成本 11.3%/年，日换手 3.57 —— 但那是标着 `sensitivity_only`
-> 的旁路产物。**新的登记产物与本文的替代版待重跑**，见 §11。
+> ✅ **重跑已完成（2026-09-15 12:58，WSL2，20 分 52 秒）**，新登记产物就位，结果见 **§11**。
+> 本文 §0–§10 保留为 `segment` 读法那一次跑的记录。
 
 日期：2026-09-02
 分支 `feature/guosen-bollinger-dow`，运行 commit `679dd7e`（代码状态见 §1.1）
@@ -269,19 +267,79 @@ literal 产物：`output/guosen_dow_literal.{xlsx,png,audit.json}` + `guosen_dow
 - 没有在样本外做任何口径选择（`IN_SAMPLE_END` 之后的段只看不动）。
 - 研报的成本口径与调仓节拍未披露，本文不猜；毛/净两口径都给出，由读者判断。
 
-## 11. 待重跑：登记读法改为 `prior_extreme` 之后（2026-09-15）
+## 11. 登记读法改为 `prior_extreme` 之后的重跑（2026-09-15，已完成）
 
-D5 升为登记读法后，本文的登记产物 `output/guosen_dow.*` 是旧读法下的，需要重发一次：
+运行：WSL2，commit `80fb690`，面板 `output/commodity-panel-v1`，区间 2012-01-04..2026-01-30，
+`--require-paper-faithful --run-literal-sensitivity`，**20 分 52 秒**（12:37:41 → 12:58:33）。
+旧读法的登记产物归档在 `output/_segment_reading_20260915/`，一个数没改。
 
-1. 在 WSL2 上用**新默认**（不传 `--breakout-reference`）重跑全历史，面板
-   `output/commodity-panel-v1`，区间 2012-01-04..2026-01-30，其余参数不动。
-2. 产出的 `audit.json` 必须满足 `run_config.breakout_reference == "prior_extreme"`
-   且 `sensitivity_only == false`（`tests/test_dow_cli.py::test_the_default_run_is_not_a_sensitivity`
-   钉的就是这一条 —— 升级读法时最容易漏掉 `sensitivity_only` 那一侧的判定）。
-3. 按本文结构重写一份验收，与 §0 逐项对照；预期落在 09-03 文档 §6 的
-   `guosen_dow_prior` 那一行附近，但**以重跑结果为准，不要照抄**。
-4. 顺带核一件事：新读法下 D6 的 latched / literal 之分在持续趋势里会消失
-   （突破从「创新高」的增量条件变成「越过上一同向段极值」的水平条件），
-   §7 的 literal 敏感性因此会与 latched 趋同。`--run-literal-sensitivity` 仍然照跑，
-   但那一节的解读要改写。合成夹具上的这个性质已被
-   `tests/test_dow_shadow.py::test_under_the_registered_reading_the_literal_gate_stops_biting` 钉住。
+### 11.1 两条硬闸
+
+| 产物 | `run_config.breakout_reference` | `sensitivity_only` | signal_mode |
+|---|---|---|---|
+| `output/guosen_dow` | `prior_extreme` | **false** | latched |
+| `output/guosen_dow_literal` | `prior_extreme` | true | literal |
+
+登记产物的 `sensitivity_only` 必须是 false —— 升级读法时最容易漏掉判定的那一侧，
+`tests/test_dow_cli.py::test_the_default_run_is_not_a_sensitivity` 钉的就是这条。
+
+### 11.2 交叉验证：与 09-03 那次敏感性跑逐表比对
+
+新登记产物应当**就是** 09-03 显式传 `--breakout-reference prior_extreme` 跑出来的
+`guosen_dow_prior`（同读法、同面板、同参数）。按 audit 里各表的 sha256 比：
+
+**11 张表中 10 张逐字节相同**，唯一不同的是 `fidelity`（两边都是 19 行）—— 正是本次改动的那张：
+D5 从 `preregistered_default` / `variant=none` 变成 `paper_explicit` / `variant=segment`，
+措辞也改了。`metrics` / `daily_returns` / `positions` / `trades` / `signals` / `universe` /
+`selection` / `dominant_rolls` / `data_quality` / `run_config` 十张全同。
+⇒ **升级没有引入任何计算上的变化**，它只是把一条已经跑过的读法挪到了默认位置。
+
+### 11.3 新登记结果
+
+| 指标 | 研报 | **新登记（prior_extreme）** | 旧登记（segment） | 差（新 vs 研报） |
+|---|---:|---:|---:|---:|
+| 样本内年化 | 21.74% | **5.79%** | 2.66% | −15.95 pp |
+| 样本内夏普 | 1.42 | **0.361** | 0.17 | −1.06 |
+| 样本内最大回撤 | 9.90% | **28.76%** | 32.41% | +18.86 pp |
+| 样本内 Calmar | 2.20 | 0.201 | 0.08 | −2.00 |
+| 样本内年化波动 | 15.34% | 16.05% | 15.79% | +0.71 pp |
+
+样本外（2022-08-01..2026-01-30）：年化 **−0.14%**、夏普 **−0.009**、回撤 23.83%
+（旧读法 −10.09% / −0.70）。全区间：年化 **+4.28%**、夏普 0.269、回撤 32.23%
+（旧读法 −0.68% / −0.04）。
+
+**结论不变：没有复刻出研报的净值。** 但每一项都比旧读法好：样本内年化 +3.13 pp、
+夏普 +0.19、回撤少 3.65 pp，样本外从 −10.09% 回到约零，全区间由负转正。
+
+### 11.4 成本结构（样本内，简单年化 = 日均 × 244）
+
+| 变体 | 日换手 | 成本/年 | 毛年化 | 毛夏普 | 净年化 |
+|---|---:|---:|---:|---:|---:|
+| **新登记 latched** | **3.567** | 11.31% | **18.00%** | **1.143** | 6.69% |
+| 新 literal 敏感性 | 4.764 | 15.11% | 18.32% | 1.164 | 3.21% |
+| 旧登记 latched | 3.677 | 11.66% | 15.40% | 0.996 | 3.74% |
+| 旧 literal 敏感性 | 7.745 | 24.58% | 14.44% | 0.889 | −10.14% |
+
+**缺口的主体仍然是成本**：毛 18.00% / 毛夏普 1.143，扣掉 11.31%/年只剩 6.69%。
+研报反推的日换手 ≈1.5，我们 3.567，仍是 2.4 倍 —— 这一维新读法没有改善（3.677 → 3.567）。
+读法换来的是**毛口径**：毛年化 15.40% → 18.00%、毛夏普 0.996 → **1.143**，
+而成本与换手几乎不动 ⇒ 变好的是信号，不是成本账。
+
+### 11.5 ⚠️ 一条从合成夹具外推出来的说法，被这次重跑推翻
+
+实现期我在锯齿夹具上观察到「新读法下 D6 的 latched / literal 之分消失」，并把它当成
+普遍副作用写进了 ROADMAP、runbook 和设计规格。**真实面板上不成立**：
+
+| | 旧读法 segment | 新读法 prior_extreme |
+|---|---:|---:|
+| `literal_gate_closed` 次数 | — | **25,259** |
+| literal / latched 换手比 | **2.11×**（7.745 / 3.677） | **1.34×**（4.764 / 3.567） |
+| literal 样本内净（简单年化） | **−10.14%** | **+3.21%** |
+
+新读法确实**削弱**了 literal 闸（水平条件比增量条件容易满足），但削弱不是趋同：
+literal 仍然明显更差（净 3.21% 对 6.69%）。夹具里没有「回撤到前段极值以下」的走势，
+真实行情有。三处文档已按本节订正，测试的 docstring 也写明了那是夹具的性质。
+
+**方法学**：合成夹具能证明机制存在，不能度量机制的强度 —— 强度只有真实面板说了算。
+旧结论「literal 换手翻倍、处处为负」的**定量**部分只对旧读法成立，**方向**（latched 优于
+literal，反证 latched 是研报本意）两种读法下都成立。
