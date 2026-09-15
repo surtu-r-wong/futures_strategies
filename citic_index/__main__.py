@@ -34,7 +34,12 @@ def _parse_args(argv=None):
 
     # 3.1 / 3.5 step 1 -- the factor
     parser.add_argument("--factor", dest="factor_kind",
-                        choices=("basis_momentum", "term_structure", "warehouse_receipt"),
+                        choices=(
+                            "basis_momentum",
+                            "term_structure",
+                            "warehouse_receipt",
+                            "time_series_momentum",
+                        ),
                         default="basis_momentum",
                         help="term_structure is the 025 control arm for this engine;"
                         " warehouse_receipt is 023")
@@ -93,6 +98,8 @@ def _parse_args(argv=None):
                         choices=("level", "ratio"),
                         help="023 only: average the receipt level (023's wording)"
                         " or the daily factor (025's placement)")
+    parser.add_argument("--vol-window", type=int, default=60,
+                        help="026 only: the volatility window 3.5 step 3 leaves undefined")
     parser.add_argument("--base-value", type=float, default=1000.0)
     return parser.parse_args(argv)
 
@@ -167,6 +174,7 @@ def main(argv=None) -> int:
         baseline_lag=args.baseline_lag,
         baseline_window=args.baseline_window,
         smoothing_target=args.smoothing_target,
+        vol_window=args.vol_window,
         base_date=args.base_date,
         base_value=args.base_value,
     )

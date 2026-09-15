@@ -18,7 +18,12 @@ import pandas as pd
 
 from cta_carry.legreturns import forward_only_chain
 
-from citic_index.factor import basis_momentum, term_structure, warehouse_receipt
+from citic_index.factor import (
+    basis_momentum,
+    term_structure,
+    time_series_momentum,
+    warehouse_receipt,
+)
 from citic_index.index import accumulate
 from citic_index.returns import chain_returns
 from citic_index.legs import select_legs
@@ -41,6 +46,8 @@ class ReplicaConfig:
     # receipt counts, divide once), "ratio" is 025's placement (average the
     # daily factor).  See citic_index.factor.warehouse_receipt.
     smoothing_target: str = "level"
+    # 026 only: the volatility window 3.5 step 3 never defines.
+    vol_window: int = 60
     min_observations: int = 450
     smoothing: int = 1
     normalise_by_gap: bool = True
@@ -185,6 +192,16 @@ def build_from_panel(panel: ReplicaPanel, config: ReplicaConfig) -> ReplicaResul
         # them so the output still says which factor produced the run.
         factor["basis_momentum"] = factor["term_structure"]
         factor["bm_ready"] = factor["ts_ready"]
+    elif config.factor_kind == "time_series_momentum":
+        factor = time_series_momentum(
+            panel.returns,
+            lookback=config.window,
+            vol_window=config.vol_window,
+        )
+        # The ranking layer's vocabulary again, but 026 does not rank: the
+        # column only orders ties, and `equal_vol` reads sigma and direction.
+        factor["basis_momentum"] = factor["ts_momentum"]
+        factor["bm_ready"] = factor["ts_ready"]
     elif config.factor_kind == "warehouse_receipt":
         if panel.receipts is None:
             raise ValueError(
@@ -237,6 +254,11 @@ def build_from_panel(panel: ReplicaPanel, config: ReplicaConfig) -> ReplicaResul
         ranked,
         cadence=config.cadence,
         min_products=config.min_products,
+        scheme=(
+            "equal_vol"
+            if config.factor_kind == "time_series_momentum"
+            else "rank_linear"
+        ),
     )
 
     index = accumulate(

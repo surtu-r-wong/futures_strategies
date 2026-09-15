@@ -36,6 +36,7 @@ WEIGHT_COLUMNS = (
 )
 
 _CADENCES = ("daily", "monthly")
+_SCHEMES = ("rank_linear", "equal_vol")
 
 
 def assign_weights(
@@ -43,10 +44,18 @@ def assign_weights(
     *,
     cadence: str = "daily",
     min_products: int = 2,
+    scheme: str = "rank_linear",
 ) -> pd.DataFrame:
-    """One row per ranked product-day with its index weight."""
+    """One row per ranked product-day with its index weight.
+
+    `scheme` picks 3.3's sizing: `rank_linear` is 023/025/027's zero-sum rank
+    weights, `equal_vol` is 026's `w_i proportional to 1/sigma_i^2` signed by
+    each product's own direction, which carries net exposure.
+    """
     if cadence not in _CADENCES:
         raise ValueError(f"cadence must be one of {_CADENCES}, got {cadence!r}")
+    if scheme not in _SCHEMES:
+        raise ValueError(f"scheme must be one of {_SCHEMES}, got {scheme!r}")
     if factor.empty:
         return pd.DataFrame(columns=list(WEIGHT_COLUMNS))
 
@@ -78,21 +87,28 @@ def assign_weights(
                 ]
             if len(eligible) < min_products:
                 continue
-            struck = dict(
-                zip(
-                    eligible["product"],
-                    rank_linear_weights(eligible, "basis_momentum").to_numpy(),
-                )
+            sized = (
+                rank_linear_weights(eligible, "basis_momentum")
+                if scheme == "rank_linear"
+                else equal_vol_weights(eligible)
             )
+            struck = dict(zip(eligible["product"], sized.to_numpy()))
         held = cross_section["product"].map(struck)
         surviving = held.dropna()
         if surviving.empty:
             continue
         if len(surviving) != len(struck):
-            # Someone left since the strike, so what is left no longer sums to
-            # zero.  Recentre the survivors rather than carrying a net position.
             held = held.copy()
-            held.loc[surviving.index] = surviving - surviving.mean()
+            if scheme == "rank_linear":
+                # Someone left since the strike, so what is left no longer sums
+                # to zero.  Recentre rather than carrying a net position.
+                held.loc[surviving.index] = surviving - surviving.mean()
+            else:
+                # 026 is not zero-sum, so recentring would be wrong here: what
+                # 3.3 fixes is that the sizes total one.  Renormalise instead.
+                total = surviving.abs().sum()
+                if total > 0:
+                    held.loc[surviving.index] = surviving / total
         cross_section = cross_section.assign(
             weight=held.to_numpy(),
             # N is the size of the cross-section the weights were struck over --
