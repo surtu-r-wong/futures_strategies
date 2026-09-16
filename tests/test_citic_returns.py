@@ -55,6 +55,18 @@ def test_the_two_bases_differ_by_the_close_over_settle_ratio():
     assert (1 + citic) / (1 + tradeable) == pytest.approx(100.0 / 99.0)
 
 
+def test_the_settlement_basis_runs_settle_to_settle():
+    # 108 / 99 - 1: both ends are settlements, so nothing struck at the close
+    # leaks into the next day's return.
+    out = chain_returns(FLAT, HELD, basis="settle_to_settle")
+    assert out["product_return"].iloc[0] == pytest.approx(108 / 99 - 1)
+
+
+def test_the_settlement_basis_also_needs_the_settle_column():
+    with pytest.raises(ValueError, match="settle"):
+        chain_returns(FLAT.drop(columns=["settle"]), HELD, basis="settle_to_settle")
+
+
 def test_an_unknown_basis_is_refused():
     with pytest.raises(ValueError, match="basis"):
         chain_returns(FLAT, HELD, basis="vwap")
@@ -83,7 +95,7 @@ ROLL = _chain([("2010-01-04", "M2001.DCE"), ("2010-01-05", "M2005.DCE")])
 
 def test_a_roll_blends_the_legs_by_value_share_under_either_basis():
     # w_bar = 100 / (100 + 300) = 0.25 -> 0.25*0.08 + 0.75*0.04 = 0.05.
-    for basis in ("close_to_close", "close_to_prev_settle"):
+    for basis in ("close_to_close", "close_to_prev_settle", "settle_to_settle"):
         out = chain_returns(_roll_prices(), ROLL, basis=basis)
         row = out.iloc[0]
         assert row["product_return"] == pytest.approx(0.05), basis

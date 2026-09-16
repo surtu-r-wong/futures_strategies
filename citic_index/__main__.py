@@ -74,7 +74,7 @@ def _parse_args(argv=None):
 
     # 3.5 steps 2-5 -- ranking and accumulation
     parser.add_argument("--return-basis",
-                        choices=("close_to_prev_settle", "close_to_close"),
+                        choices=("close_to_prev_settle", "close_to_close", "settle_to_settle"),
                         default="close_to_prev_settle",
                         help="CITIC divides by the previous settlement; "
                              "close_to_close is the tradeable convention")

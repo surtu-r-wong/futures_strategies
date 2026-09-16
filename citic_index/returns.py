@@ -14,6 +14,16 @@ published performance without discounting it overstates what is reachable.
 `close_to_close` is the tradeable convention and stays available, because the
 difference between the two is exactly the size of that untradeable accrual.
 
+That "+1.8pp" was measured on 025's slow signal.  The accrual is close(t)/settle(t),
+which a fast signal has already seen at t and sits on the same side of: on 026's
+15-day momentum it is worth +11.8pp a year and grows as the lookback shortens.
+026's official series carries none of it (`close_to_close` lands within 0.2pp of
+the published level), so whether CITIC's own index really divides by the previous
+settlement is open.  `settle_to_settle` -- both ends settlements, no leak --
+gives 026 its highest daily correlation (0.936) but a constant drag against the
+official level that nothing in the methodology explains.  See
+docs/plans/2026-09-15-cicsf026-time-series-momentum-probe.md section 5.
+
 The same function serves the factor's T1 and T2 legs and the index's dominant
 leg, so a roll cannot be handled one way in the signal and another in the
 return.
@@ -32,7 +42,14 @@ RETURN_COLUMNS = (
     "product_return",
 )
 
-BASES = ("close_to_prev_settle", "close_to_close")
+# basis -> (numerator column, denominator column).  `settle_to_settle` is the
+# pure index convention: both ends are settlements, so the close(t)/settle(t)
+# gap -- which a fast signal has already seen at t -- never enters day t+1.
+BASES = {
+    "close_to_prev_settle": ("close", "settle"),
+    "close_to_close": ("close", "close"),
+    "settle_to_settle": ("settle", "settle"),
+}
 
 
 def _price_lookup(prices: pd.DataFrame, column: str) -> pd.Series:
@@ -48,14 +65,15 @@ def chain_returns(
 ) -> pd.DataFrame:
     """Per product-day return of `chain`, blending both legs on a roll day."""
     if basis not in BASES:
-        raise ValueError(f"basis must be one of {BASES}, got {basis!r}")
+        raise ValueError(f"basis must be one of {tuple(BASES)}, got {basis!r}")
     if chain.empty:
         return pd.DataFrame(columns=list(RETURN_COLUMNS))
 
-    denominator = "settle" if basis == "close_to_prev_settle" else "close"
-    if denominator not in prices.columns:
-        raise ValueError(f"prices carry no {denominator!r} column for basis {basis!r}")
-    closes = _price_lookup(prices, "close")
+    numerator_column, denominator = BASES[basis]
+    for column in {numerator_column, denominator}:
+        if column not in prices.columns:
+            raise ValueError(f"prices carry no {column!r} column for basis {basis!r}")
+    closes = _price_lookup(prices, numerator_column)
     bases = _price_lookup(prices, denominator)
 
     frame = chain.sort_values(["product", "trade_date"], kind="mergesort").copy()

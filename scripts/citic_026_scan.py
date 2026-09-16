@@ -41,7 +41,7 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--return-basis",
         default="close_to_prev_settle",
-        choices=("close_to_prev_settle", "close_to_close"),
+        choices=("close_to_prev_settle", "close_to_close", "settle_to_settle"),
     )
     parser.add_argument("--out", default="output/citic/scan_026.csv")
     args = parser.parse_args(argv)
