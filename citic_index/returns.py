@@ -17,16 +17,16 @@ difference between the two is exactly the size of that untradeable accrual.
 That "+1.8pp" was measured on 025's slow signal.  The accrual is close(t)/settle(t),
 which a fast signal has already seen at t and sits on the same side of: on 026's
 15-day momentum it is worth +11.8pp a year and grows as the lookback shortens.
-026's official series carries none of it (`close_to_close` lands within 0.2pp of
-the published level), so whether CITIC's own index really divides by the previous
-settlement is open.  `settle_to_settle` -- both ends settlements, no leak --
-gives 026 its highest daily correlation (0.936) but a constant drag against the
-official level that nothing in the methodology explains.  See
-docs/plans/2026-09-15-cicsf026-time-series-momentum-probe.md section 5.
 
-The same function serves the factor's T1 and T2 legs and the index's dominant
-leg, so a roll cannot be handled one way in the signal and another in the
-return.
+`settle_to_settle` -- both ends settlements, no leak -- is what the official
+daily series actually follows: on 2026-09-16 it gave the highest daily
+correlation on all four indices at their selected points (025 0.722, 023 0.537,
+027 0.669, 026 0.936), so the quoted rule above is that one document's wording,
+not the family's convention.  It remains a switch rather than the default until
+the numbers the documents cite are rewritten against it.  026 alone carries a
+constant -2.6bp/day drag against its official level on this basis, which a
+cross-index test showed is not a cost; see
+docs/plans/2026-09-15-cicsf026-time-series-momentum-probe.md section 5.
 """
 
 import pandas as pd
