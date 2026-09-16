@@ -54,7 +54,10 @@ class ReplicaConfig:
     t1_leg: str = "near_dominant"
     cadence: str = "daily"
     roll_blend: bool = True
-    return_basis: str = "close_to_prev_settle"
+    # settle_to_settle is the replication basis (user ruling 2026-09-16): it is
+    # what the official daily series follows on all four indices.  Production
+    # books set close_to_close explicitly, the only convention that can be traded.
+    return_basis: str = "settle_to_settle"
     liquidity_window: int = 20
     liquidity_threshold: float = 2e9
     min_listing_calendar_days: int = 90

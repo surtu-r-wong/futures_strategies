@@ -47,7 +47,7 @@ def main(argv=None) -> int:
     parser.add_argument("--open-universe", action="store_true")
     parser.add_argument(
         "--return-basis",
-        default="close_to_prev_settle",
+        default="settle_to_settle",
         choices=("close_to_prev_settle", "close_to_close", "settle_to_settle"),
     )
     parser.add_argument(

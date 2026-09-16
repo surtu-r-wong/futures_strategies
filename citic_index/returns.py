@@ -60,7 +60,7 @@ def chain_returns(
     prices: pd.DataFrame,
     chain: pd.DataFrame,
     *,
-    basis: str = "close_to_prev_settle",
+    basis: str = "settle_to_settle",
     roll_blend: bool = True,
 ) -> pd.DataFrame:
     """Per product-day return of `chain`, blending both legs on a roll day."""
