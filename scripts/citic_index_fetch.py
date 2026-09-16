@@ -95,15 +95,20 @@ def _count_sql(products) -> str:
 # 023's factor input.  Receipts live in commodity_research, catalogued the same
 # way the six-factor path's inventory series are, so the pull goes through the
 # catalog rather than naming EDB codes here.
+# A product can carry more than one receipt series -- PK has one per
+# warehouse type (厂库 / 车船板), catalogued as `sum_component` rather than
+# summed at write time -- so the cross-section wants the sum per product-day.
+# Without the GROUP BY such a product would sit in the ranking twice.
 _RECEIPTS_SQL = """
     SELECT sc.product_code AS product,
            o.observation_date AS trade_date,
-           o.raw_value::float AS receipts
+           SUM(o.raw_value)::float AS receipts
     FROM commodity_research.fundamental_observation o
     JOIN commodity_research.series_catalog sc
       ON sc.catalog_version = o.catalog_version AND sc.series_id = o.series_id
     WHERE o.catalog_version = %(catalog)s
       AND sc.metric_role = 'warehouse_receipt'
+    GROUP BY 1, 2
     ORDER BY 1, 2
 """
 
