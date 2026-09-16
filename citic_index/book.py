@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 from cta_carry.risk import scale_weights
-from cta_carry.targets import order_code
+from cta_carry.targets import CODE_COLUMNS
 
 
 TARGET_COLUMNS = (
@@ -29,6 +29,9 @@ TARGET_COLUMNS = (
     "product",
     "contract",
     "order_code",
+    "code_exchange",
+    "code_qmt",
+    "code_ctp",
     "direction",
     "close",
     "multiplier",
@@ -122,7 +125,8 @@ def next_targets(
 
     day = day.rename(columns={"main_contract": "contract", "main_close": "close"})
     day["signal_date"] = signal_date
-    day["order_code"] = day["contract"].map(order_code)
+    for name, spell in CODE_COLUMNS.items():
+        day[name] = day["contract"].map(spell)
     day["direction"] = np.sign(day["target_weight"]).astype(int)
     day["raw_weight"] = day["weight"]
     day["notional"] = day["target_weight"] * float(capital)

@@ -21,7 +21,7 @@ scripts/citic027_daily.sh <资金规模CNY> [as_of=今天]
 大商所靠人工投递、多数早晨落后一天；照全表最大日跑会把大商所品种全读成没有 K 线。
 滞后的交易所会打到 stderr 与 `output/targets/citic027_daily.log`。
 
-产物：`citic027_<END>_next_targets.csv`（下单用 `order_code` 与 `lots` 两列；`order_code` = Wind 合约代码带交易所后缀，如 `M2701.DCE`，2026-09-16 起）
+产物：`citic027_<END>_next_targets.csv`（下单用代码列与 `lots`；代码四种口径各一列：`order_code` = Wind 写法 `M2701.DCE` / 郑商所 `CF701.CZC`，`code_exchange` = `m2701` / `CF701`，`code_qmt` = `m2701.DF` / `CF701.ZF`，`code_ctp` = `m2701.DCE` / `CF701.CZCE`；2026-09-16 起）
 与 `citic027_<END>_config.json`（完整配置 + 诊断）。
 
 ## 2. 这条策略是什么

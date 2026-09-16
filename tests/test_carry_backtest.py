@@ -1052,7 +1052,8 @@ def test_next_targets_are_emitted_for_the_last_close_only_when_requested() -> No
     assert plain.next_targets.empty
     targets = result.next_targets
     assert list(targets.columns) == [
-        "signal_date", "product", "contract", "order_code", "direction", "carry_ma",
+        "signal_date", "product", "contract", "order_code", "code_exchange", "code_qmt",
+        "code_ctp", "direction", "carry_ma",
         "close", "raw_weight", "vol_scale", "target_weight", "current_weight",
         "weight_change", "reason",
     ]
@@ -1081,7 +1082,8 @@ def test_next_targets_are_emitted_for_the_last_close_only_when_requested() -> No
 
 def test_next_targets_carry_the_exchange_order_code() -> None:
     # Synthetic contracts have no exchange suffix, so give them DCE's: the
-    # order code must then be the Wind code with that suffix, as stored.
+    # order code is then the Wind code as stored, and the exchange id beside
+    # it is the lower-case form.
     data = make_carry_panel(periods=40)
     prices = data.prices.assign(contract=lambda f: f["contract"] + ".DCE")
     suffixed = CarryDataSet(prices=prices, data_quality=data.data_quality.copy())
@@ -1094,6 +1096,12 @@ def test_next_targets_carry_the_exchange_order_code() -> None:
     assert not targets.empty
     assert targets["contract"].str.endswith(".DCE").all()
     assert targets["order_code"].tolist() == targets["contract"].tolist()
+    assert targets["code_exchange"].tolist() == [
+        c.removesuffix(".DCE").lower() for c in targets["contract"]
+    ]
+    assert targets["code_qmt"].tolist() == [
+        c.removesuffix(".DCE").lower() + ".DF" for c in targets["contract"]
+    ]
 
 
 def test_next_targets_refuse_a_signal_date_missing_a_held_contract() -> None:

@@ -19,6 +19,10 @@ from pathlib import Path
 
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from cta_carry.targets import CODE_COLUMNS  # noqa: E402
+
 
 def check(prefix: Path) -> list[str]:
     targets = pd.read_csv(f"{prefix}_next_targets.csv")
@@ -66,18 +70,23 @@ def check(prefix: Path) -> list[str]:
         fail(f"{off} rows where lots do not equal notional / (close x multiplier)")
 
     # --- the codes an order ticket will actually carry -------------------------
-    # The desk keys orders by the Wind contract code, suffix and all (user
-    # ruling 2026-09-16); the bare exchange id (m2701) and Zhengzhou's one-digit
-    # year (MA701) were the old convention and cannot be used directly.  This is
-    # here so the sheet cannot quietly slip back to either.
+    # One column per convention (user ruling 2026-09-16): `order_code` is the
+    # Wind spelling (Zhengzhou with a one-digit year, CF701.CZC), and the
+    # exchange / QMT / CTP spellings sit beside it.  Each is recomputed from the
+    # stored contract so the sheet cannot quietly drift from any of them.
     wind = targets["contract"].str.fullmatch(r"[A-Z]+[0-9]{4}\.(SHF|DCE|CZC|INE|GFE)")
     if not wind.all():
         codes = ", ".join(targets.loc[~wind, "contract"])
         fail(f"contracts must be Wind codes with a known exchange suffix: {codes}")
-    mismatch = targets.loc[targets["order_code"] != targets["contract"]]
-    if not mismatch.empty:
-        codes = ", ".join(mismatch["order_code"])
-        fail(f"order codes must be the Wind contract code, suffix included: {codes}")
+    for column, spell in CODE_COLUMNS.items():
+        if column not in targets.columns:
+            fail(f"missing code column {column}")
+            continue
+        expected = targets["contract"].map(spell)
+        wrong = targets.loc[targets[column] != expected]
+        if not wrong.empty:
+            codes = ", ".join(f"{a} (want {b})" for a, b in zip(wrong[column], expected[wrong.index]))
+            fail(f"{column} must be the {column.removeprefix('code_') or 'Wind'} spelling of the contract: {codes}")
 
     # --- the sheet is for the day it says --------------------------------------
     if targets["signal_date"].nunique() != 1:

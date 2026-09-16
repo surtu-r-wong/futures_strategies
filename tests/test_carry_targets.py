@@ -40,19 +40,30 @@ def test_lots_for_targets_rounds_notional_over_contract_value() -> None:
 
 
 @pytest.mark.parametrize(
-    "contract",
+    "contract, wind, exchange, qmt, ctp",
     [
-        "PL2611.CZC",  # Zhengzhou keeps its four-digit year: no PL611 rewrite
-        "M2701.DCE",   # no lower-casing either: the Wind code goes out as stored
-        "RU2701.SHF",
-        "SC2610.INE",
-        "LC2701.GFE",
-        "A2410",       # no exchange suffix (synthetic panels): unchanged
+        # Zhengzhou: one-digit year everywhere, upper case; Wind keeps the suffix
+        ("PL2611.CZC", "PL611.CZC", "PL611", "PL611.ZF", "PL611.CZCE"),
+        ("TA611.CZC", "TA611.CZC", "TA611", "TA611.ZF", "TA611.CZCE"),
+        # the other four: Wind as stored, exchange id lower case with four digits
+        ("M2701.DCE", "M2701.DCE", "m2701", "m2701.DF", "m2701.DCE"),
+        ("RU2701.SHF", "RU2701.SHF", "ru2701", "ru2701.SF", "ru2701.SHFE"),
+        ("SC2610.INE", "SC2610.INE", "sc2610", "sc2610.INE", "sc2610.INE"),
+        ("LC2701.GFE", "LC2701.GFE", "lc2701", "lc2701.GF", "lc2701.GFEX"),
+        # no exchange suffix (synthetic panels): every spelling is the input
+        ("A2410", "A2410", "A2410", "A2410", "A2410"),
     ],
 )
-def test_order_code_is_the_wind_contract_code(contract) -> None:
-    # User ruling 2026-09-16: the desk keys orders by the Wind code, suffix
-    # included; the bare exchange instrument id could not be used directly.
-    from cta_carry.targets import order_code
+def test_every_code_spelling(contract, wind, exchange, qmt, ctp) -> None:
+    # User ruling 2026-09-16: one column per convention.  Wind refuses the
+    # four-digit Zhengzhou code the database stores, the desk's other tools
+    # refuse the Wind one, so the sheet carries all four.
+    from cta_carry.targets import code_columns, order_code
 
-    assert order_code(contract) == contract
+    assert code_columns(contract) == {
+        "order_code": wind,
+        "code_exchange": exchange,
+        "code_qmt": qmt,
+        "code_ctp": ctp,
+    }
+    assert order_code(contract) == wind

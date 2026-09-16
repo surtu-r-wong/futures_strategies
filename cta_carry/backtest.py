@@ -20,7 +20,7 @@ from .decision import (
     build_daily_research,
     plan_signal_targets,
 )
-from .targets import TARGET_COLUMNS, order_code
+from .targets import TARGET_COLUMNS, code_columns
 from .risk import (
     PositionState,
     ShadowVolWindow,
@@ -762,7 +762,7 @@ def _next_target_rows(
                 "signal_date": trade_date,
                 "product": product,
                 "contract": contract,
-                "order_code": order_code(contract),
+                **code_columns(contract),
                 "direction": int(np.sign(raw_weight)),
                 "carry_ma": float(signal.carry_ma) if signal is not None else float("nan"),
                 "close": float(bar["close"]) if bar is not None else float("nan"),

@@ -20,6 +20,9 @@ def _sheet(tmp_path, *, rows=None, meta=None) -> Path:
             "product": ["M", "Y"],
             "contract": ["M2701.DCE", "Y2701.DCE"],
             "order_code": ["M2701.DCE", "Y2701.DCE"],
+            "code_exchange": ["m2701", "y2701"],
+            "code_qmt": ["m2701.DF", "y2701.DF"],
+            "code_ctp": ["m2701.DCE", "y2701.DCE"],
             "direction": [1, -1],
             "close": [3000.0, 9000.0],
             "multiplier": [10.0, 10.0],
@@ -112,37 +115,61 @@ def test_every_failure_is_reported_not_just_the_first(tmp_path):
     assert len(bad) >= 3
 
 
-def test_order_codes_must_be_the_wind_contract_code(tmp_path):
-    # User ruling 2026-09-16: the desk keys orders by the Wind code, suffix and
-    # all.  The bare exchange id (m2701) and Zhengzhou's one-digit year (MA701)
-    # were the old convention and cannot be used directly; the check exists so
-    # the sheet cannot quietly slip back to either.
-    def bare(d):
-        return d.assign(
-            contract=["MA2701.CZC", "Y2701.DCE"],
-            order_code=["MA701", "y2701"],
-        )
-
-    bad = check(_sheet(tmp_path, rows=bare))
-    assert any("MA701" in m and "Wind" in m for m in bad)
-    assert any("y2701" in m for m in bad)
-
-
-def test_wind_codes_pass(tmp_path):
-    def wind(d):
+def test_each_code_column_must_be_its_own_spelling_of_the_contract(tmp_path):
+    # User ruling 2026-09-16: one column per convention.  Wind wants Zhengzhou
+    # with a one-digit year and the suffix (MA701.CZC); the bare id (MA701) and
+    # the four-digit form (MA2701.CZC) are both wrong there.
+    def zhengzhou(d):
         return d.assign(
             contract=["MA2701.CZC", "Y2701.DCE"],
             order_code=["MA2701.CZC", "Y2701.DCE"],
+            code_exchange=["MA701", "y2701"],
+            code_qmt=["MA701.ZF", "y2701.DF"],
+            code_ctp=["MA701.CZCE", "y2701.DCE"],
+        )
+
+    bad = check(_sheet(tmp_path, rows=zhengzhou))
+    assert any("MA2701.CZC (want MA701.CZC)" in m for m in bad)
+
+    def qmt_wrong(d):
+        return zhengzhou(d).assign(
+            order_code=["MA701.CZC", "Y2701.DCE"],
+            code_qmt=["MA701.CZC", "y2701.DF"],
+        )
+
+    bad = check(_sheet(tmp_path, rows=qmt_wrong))
+    assert any("code_qmt" in m and "MA701.ZF" in m for m in bad)
+
+
+def test_all_four_spellings_pass(tmp_path):
+    def wind(d):
+        return d.assign(
+            contract=["MA2701.CZC", "Y2701.DCE"],
+            order_code=["MA701.CZC", "Y2701.DCE"],
+            code_exchange=["MA701", "y2701"],
+            code_qmt=["MA701.ZF", "y2701.DF"],
+            code_ctp=["MA701.CZCE", "y2701.DCE"],
         )
 
     assert check(_sheet(tmp_path, rows=wind)) == []
+
+
+def test_a_missing_code_column_is_refused(tmp_path):
+    def dropped(d):
+        return d.drop(columns=["code_qmt"])
+
+    bad = check(_sheet(tmp_path, rows=dropped))
+    assert any("code_qmt" in m for m in bad)
 
 
 def test_a_contract_without_a_known_exchange_suffix_is_refused(tmp_path):
     def odd(d):
         return d.assign(
             contract=["MA2701.CZC", "Y2701.XYZ"],
-            order_code=["MA2701.CZC", "Y2701.XYZ"],
+            order_code=["MA701.CZC", "Y2701.XYZ"],
+            code_exchange=["MA701", "Y2701.XYZ"],
+            code_qmt=["MA701.ZF", "Y2701.XYZ"],
+            code_ctp=["MA701.CZCE", "Y2701.XYZ"],
         )
 
     bad = check(_sheet(tmp_path, rows=odd))

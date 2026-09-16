@@ -13,6 +13,9 @@ TARGET_COLUMNS = (
     "product",
     "contract",
     "order_code",
+    "code_exchange",
+    "code_qmt",
+    "code_ctp",
     "direction",
     "carry_ma",
     "close",
@@ -24,17 +27,89 @@ TARGET_COLUMNS = (
     "reason",
 )
 
+# Panel suffix -> (QMT market, CTP exchange id).
+EXCHANGE_MARKETS = {
+    "SHF": ("SF", "SHFE"),
+    "DCE": ("DF", "DCE"),
+    "CZC": ("ZF", "CZCE"),
+    "INE": ("INE", "INE"),
+    "GFE": ("GF", "GFEX"),
+}
+
+
+def _split(contract: str) -> tuple[str, str | None]:
+    code, sep, exchange = contract.partition(".")
+    return code, (exchange if sep else None)
+
+
+def _czce_three_digit(code: str) -> str:
+    """Zhengzhou quotes a one-digit delivery year: PL2611 -> PL611, TA611 unchanged."""
+    letters = code.rstrip("0123456789")
+    digits = code[len(letters) :]
+    return f"{letters}{digits[1:] if len(digits) == 4 else digits}"
+
+
+def wind_code(contract: str) -> str:
+    """The Wind terminal code: the panel's `<PRODUCT><YYMM>.<EXCH>` with Zhengzhou's
+    year cut to one digit (`CF2701.CZC` -> `CF701.CZC`, which is what Wind's data
+    functions accept; the four-digit form the database stores is refused there).
+    A contract without a suffix (synthetic panels) is returned unchanged."""
+    code, exchange = _split(contract)
+    if exchange is None:
+        return contract
+    if exchange == "CZC":
+        code = _czce_three_digit(code)
+    return f"{code}.{exchange}"
+
+
+def exchange_code(contract: str) -> str:
+    """The exchange's own instrument id: Zhengzhou upper case with a one-digit
+    year (`CF701`); DCE, SHFE, INE and GFEX lower case with four (`rb2611`)."""
+    code, exchange = _split(contract)
+    if exchange is None:
+        return contract
+    if exchange == "CZC":
+        return _czce_three_digit(code)
+    return code.lower()
+
+
+def qmt_code(contract: str) -> str:
+    """迅投 QMT / xtquant: the exchange id plus its market (`rb2611.SF`, `CF701.ZF`)."""
+    _, exchange = _split(contract)
+    market = EXCHANGE_MARKETS.get(exchange or "")
+    if market is None:
+        return contract
+    return f"{exchange_code(contract)}.{market[0]}"
+
+
+def ctp_code(contract: str) -> str:
+    """CTP-style `InstrumentID.ExchangeID` (vn.py's spelling): `rb2611.SHFE`, `CF701.CZCE`."""
+    _, exchange = _split(contract)
+    market = EXCHANGE_MARKETS.get(exchange or "")
+    if market is None:
+        return contract
+    return f"{exchange_code(contract)}.{market[1]}"
+
+
+# The sheet carries one column per convention (user ruling 2026-09-16, after a
+# Wind-only column proved unusable for the desk's other tools and the earlier
+# exchange-id column unusable for Wind).  `order_code` is the Wind spelling.
+CODE_COLUMNS = {
+    "order_code": wind_code,
+    "code_exchange": exchange_code,
+    "code_qmt": qmt_code,
+    "code_ctp": ctp_code,
+}
+
 
 def order_code(contract: str) -> str:
-    """The code an order ticket carries: the Wind contract code, suffix and all.
+    """The Wind code; see `CODE_COLUMNS` for the other spellings."""
+    return wind_code(contract)
 
-    `RB2611.SHF`, `CF2701.CZC`, `LC2701.GFE` go out exactly as the panel stores
-    them (user ruling 2026-09-16: the desk keys orders by the Wind code, and a
-    bare exchange instrument id -- `rb2611`, `CF701` -- could not be used
-    directly). Kept as a function so the convention has one home; a contract
-    without a suffix (synthetic panels) is returned unchanged too.
-    """
-    return contract
+
+def code_columns(contract: str) -> dict[str, str]:
+    """Every spelling of one contract, keyed by sheet column."""
+    return {name: fn(contract) for name, fn in CODE_COLUMNS.items()}
 
 
 def infer_product_multipliers(prices: pd.DataFrame, *, window: int = 60) -> dict[str, float]:
