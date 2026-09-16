@@ -58,10 +58,13 @@ class ReplicaConfig:
     # what the official daily series follows on all four indices.  Production
     # books set close_to_close explicitly, the only convention that can be traded.
     return_basis: str = "settle_to_settle"
-    # Trading days between the signal day and the first day the book earns,
-    # beyond the one the engine always takes.  0 = weights on t earn t+1.
-    # The official time-series momentum index reproduces at 1 (2026-09-16).
-    execution_lag: int = 0
+    # Trading days between the signal day and the day the book is struck.
+    # 1 = signal on T, traded at T+1's price, first return T+1 -> T+2: the only
+    # convention that can be executed, since the signal needs T's close (or
+    # settlement) to exist.  0 strikes the book at the very price the signal
+    # was computed on and is kept only as a diagnostic (user ruling 2026-09-16,
+    # after that convention inflated the time-series momentum replica).
+    execution_lag: int = 1
     liquidity_window: int = 20
     liquidity_threshold: float = 2e9
     min_listing_calendar_days: int = 90

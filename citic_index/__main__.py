@@ -102,10 +102,10 @@ def _parse_args(argv=None):
     parser.add_argument("--vol-window", type=int, default=60,
                         help="026 only: the volatility window 3.5 step 3 leaves undefined")
     parser.add_argument("--base-value", type=float, default=1000.0)
-    parser.add_argument("--execution-lag", type=int, default=0,
-                        help="extra trading days between the signal day and the "
-                             "first day the book earns; the official time-series "
-                             "momentum index reproduces at 1")
+    parser.add_argument("--execution-lag", type=int, default=1,
+                        help="trading days between the signal day and the day the "
+                             "book is struck; 1 is the executable convention and "
+                             "the default, 0 is a diagnostic")
     return parser.parse_args(argv)
 
 

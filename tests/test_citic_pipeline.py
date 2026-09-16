@@ -58,6 +58,10 @@ def _config(**overrides):
         # The hand-computed figures below are close-to-close; the settlement
         # convention gets its own test rather than being folded into all of them.
         return_basis="close_to_close",
+        # They also strike the book at the signal day's price, so the weights
+        # of d3 earn d4 and the four-day fixture reaches a return.  The T+1
+        # default is asserted separately below.
+        execution_lag=0,
     )
     base.update(overrides)
     return ReplicaConfig(**base)
@@ -87,6 +91,20 @@ def test_the_whole_pipeline_produces_the_hand_computed_index():
     assert index.loc[DAYS[2], "index_value"] == pytest.approx(1000.0)
     assert index.loc[DAYS[3], "daily_return"] == pytest.approx(0.01)
     assert index.loc[DAYS[3], "index_value"] == pytest.approx(1010.0)
+
+
+def test_the_default_strikes_the_book_a_day_after_the_signal():
+    # Signal on d3, traded at d4's price, first return d4 -> d5.  The fixture
+    # ends on d4, so under the default nothing has been earned yet; striking at
+    # d3's own price -- the price the signal was computed on -- is lag 0.
+    assert ReplicaConfig().execution_lag == 1
+    result = build_replica(_panel(), _config(execution_lag=1))
+    index = result.index.set_index("trade_date")
+    assert index.loc[DAYS[3], "daily_return"] == pytest.approx(0.0)
+    assert index.loc[DAYS[3], "index_value"] == pytest.approx(1000.0)
+    # The weights themselves are the same book, only struck later.
+    weights = result.weights.set_index(["trade_date", "product"])["weight"]
+    assert weights[(DAYS[2], "M")] == pytest.approx(1 / 6)
 
 
 def test_the_series_starts_at_the_base_date_even_with_no_return_that_day():

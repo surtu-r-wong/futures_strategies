@@ -53,6 +53,11 @@ PRODUCTION = ReplicaConfig(
     # Tradeable.  CITIC's own convention divides by the previous settlement,
     # which accrues about 1.8pp a year that nobody can be filled at.
     return_basis="close_to_close",
+    # Signal on T, struck at T+1: the book whose realised volatility sizes the
+    # next targets is the one that could actually have been held.  Pinned here
+    # rather than inherited (2026-09-16); 0 would size off a book struck at the
+    # very price the signal was computed on.
+    execution_lag=1,
     roll_blend=True,
     liquidity_window=20,
     liquidity_threshold=2e9,

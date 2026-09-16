@@ -37,8 +37,8 @@ def main(argv=None) -> int:
     parser.add_argument("--code", default="CICSF026.WI")
     parser.add_argument("--lookbacks", default="20,60,120,250")
     parser.add_argument("--vol-windows", default="20,60,120")
-    parser.add_argument("--execution-lag", type=int, default=0,
-                        help="the official series reproduces at 1; see the probe doc 5.6")
+    parser.add_argument("--execution-lag", type=int, default=1,
+                        help="1 = trade at T+1 (default, executable); 0 is a diagnostic")
     parser.add_argument("--open-universe", action="store_true")
     parser.add_argument(
         "--return-basis",
