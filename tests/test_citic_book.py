@@ -130,7 +130,7 @@ def test_lots_are_the_notional_over_the_contract_value():
     lots = out.set_index("product")["lots"]
     assert lots["M"] == 1000
     assert lots["Y"] == -200
-    assert out.set_index("product")["order_code"]["M"] == "m2005"
+    assert out.set_index("product")["order_code"]["M"] == "M2005.DCE"
 
 
 def test_the_direction_column_follows_the_sign_of_the_target():

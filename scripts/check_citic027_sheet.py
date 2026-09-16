@@ -66,24 +66,18 @@ def check(prefix: Path) -> list[str]:
         fail(f"{off} rows where lots do not equal notional / (close x multiplier)")
 
     # --- the codes an order ticket will actually carry -------------------------
-    # Zhengzhou quotes a one-digit delivery year, so MA2701 is rejected at entry
-    # where MA701 is taken; the other four exchanges take the four-digit code in
-    # lower case.  The carry sheet has always got this right, and this is here so
-    # that it cannot quietly stop being right.
-    exchange = targets["contract"].str.split(".").str[1]
-    czce = exchange.eq("CZC")
-    wrong_czce = targets.loc[czce & ~targets["order_code"].str.fullmatch(r"[A-Z]+[0-9]{3}")]
-    if not wrong_czce.empty:
-        codes = ", ".join(wrong_czce["order_code"])
-        fail(
-            f"Zhengzhou order codes must be upper case with three digits: {codes}"
-        )
-    wrong_other = targets.loc[~czce & ~targets["order_code"].str.fullmatch(r"[a-z]+[0-9]{4}")]
-    if not wrong_other.empty:
-        codes = ", ".join(wrong_other["order_code"])
-        fail(
-            f"non-Zhengzhou order codes must be lower case with four digits: {codes}"
-        )
+    # The desk keys orders by the Wind contract code, suffix and all (user
+    # ruling 2026-09-16); the bare exchange id (m2701) and Zhengzhou's one-digit
+    # year (MA701) were the old convention and cannot be used directly.  This is
+    # here so the sheet cannot quietly slip back to either.
+    wind = targets["contract"].str.fullmatch(r"[A-Z]+[0-9]{4}\.(SHF|DCE|CZC|INE|GFE)")
+    if not wind.all():
+        codes = ", ".join(targets.loc[~wind, "contract"])
+        fail(f"contracts must be Wind codes with a known exchange suffix: {codes}")
+    mismatch = targets.loc[targets["order_code"] != targets["contract"]]
+    if not mismatch.empty:
+        codes = ", ".join(mismatch["order_code"])
+        fail(f"order codes must be the Wind contract code, suffix included: {codes}")
 
     # --- the sheet is for the day it says --------------------------------------
     if targets["signal_date"].nunique() != 1:

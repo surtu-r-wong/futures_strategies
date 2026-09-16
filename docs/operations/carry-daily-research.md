@@ -208,7 +208,7 @@ scripts/carry_tsindex_daily.sh <资金规模CNY> [as_of=今天]
 再多算最后一天收盘的计划，输出：
 - 工作簿多一张 `next_targets` 表，另写 `<prefix>_next_targets.csv`，终端打印排序后的表；
 - 列：`signal_date`（= 截断日，**核对它是不是昨天**；不是就是有交易所滞后，见上）、`product`、`contract`（持仓合约 = 主力）、
-  `order_code`（交易所自己的合约代码：郑商所年份一位 `PL611`、其余四所小写 `m2701`，下单用这列）、
+  `order_code`（**= Wind 合约代码，带交易所后缀**，如 `RB2611.SHF` / `CF2701.CZC`，下单用这列；2026-09-16 用户裁决，此前的交易所自身代码 `m2701` / `PL611` 不能直接用）、
   `direction`、`close`、`raw_weight`（秩权重）、`vol_scale`、`target_weight`、`current_weight`（回测里此刻的持仓）、
   `weight_change`、`reason`；给了 `--capital` 再加 `multiplier`（近 60 个成交日
   成交额 ÷（成交量 × 收盘）的中位数）、`notional`、`lots`（四舍五入到整手）。

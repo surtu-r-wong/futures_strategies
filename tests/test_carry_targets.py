@@ -40,19 +40,19 @@ def test_lots_for_targets_rounds_notional_over_contract_value() -> None:
 
 
 @pytest.mark.parametrize(
-    "contract, expected",
+    "contract",
     [
-        ("PL2611.CZC", "PL611"),  # CZCE quotes a one-digit year: 2611 -> 611
-        ("SA2701.CZC", "SA701"),
-        ("TA611.CZC", "TA611"),  # already three digits (older rows): unchanged
-        ("M2701.DCE", "m2701"),  # DCE / SHFE / INE / GFEX instrument ids are lower case
-        ("RU2701.SHF", "ru2701"),
-        ("SC2610.INE", "sc2610"),
-        ("LC2701.GFE", "lc2701"),
-        ("A2410", "A2410"),  # no exchange suffix (synthetic panels): unchanged
+        "PL2611.CZC",  # Zhengzhou keeps its four-digit year: no PL611 rewrite
+        "M2701.DCE",   # no lower-casing either: the Wind code goes out as stored
+        "RU2701.SHF",
+        "SC2610.INE",
+        "LC2701.GFE",
+        "A2410",       # no exchange suffix (synthetic panels): unchanged
     ],
 )
-def test_order_code_is_the_exchange_instrument_id(contract, expected) -> None:
+def test_order_code_is_the_wind_contract_code(contract) -> None:
+    # User ruling 2026-09-16: the desk keys orders by the Wind code, suffix
+    # included; the bare exchange instrument id could not be used directly.
     from cta_carry.targets import order_code
 
-    assert order_code(contract) == expected
+    assert order_code(contract) == contract

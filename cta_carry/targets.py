@@ -26,20 +26,15 @@ TARGET_COLUMNS = (
 
 
 def order_code(contract: str) -> str:
-    """The exchange's own instrument id for a `<PRODUCT><YYMM>.<EXCH>` contract.
+    """The code an order ticket carries: the Wind contract code, suffix and all.
 
-    CZCE quotes a one-digit year (PL2611 -> PL611, upper case); DCE, SHFE, INE
-    and GFEX ids are the four-digit code in lower case. A contract without an
-    exchange suffix (synthetic panels) is returned unchanged.
+    `RB2611.SHF`, `CF2701.CZC`, `LC2701.GFE` go out exactly as the panel stores
+    them (user ruling 2026-09-16: the desk keys orders by the Wind code, and a
+    bare exchange instrument id -- `rb2611`, `CF701` -- could not be used
+    directly). Kept as a function so the convention has one home; a contract
+    without a suffix (synthetic panels) is returned unchanged too.
     """
-    code, sep, exchange = contract.partition(".")
-    if not sep:
-        return contract
-    if exchange == "CZC":
-        letters = code.rstrip("0123456789")
-        digits = code[len(letters) :]
-        return f"{letters}{digits[1:] if len(digits) == 4 else digits}"
-    return code.lower()
+    return contract
 
 
 def infer_product_multipliers(prices: pd.DataFrame, *, window: int = 60) -> dict[str, float]:
