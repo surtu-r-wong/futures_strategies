@@ -58,6 +58,10 @@ class ReplicaConfig:
     # what the official daily series follows on all four indices.  Production
     # books set close_to_close explicitly, the only convention that can be traded.
     return_basis: str = "settle_to_settle"
+    # Trading days between the signal day and the first day the book earns,
+    # beyond the one the engine always takes.  0 = weights on t earn t+1.
+    # The official time-series momentum index reproduces at 1 (2026-09-16).
+    execution_lag: int = 0
     liquidity_window: int = 20
     liquidity_threshold: float = 2e9
     min_listing_calendar_days: int = 90
@@ -269,6 +273,7 @@ def build_from_panel(panel: ReplicaPanel, config: ReplicaConfig) -> ReplicaResul
         panel.returns,
         base_date=config.base_date,
         base_value=config.base_value,
+        execution_lag=config.execution_lag,
     )
     return ReplicaResult(
         pool=pool,

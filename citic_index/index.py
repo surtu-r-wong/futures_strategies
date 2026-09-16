@@ -31,15 +31,27 @@ def accumulate(
     *,
     base_date,
     base_value: float = 1000.0,
+    execution_lag: int = 0,
 ) -> pd.DataFrame:
-    """Compound the weighted cross-section from `base_date` at `base_value`."""
+    """Compound the weighted cross-section from `base_date` at `base_value`.
+
+    Weights struck on day t earn day t+1's return.  `execution_lag` moves the
+    whole book later by that many trading days: with 1, day t's weights earn on
+    t+2, the convention under which the official time-series momentum index
+    reproduces (signal on t, positions in force from t+1, first return t+2).
+    """
+    if execution_lag < 0:
+        raise ValueError("execution_lag must be zero or more trading days")
     if weights.empty or returns.empty:
         return pd.DataFrame(columns=list(INDEX_COLUMNS))
 
     calendar = sorted(set(weights["trade_date"]) | set(returns["trade_date"]))
-    next_day = dict(zip(calendar[:-1], calendar[1:]))
+    step = 1 + execution_lag
+    earn_on = (
+        dict(zip(calendar[:-step], calendar[step:])) if step < len(calendar) else {}
+    )
     applied = weights.loc[:, ["trade_date", "product", "weight"]].copy()
-    applied["earn_on"] = applied["trade_date"].map(next_day)
+    applied["earn_on"] = applied["trade_date"].map(earn_on)
     applied = applied.dropna(subset=["earn_on"])
 
     merged = returns.merge(

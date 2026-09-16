@@ -63,6 +63,34 @@ def test_the_weights_struck_on_a_day_are_applied_to_the_next_days_returns():
     assert series[date(2010, 1, 6)] == pytest.approx(1020.0)
 
 
+def test_an_execution_lag_of_one_makes_the_weights_earn_two_days_later():
+    # The official time-series momentum index runs signal on T, positions in
+    # force from T+1, first return T+2.  With lag 1 the 01-04 weight must skip
+    # 01-05's return and earn 01-06's, and 01-05's weight (0.0) earns nothing.
+    weights = _weights([("2010-01-04", "A", 1.0), ("2010-01-05", "A", 0.0)])
+    returns = _returns(
+        [
+            ("2010-01-05", "A", 0.02),   # skipped: only one day after the strike
+            ("2010-01-06", "A", 0.05),   # earned by 01-04's weight of 1.0
+            ("2010-01-07", "A", 0.50),   # 01-05 struck 0.0
+        ]
+    )
+    out = accumulate(
+        weights, returns, base_date=date(2010, 1, 4), base_value=1000.0, execution_lag=1
+    )
+    series = out.set_index("trade_date")["index_value"]
+    assert series[date(2010, 1, 5)] == pytest.approx(1000.0)
+    assert series[date(2010, 1, 6)] == pytest.approx(1050.0)
+    assert series[date(2010, 1, 7)] == pytest.approx(1050.0)
+
+
+def test_a_negative_execution_lag_is_refused():
+    weights = _weights([("2010-01-04", "A", 1.0)])
+    returns = _returns([("2010-01-05", "A", 0.02)])
+    with pytest.raises(ValueError, match="execution_lag"):
+        accumulate(weights, returns, base_date=date(2010, 1, 4), execution_lag=-1)
+
+
 def test_a_product_without_a_return_that_day_simply_does_not_contribute():
     weights = _weights([("2010-01-04", "A", -0.5), ("2010-01-04", "B", 0.5)])
     returns = _returns([("2010-01-05", "B", 0.04)])

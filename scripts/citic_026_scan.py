@@ -37,6 +37,8 @@ def main(argv=None) -> int:
     parser.add_argument("--code", default="CICSF026.WI")
     parser.add_argument("--lookbacks", default="20,60,120,250")
     parser.add_argument("--vol-windows", default="20,60,120")
+    parser.add_argument("--execution-lag", type=int, default=0,
+                        help="the official series reproduces at 1; see the probe doc 5.6")
     parser.add_argument("--open-universe", action="store_true")
     parser.add_argument(
         "--return-basis",
@@ -67,6 +69,7 @@ def main(argv=None) -> int:
                 factor_kind="time_series_momentum",
                 window=lookback,
                 vol_window=vol_window,
+                execution_lag=args.execution_lag,
                 restrict_to_named=not args.open_universe,
                 return_basis=args.return_basis,
             )
