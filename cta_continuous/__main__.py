@@ -249,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
         default="full",
         help="D23：跑哪一档。full=最终策略（四道闸 + U2P 强弱 + Lev_ATR×Mul_vol）/ "
              "crossover=§2.1 的基线档（只有均线方向与距离走阔，满仓 ±1，无空仓、无杠杆），"
-             "即研报自报 13.06% / 夏普 1.03 的那一行",
+             "即研报自报 13.06%% / 夏普 1.03 的那一行",
     )
     parser.add_argument("--grid", action="store_true", help="跑 D9 的 9 个网格点 + 3 个反向对照")
     parser.add_argument("--cost-sensitivity", action="store_true", help="追加研报表 8 的三档成本")

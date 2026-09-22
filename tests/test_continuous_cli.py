@@ -246,3 +246,19 @@ def test_cli_exposes_the_paper_baseline_tier(tmp_path):
 
     summary = pd.read_csv(tmp_path / "base-summary.csv")
     assert list(summary["signal_tier"]) == ["crossover"]
+
+
+def test_help_renders_instead_of_crashing(capsys):
+    """`--help` 得打得出来。
+
+    argparse 在渲染时对 help 文本做 `%` 展开，D23 那条里的「13.06% / 夏普 1.03」
+    于是被读成格式符 `% /` —— 整个 `--help` 崩在 ValueError，而真跑不受影响，
+    所以套件里没有一条用例走到过这里。
+    """
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--help"])
+
+    assert exit_info.value.code == 0
+    printed = capsys.readouterr().out
+    assert "--signal-tier" in printed
+    assert "13.06% / 夏普 1.03" in printed
