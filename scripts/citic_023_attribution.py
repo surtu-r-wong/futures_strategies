@@ -98,6 +98,16 @@ def main(argv=None) -> int:
     parser.add_argument("--data-dir", default="data/citic_023")
     parser.add_argument("--end", type=date.fromisoformat, default=date(2026, 9, 10))
     parser.add_argument("--code", default="CICSF023.WI")
+    parser.add_argument(
+        "--receipts-filename",
+        default="receipts.csv",
+        help="receipts.csv is Wind; receipts_exchange.csv is the exchanges' own",
+    )
+    parser.add_argument(
+        "--include-forecast",
+        action="store_true",
+        help="add 有效预报 to the stock; only the exchange file carries it",
+    )
     parser.add_argument("--out", default="output/citic/attribution_023.csv")
     args = parser.parse_args(argv)
 
@@ -109,6 +119,8 @@ def main(argv=None) -> int:
         args.data_dir,
         calendar=sorted(prices["trade_date"].unique()),
         through=prices["trade_date"].max(),
+        filename=args.receipts_filename,
+        include_forecast=args.include_forecast,
     )
 
     def panel_for(**overrides):

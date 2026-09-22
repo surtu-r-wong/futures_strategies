@@ -33,6 +33,17 @@ def _parse_args(argv=None):
     parser.add_argument("--output-prefix", required=True)
 
     # 3.1 / 3.5 step 1 -- the factor
+    parser.add_argument(
+        "--receipts-filename",
+        default="receipts.csv",
+        help="023's input: receipts.csv is Wind, receipts_exchange.csv is the"
+             " exchanges' own reports and the only one carrying 有效预报",
+    )
+    parser.add_argument(
+        "--include-forecast",
+        action="store_true",
+        help="add 有效预报 to the receipt stock (CZCE publishes it; nobody else does)",
+    )
     parser.add_argument("--factor", dest="factor_kind",
                         choices=(
                             "basis_momentum",
@@ -124,7 +135,12 @@ def load_prices(data_dir: str, *, start: date, end: date) -> pd.DataFrame:
 
 
 def load_receipts(
-    data_dir: str, *, calendar, through
+    data_dir: str,
+    *,
+    calendar,
+    through,
+    filename: str = "receipts.csv",
+    include_forecast: bool = False,
 ) -> pd.DataFrame:
     """023's factor input, with absences resolved before the factor sees them.
 
@@ -132,14 +148,31 @@ def load_receipts(
     source, so a receipt day and a price day cannot disagree about which days
     exist.  `through` is the run's end, which resolves a product whose series
     ends on a zero -- JD does, forty days before the others.
+
+    A bundle can hold two measurements of the same quantity: `receipts.csv`
+    from Wind, and `receipts_exchange.csv` read off the exchanges' own reports
+    by `scripts/citic_receipts_exchange_fetch.py`.  Only the second carries
+    有效预报, the tonnage declared for warranting but not yet warranted, and
+    only CZCE publishes it at all.  `include_forecast` adds it to the stock,
+    which is the whole question the second file exists to answer.
     """
-    path = Path(data_dir) / "receipts.csv"
+    path = Path(data_dir) / filename
     if not path.exists():
         raise SystemExit(
-            f"{path} not found -- re-fetch the bundle (scripts/citic_index_fetch.py)"
+            f"{path} not found -- re-fetch the bundle (scripts/citic_index_fetch.py"
+            " for Wind, scripts/citic_receipts_exchange_fetch.py for the exchanges)"
         )
     raw = pd.read_csv(path)
     raw["trade_date"] = pd.to_datetime(raw["trade_date"]).dt.date
+    if include_forecast:
+        if "forecast" not in raw.columns:
+            raise SystemExit(
+                f"{path} has no forecast column -- the Wind series carry the"
+                " warrants alone.  Reading them as though the forecast were"
+                " already inside would make the two arms the same run and"
+                " report it as no effect."
+            )
+        raw["receipts"] = raw["receipts"].astype(float) + raw["forecast"].astype(float)
     frame, report = fill_absent_zeros(
         raw, calendar, through=through, with_report=True
     )
@@ -203,6 +236,8 @@ def main(argv=None) -> int:
             args.data_dir,
             calendar=sorted(prices["trade_date"].unique()),
             through=prices["trade_date"].max(),
+            filename=args.receipts_filename,
+            include_forecast=args.include_forecast,
         )
 
     started = time.time()
