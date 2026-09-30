@@ -16,6 +16,7 @@ stock_selector `docs/superpowers/plans/2026-07-11-extract-cta-to-futures-strateg
   测试 `.venv/bin/python -m pytest -q`。详见项目 `README.md` 与
   `docs/operations/cta-strategy-replication.md`。
 - **商品期货**类新策略（Carry、Bollinger 通道、道氏……）一律落这里。
+- **研究职责（2026-09-15 用户裁决）**：本仓保持期货专业研究；Alpha #013 的股票后续研究交接到 stock_selector。接手入口：[股票交接总结](../stock_selector/ALPHA013_HANDOFF.md)；本仓保留 [商品期货试验结论](docs/research/2026-09-15-alpha013-commodity.md)。
 - **股指期货**类策略也落这里（**2026-08-25 用户裁决，推翻 2026-07-12 那条"归股票生态"**）：
   分钟表 `public.futures_minute`（661,966,168 行 / IF 2010-04-16 起无缺口 / 有 `amount` 可算精确
   VWAP）是本仓 2026-08-13 建的（`docs/plans/2026-08-12-futures-minute-ingestion-design.md`），
