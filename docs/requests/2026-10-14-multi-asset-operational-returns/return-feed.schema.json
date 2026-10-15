@@ -1,0 +1,218 @@
+{
+  "$defs": {
+    "DailyReturn": {
+      "additionalProperties": false,
+      "properties": {
+        "trade_date": {
+          "format": "date",
+          "title": "Trade Date",
+          "type": "string"
+        },
+        "period_start_at": {
+          "format": "date-time",
+          "title": "Period Start At",
+          "type": "string"
+        },
+        "period_end_at": {
+          "format": "date-time",
+          "title": "Period End At",
+          "type": "string"
+        },
+        "available_at": {
+          "format": "date-time",
+          "title": "Available At",
+          "type": "string"
+        },
+        "daily_return": {
+          "minimum": -1,
+          "title": "Daily Return",
+          "type": "number"
+        },
+        "unit_nav": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit Nav"
+        },
+        "gross_ratio": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gross Ratio"
+        },
+        "margin_ratio": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Margin Ratio"
+        }
+      },
+      "required": [
+        "trade_date",
+        "period_start_at",
+        "period_end_at",
+        "available_at",
+        "daily_return"
+      ],
+      "title": "DailyReturn",
+      "type": "object"
+    },
+    "ReturnSeries": {
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "$ref": "#/$defs/StrategyIdentity"
+        },
+        "kind": {
+          "enum": [
+            "strategy",
+            "portfolio"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "live",
+            "paper",
+            "research"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "currency": {
+          "minLength": 1,
+          "title": "Currency",
+          "type": "string"
+        },
+        "return_basis": {
+          "const": "net_nav_time_weighted",
+          "title": "Return Basis",
+          "type": "string"
+        },
+        "fee_model": {
+          "minLength": 1,
+          "title": "Fee Model",
+          "type": "string"
+        },
+        "calendar_id": {
+          "minLength": 1,
+          "title": "Calendar Id",
+          "type": "string"
+        },
+        "inception_date": {
+          "format": "date",
+          "title": "Inception Date",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/DailyReturn"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "strategy",
+        "kind",
+        "mode",
+        "label",
+        "currency",
+        "return_basis",
+        "fee_model",
+        "calendar_id",
+        "inception_date",
+        "rows"
+      ],
+      "title": "ReturnSeries",
+      "type": "object"
+    },
+    "StrategyIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "source_project": {
+          "minLength": 1,
+          "title": "Source Project",
+          "type": "string"
+        },
+        "strategy_id": {
+          "minLength": 1,
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_project",
+        "strategy_id",
+        "version"
+      ],
+      "title": "StrategyIdentity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_project": {
+      "minLength": 1,
+      "title": "Source Project",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "series": {
+      "items": {
+        "$ref": "#/$defs/ReturnSeries"
+      },
+      "title": "Series",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "source_project",
+    "generated_at",
+    "series"
+  ],
+  "title": "ReturnFeed",
+  "type": "object"
+}

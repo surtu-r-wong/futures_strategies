@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "source_project": "p",
+  "generated_at": "2026-10-14T18:00:00+08:00",
+  "series": [
+    {
+      "strategy": {
+        "source_project": "p",
+        "strategy_id": "a",
+        "version": "v1"
+      },
+      "kind": "strategy",
+      "mode": "paper",
+      "label": "测试",
+      "currency": "CNY",
+      "return_basis": "net_nav_time_weighted",
+      "fee_model": "explicit test fees included",
+      "calendar_id": "test",
+      "inception_date": "2026-01-01",
+      "rows": [
+        {
+          "trade_date": "2026-10-12",
+          "period_start_at": "2026-10-11T15:00:00+08:00",
+          "period_end_at": "2026-10-12T15:00:00+08:00",
+          "available_at": "2026-10-12T17:00:00+08:00",
+          "daily_return": 0.1,
+          "unit_nav": null,
+          "gross_ratio": 3,
+          "margin_ratio": 0.3
+        },
+        {
+          "trade_date": "2026-10-13",
+          "period_start_at": "2026-10-12T15:00:00+08:00",
+          "period_end_at": "2026-10-13T15:00:00+08:00",
+          "available_at": "2026-10-13T17:00:00+08:00",
+          "daily_return": -0.1,
+          "unit_nav": null,
+          "gross_ratio": 3,
+          "margin_ratio": 0.3
+        },
+        {
+          "trade_date": "2026-10-14",
+          "period_start_at": "2026-10-13T15:00:00+08:00",
+          "period_end_at": "2026-10-14T15:00:00+08:00",
+          "available_at": "2026-10-14T17:00:00+08:00",
+          "daily_return": 0.01,
+          "unit_nav": null,
+          "gross_ratio": 3,
+          "margin_ratio": 0.3
+        }
+      ]
+    }
+  ]
+}

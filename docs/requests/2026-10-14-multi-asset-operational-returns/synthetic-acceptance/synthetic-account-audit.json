@@ -1,0 +1,368 @@
+{
+  "tsindex_pure": [
+    {
+      "initialized_at": "2026-10-12T15:00:00+08:00",
+      "as_of": "2026-10-13T15:00:00+08:00",
+      "next_index": 1,
+      "positions": {
+        "A.TEST": 15.0,
+        "B.TEST": -5.0
+      },
+      "prices": {
+        "A.TEST": 110.0,
+        "B.TEST": 190.0
+      },
+      "nav": 11730.000000000002,
+      "cash": 11730.000000000002,
+      "margin": 2125.0,
+      "free_cash": 9605.000000000002,
+      "pnl": 1750.0000000000011,
+      "fees": 20.0,
+      "row": {
+        "trade_date": "2026-10-13",
+        "period_start_at": "2026-10-12T15:00:00+08:00",
+        "period_end_at": "2026-10-13T15:00:00+08:00",
+        "available_at": "2026-10-15T14:22:39.252041+08:00",
+        "daily_return": 0.17300000000000026,
+        "unit_nav": 1.1730000000000003,
+        "gross_ratio": 1.8115942028985506,
+        "margin_ratio": 0.18115942028985504
+      },
+      "audit": {
+        "signal_date": "2026-10-12",
+        "execution_at": "2026-10-13T09:00:00+08:00",
+        "settlement_at": "2026-10-13T15:00:00+08:00",
+        "pretrade_nav": 10000.0,
+        "gap_pnl": 0.0,
+        "intraday_pnl": 1750.0000000000011,
+        "trades": [
+          {
+            "contract": "A.TEST",
+            "quantity_change": 15.0,
+            "price": 100.0,
+            "notional": 15000.0,
+            "fee": 15.0
+          },
+          {
+            "contract": "B.TEST",
+            "quantity_change": -5.0,
+            "price": 200.0,
+            "notional": 5000.0,
+            "fee": 5.0
+          }
+        ],
+        "target_weights": {
+          "A.TEST": 1.5,
+          "B.TEST": -0.5
+        },
+        "execution_margin": 2000.0,
+        "settlement_rule": "daily_settlement",
+        "reference_revision": 0
+      },
+      "revision": 1
+    },
+    {
+      "initialized_at": "2026-10-12T15:00:00+08:00",
+      "as_of": "2026-10-14T15:00:00+08:00",
+      "next_index": 2,
+      "positions": {
+        "B.TEST": 12.851063829787234
+      },
+      "prices": {
+        "B.TEST": 200.0
+      },
+      "nav": 12817.483829787236,
+      "cash": 12817.483829787236,
+      "margin": 1285.1063829787236,
+      "free_cash": 11532.377446808512,
+      "pnl": 1121.0638297872335,
+      "fees": 33.58,
+      "row": {
+        "trade_date": "2026-10-14",
+        "period_start_at": "2026-10-13T15:00:00+08:00",
+        "period_end_at": "2026-10-14T15:00:00+08:00",
+        "available_at": "2026-10-15T14:22:39.257068+08:00",
+        "daily_return": 0.09270961890769258,
+        "unit_nav": 1.2817483829787235,
+        "gross_ratio": 1.002619858971225,
+        "margin_ratio": 0.1002619858971225
+      },
+      "audit": {
+        "signal_date": "2026-10-13",
+        "execution_at": "2026-10-14T09:00:00+08:00",
+        "settlement_at": "2026-10-14T15:00:00+08:00",
+        "pretrade_nav": 12080.0,
+        "gap_pnl": 349.9999999999987,
+        "intraday_pnl": 771.0638297872348,
+        "trades": [
+          {
+            "contract": "A.TEST",
+            "quantity_change": -15.0,
+            "price": 112.0,
+            "notional": 16800.0,
+            "fee": 16.8
+          },
+          {
+            "contract": "B.TEST",
+            "quantity_change": 17.851063829787236,
+            "price": 188.0,
+            "notional": 16780.000000000004,
+            "fee": 16.78
+          }
+        ],
+        "target_weights": {
+          "A.TEST": 0.0,
+          "B.TEST": 1.0
+        },
+        "execution_margin": 1208.0,
+        "settlement_rule": "daily_settlement",
+        "reference_revision": 0
+      },
+      "revision": 1
+    }
+  ],
+  "tsindex_bmom020": [
+    {
+      "initialized_at": "2026-10-12T15:00:00+08:00",
+      "as_of": "2026-10-13T15:00:00+08:00",
+      "next_index": 1,
+      "positions": {
+        "A.TEST": 15.0,
+        "B.TEST": -5.0
+      },
+      "prices": {
+        "A.TEST": 110.0,
+        "B.TEST": 190.0
+      },
+      "nav": 11730.000000000002,
+      "cash": 11730.000000000002,
+      "margin": 2125.0,
+      "free_cash": 9605.000000000002,
+      "pnl": 1750.0000000000011,
+      "fees": 20.0,
+      "row": {
+        "trade_date": "2026-10-13",
+        "period_start_at": "2026-10-12T15:00:00+08:00",
+        "period_end_at": "2026-10-13T15:00:00+08:00",
+        "available_at": "2026-10-15T14:22:39.270982+08:00",
+        "daily_return": 0.17300000000000026,
+        "unit_nav": 1.1730000000000003,
+        "gross_ratio": 1.8115942028985506,
+        "margin_ratio": 0.18115942028985504
+      },
+      "audit": {
+        "signal_date": "2026-10-12",
+        "execution_at": "2026-10-13T09:00:00+08:00",
+        "settlement_at": "2026-10-13T15:00:00+08:00",
+        "pretrade_nav": 10000.0,
+        "gap_pnl": 0.0,
+        "intraday_pnl": 1750.0000000000011,
+        "trades": [
+          {
+            "contract": "A.TEST",
+            "quantity_change": 15.0,
+            "price": 100.0,
+            "notional": 15000.0,
+            "fee": 15.0
+          },
+          {
+            "contract": "B.TEST",
+            "quantity_change": -5.0,
+            "price": 200.0,
+            "notional": 5000.0,
+            "fee": 5.0
+          }
+        ],
+        "target_weights": {
+          "A.TEST": 1.5,
+          "B.TEST": -0.5
+        },
+        "execution_margin": 2000.0,
+        "settlement_rule": "daily_settlement",
+        "reference_revision": 0
+      },
+      "revision": 1
+    },
+    {
+      "initialized_at": "2026-10-12T15:00:00+08:00",
+      "as_of": "2026-10-14T15:00:00+08:00",
+      "next_index": 2,
+      "positions": {
+        "B.TEST": 12.851063829787234
+      },
+      "prices": {
+        "B.TEST": 200.0
+      },
+      "nav": 12817.483829787236,
+      "cash": 12817.483829787236,
+      "margin": 1285.1063829787236,
+      "free_cash": 11532.377446808512,
+      "pnl": 1121.0638297872335,
+      "fees": 33.58,
+      "row": {
+        "trade_date": "2026-10-14",
+        "period_start_at": "2026-10-13T15:00:00+08:00",
+        "period_end_at": "2026-10-14T15:00:00+08:00",
+        "available_at": "2026-10-15T14:22:39.277921+08:00",
+        "daily_return": 0.09270961890769258,
+        "unit_nav": 1.2817483829787235,
+        "gross_ratio": 1.002619858971225,
+        "margin_ratio": 0.1002619858971225
+      },
+      "audit": {
+        "signal_date": "2026-10-13",
+        "execution_at": "2026-10-14T09:00:00+08:00",
+        "settlement_at": "2026-10-14T15:00:00+08:00",
+        "pretrade_nav": 12080.0,
+        "gap_pnl": 349.9999999999987,
+        "intraday_pnl": 771.0638297872348,
+        "trades": [
+          {
+            "contract": "A.TEST",
+            "quantity_change": -15.0,
+            "price": 112.0,
+            "notional": 16800.0,
+            "fee": 16.8
+          },
+          {
+            "contract": "B.TEST",
+            "quantity_change": 17.851063829787236,
+            "price": 188.0,
+            "notional": 16780.000000000004,
+            "fee": 16.78
+          }
+        ],
+        "target_weights": {
+          "A.TEST": 0.0,
+          "B.TEST": 1.0
+        },
+        "execution_margin": 1208.0,
+        "settlement_rule": "daily_settlement",
+        "reference_revision": 0
+      },
+      "revision": 1
+    }
+  ],
+  "citic027_r150_t1": [
+    {
+      "initialized_at": "2026-10-12T15:00:00+08:00",
+      "as_of": "2026-10-13T15:00:00+08:00",
+      "next_index": 1,
+      "positions": {
+        "A.TEST": 15.0,
+        "B.TEST": -5.0
+      },
+      "prices": {
+        "A.TEST": 110.0,
+        "B.TEST": 190.0
+      },
+      "nav": 11730.000000000002,
+      "cash": 11730.000000000002,
+      "margin": 2125.0,
+      "free_cash": 9605.000000000002,
+      "pnl": 1750.0000000000011,
+      "fees": 20.0,
+      "row": {
+        "trade_date": "2026-10-13",
+        "period_start_at": "2026-10-12T15:00:00+08:00",
+        "period_end_at": "2026-10-13T15:00:00+08:00",
+        "available_at": "2026-10-15T14:22:39.296942+08:00",
+        "daily_return": 0.17300000000000026,
+        "unit_nav": 1.1730000000000003,
+        "gross_ratio": 1.8115942028985506,
+        "margin_ratio": 0.18115942028985504
+      },
+      "audit": {
+        "signal_date": "2026-10-12",
+        "execution_at": "2026-10-13T09:00:00+08:00",
+        "settlement_at": "2026-10-13T15:00:00+08:00",
+        "pretrade_nav": 10000.0,
+        "gap_pnl": 0.0,
+        "intraday_pnl": 1750.0000000000011,
+        "trades": [
+          {
+            "contract": "A.TEST",
+            "quantity_change": 15.0,
+            "price": 100.0,
+            "notional": 15000.0,
+            "fee": 15.0
+          },
+          {
+            "contract": "B.TEST",
+            "quantity_change": -5.0,
+            "price": 200.0,
+            "notional": 5000.0,
+            "fee": 5.0
+          }
+        ],
+        "target_weights": {
+          "A.TEST": 1.5,
+          "B.TEST": -0.5
+        },
+        "execution_margin": 2000.0,
+        "settlement_rule": "daily_settlement",
+        "reference_revision": 0
+      },
+      "revision": 1
+    },
+    {
+      "initialized_at": "2026-10-12T15:00:00+08:00",
+      "as_of": "2026-10-14T15:00:00+08:00",
+      "next_index": 2,
+      "positions": {
+        "B.TEST": 12.851063829787234
+      },
+      "prices": {
+        "B.TEST": 200.0
+      },
+      "nav": 12817.483829787236,
+      "cash": 12817.483829787236,
+      "margin": 1285.1063829787236,
+      "free_cash": 11532.377446808512,
+      "pnl": 1121.0638297872335,
+      "fees": 33.58,
+      "row": {
+        "trade_date": "2026-10-14",
+        "period_start_at": "2026-10-13T15:00:00+08:00",
+        "period_end_at": "2026-10-14T15:00:00+08:00",
+        "available_at": "2026-10-15T14:22:39.302006+08:00",
+        "daily_return": 0.09270961890769258,
+        "unit_nav": 1.2817483829787235,
+        "gross_ratio": 1.002619858971225,
+        "margin_ratio": 0.1002619858971225
+      },
+      "audit": {
+        "signal_date": "2026-10-13",
+        "execution_at": "2026-10-14T09:00:00+08:00",
+        "settlement_at": "2026-10-14T15:00:00+08:00",
+        "pretrade_nav": 12080.0,
+        "gap_pnl": 349.9999999999987,
+        "intraday_pnl": 771.0638297872348,
+        "trades": [
+          {
+            "contract": "A.TEST",
+            "quantity_change": -15.0,
+            "price": 112.0,
+            "notional": 16800.0,
+            "fee": 16.8
+          },
+          {
+            "contract": "B.TEST",
+            "quantity_change": 17.851063829787236,
+            "price": 188.0,
+            "notional": 16780.000000000004,
+            "fee": 16.78
+          }
+        ],
+        "target_weights": {
+          "A.TEST": 0.0,
+          "B.TEST": 1.0
+        },
+        "execution_margin": 1208.0,
+        "settlement_rule": "daily_settlement",
+        "reference_revision": 0
+      },
+      "revision": 1
+    }
+  ]
+}

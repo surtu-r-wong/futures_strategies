@@ -1,0 +1,39 @@
+{
+  "implementation_version": "forward-linear-futures-v1",
+  "engine_sha256": "f44aed2ab20c5d004d8a95ea9054b49523916cafd4380a4a181c61b5e5b4bf3a",
+  "recorded_at": "2026-10-15T14:27:05.725650+08:00",
+  "host": "elfbob-ThinkPad-X1-Carbon-Gen-8",
+  "checkout": "/home/elfbob/claude-code/futures_strategies",
+  "base_head": "f31d5acf2660c7cd48fc5fc2c595062cca1ef626",
+  "implementation_status": "local uncommitted candidate; not deployed",
+  "accepted_response_sha256": "5d9f9292aa283ebfcb2e2bcb8d87e4234adfc7c8aefdebd10e003b919d4f6925",
+  "schema_sha256": "34ea8817d5a8ad39bd15a528762344756bc451f8b006a0d2c3e89b191fb4726d",
+  "files_sha256": {
+    "forward_account/__init__.py": "2f8e2e498df002936cfe17c9f0a8f617fd80fd98c38297d3d1a6669509981fa5",
+    "forward_account/__main__.py": "6ce9300e6e32eb7f332c164e798cf178183ae0d5095f20c00690856c0c1e7c01",
+    "forward_account/adapters.py": "fbfa14acc972ce701d6ce9dc4c4b6fc955e9b4ba84707a316072c30b6e20f69d",
+    "forward_account/contracts.py": "f144e3a95143a187b447834597ddd5b9dccae7522dd6617497d87e51d7ad4005",
+    "forward_account/demo.py": "831805345939b68e3c24933a3a8d69d4200c1cd822c65371f58b9c9015558c96",
+    "forward_account/engine.py": "f921821eb9b288fb1d274e0df892d6d774317cd3a96bd441bf6594355587ac19",
+    "forward_account/store.py": "937d9c4d2b612c5629d8390ab5775c83a3294b43f4291f9727f18466c98e2cc9",
+    "common/minute/account.py": "7f34b20ad4249209ae06fcc230cf998b5cbe2ffd6fabc8da5372ff7e95e46a7d",
+    "common/errors.py": "60da49dbc8b97ad4937aac864ac62dd0892e677f0f68e62d1e8ff321b5c1d212",
+    "tests/test_forward_account.py": "2b2d4b44fa9adf28a8eb71fe11bdb56f9834ad060cb7e2d2e7813c6f3843735d",
+    "docs/operations/forward-account.md": "96483fec7d3ca759382ffcddf584c425c414874f16e2ba436df3845c7feddff0",
+    "docs/plans/2026-10-15-forward-accounts.md": "f391aef8dd0f5993569d0e7b4edab017b48c16dfd84d1e36410e1680cdb491c6",
+    "docs/requests/2026-10-14-multi-asset-operational-returns/implementation-response.md": "168f6f58c3936683f0b33affde546659410d4571a65faccdcf745c6ae16b82ed"
+  },
+  "synthetic_artifacts_sha256": {
+    "synthetic-account-audit.json": "b7377950524350fb489c18868a111b26f178e9b26c2aaaa96372af10f266a04e",
+    "synthetic-returns.json": "06a20f9a3f66f1c2019d48d19013152dcef870832a6e7f424e608b657e64a773"
+  },
+  "synthetic_runtime_directory": "/home/elfbob/claude-code/futures_strategies/output/forward_account/synthetic-acceptance-20261015-v1",
+  "verification": {
+    "pytest": "74 passed: test_forward_account, test_carry_minute_account, test_citic_book, test_carry_targets",
+    "schema": "Draft202012Validator + FormatChecker: 3 series, 6 rows passed",
+    "lint": "ruff check and ruff format --check passed",
+    "real_initialization": false,
+    "production_deployment": false,
+    "official_latest_exists": false
+  }
+}
