@@ -1,0 +1,23 @@
+{
+  "checked_at": "2026-10-15T19:45:46.190842+08:00",
+  "tests": {
+    "new_m01": 8,
+    "native_book": 11,
+    "native_pipeline_components": 63,
+    "total_passed": 82
+  },
+  "runtime_versions": {
+    "python": "3.13.9",
+    "pandas": "3.0.3",
+    "numpy": "2.5.1",
+    "psycopg2": "2.9.12"
+  },
+  "actual_target_calculations": 1,
+  "target_generated": false,
+  "diagnostic_changes_verified": "synthetic only; actual failed run remains unchanged",
+  "old_responses_unchanged": {
+    "response.md": "5d9f9292aa283ebfcb2e2bcb8d87e4234adfc7c8aefdebd10e003b919d4f6925",
+    "implementation-response.md": "168f6f58c3936683f0b33affde546659410d4571a65faccdcf745c6ae16b82ed",
+    "input-adapter-response.md": "cee3ac1ee2e5603e197bb2e7cf85c16cb2f0a22334d4d727f03980d2b052f011"
+  }
+}

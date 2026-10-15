@@ -1,0 +1,30 @@
+{
+  "checked_at": "2026-10-15T19:43:50.249725+08:00",
+  "status": "blocked_no_current_target",
+  "actual_target_calculations": 1,
+  "exact_error_location_retained": false,
+  "recorded_failure": {
+    "type": "ValueError",
+    "phase": "single_native_target_calculation",
+    "executed_wrapper": "executed-m01.py.txt",
+    "callsite_lines": [
+      441,
+      442
+    ]
+  },
+  "diagnostic_limit": "The failed run did not retain a traceback. Lines identify phase call sites, not the exact raising frame. No second target calculation was performed.",
+  "raw_source_archive": "/home/elfbob/claude-code/futures_strategies/output/forward_inputs/m01-20261015/current-target/source-daily.csv.gz",
+  "raw_source_sha256": "9cf01433ea3157e686ef9c8f91a72c69f65f0cb15cc78a472b72d6f256f86b4e",
+  "final_adapter_sha256": "f0b1bf3e031a031c3879ad8014b0461feb280164f36b0a1cd875ea9007edb0c7",
+  "post_failure_change": "Added positions-only failure traces and split calculation phases; synthetic tests only.",
+  "artifacts": {
+    "calculation-attempt.json": "722c9682bfd167e29e7df745fd04ec70e2a569a23a47c7552edf1009126c5dd4",
+    "executed-m01.py.txt": "3ed0d080c8d9df691421c0aa1d3999d9105066ef032cdf37364b74540a4777f0",
+    "preflight.json": "204fd66683e65c821f1320e549dfcc93e9af8b621314f60c4a1e3fedb2a9d4c4",
+    "production-observation.json": "99d6f71b2e7b0f4c0e77273c6abf17d080f0e36f49d6322120f3bffc099baefb",
+    "run-manifest.json": "6d8ef82c33c8ad6fd59a82fcc4929e2911e924a05c95d97fee0705590602e3a9",
+    "source-parameters.json": "fe2730f60fb5b2db2a6afb3189187009bca3917a05ffd00d9baf5470660af657",
+    "source-structure-audit.json": "4d848effc08fa6c9858aff11ec9e06defa78a9c193ce4c2f72c24be3ef0514e9",
+    "verification.json": "3ed6b1e611b611016336ef5c4ed1c4381165949541e4c3c360fd16c6941df329"
+  }
+}

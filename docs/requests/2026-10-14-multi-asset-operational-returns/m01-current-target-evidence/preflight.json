@@ -1,0 +1,176 @@
+{
+  "observed_at": "2026-10-15T19:27:44.822482+08:00",
+  "host": "elfbob-ThinkPad-X1-Carbon-Gen-8",
+  "checkout": "/home/elfbob/claude-code/futures_strategies",
+  "git_head": "032267548e877f33723dd1827ebe25074263dce7",
+  "as_of": "2026-10-15",
+  "readonly": true,
+  "actual_target_calculations": 0,
+  "source": "market_monitor public.futures_daily / public.futures_contract_info",
+  "queries": [
+    {
+      "name": "exchange_frontier",
+      "sql": "SELECT split_part(symbol, '.', 2) AS exchange, max(trade_date) AS max_date, count(*) AS rows FROM public.futures_daily WHERE trade_date >= %s AND trade_date <= %s AND split_part(symbol, '.', 2) IN ('CZC','DCE','GFE','INE','SHF') GROUP BY 1 ORDER BY 1",
+      "params": [
+        "2026-09-15",
+        "2026-10-15"
+      ],
+      "started_at": "2026-10-15T19:27:44.997505+08:00",
+      "observed_at": "2026-10-15T19:27:45.029939+08:00"
+    },
+    {
+      "name": "contract_info_fields",
+      "sql": "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='futures_contract_info' ORDER BY ordinal_position",
+      "params": [],
+      "started_at": "2026-10-15T19:27:45.029956+08:00",
+      "observed_at": "2026-10-15T19:27:45.051103+08:00"
+    }
+  ],
+  "status": "observed",
+  "exchange_frontier": [
+    {
+      "exchange": "CZC",
+      "max_date": "2026-10-15",
+      "rows": 4126
+    },
+    {
+      "exchange": "DCE",
+      "max_date": "2026-10-15",
+      "rows": 4250
+    },
+    {
+      "exchange": "GFE",
+      "max_date": "2026-10-15",
+      "rows": 816
+    },
+    {
+      "exchange": "INE",
+      "max_date": "2026-10-15",
+      "rows": 1071
+    },
+    {
+      "exchange": "SHF",
+      "max_date": "2026-10-15",
+      "rows": 4046
+    }
+  ],
+  "contract_info_fields": [
+    {
+      "column_name": "\u4ea4\u6613\u65e5\u671f",
+      "data_type": "date"
+    },
+    {
+      "column_name": "\u5408\u7ea6\u4ee3\u7801",
+      "data_type": "character varying"
+    },
+    {
+      "column_name": "\u4ea4\u6613\u6240\u4ee3\u7801",
+      "data_type": "character varying"
+    },
+    {
+      "column_name": "\u54c1\u79cd\u4ee3\u7801",
+      "data_type": "character varying"
+    },
+    {
+      "column_name": "\u5408\u7ea6\u540d\u79f0",
+      "data_type": "character varying"
+    },
+    {
+      "column_name": "\u5408\u7ea6\u4e58\u6570",
+      "data_type": "integer"
+    },
+    {
+      "column_name": "\u6700\u5c0f\u4ef7\u683c",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u6700\u540e\u65e5\u671f",
+      "data_type": "character varying"
+    },
+    {
+      "column_name": "\u591a\u5934\u4fdd\u8bc1\u91d1\u7387",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u7a7a\u5934\u4fdd\u8bc1\u91d1\u7387",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u6628\u591c\u6536\u76d8",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u6da8\u505c\u4ef7",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u8dcc\u505c\u4ef7",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u524d\u7ed3\u7b97",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u54c1\u79cd\u4ea4\u6613\u914d\u989d",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u5408\u7ea6\u4ea4\u6613\u914d\u989d",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u54c1\u79cd\u6301\u4ed3\u914d\u989d",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u5408\u7ea6\u6301\u4ed3\u914d\u989d",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u624b\u7eed\u8d39\u6536\u53d6\u65b9\u5f0f",
+      "data_type": "character varying"
+    },
+    {
+      "column_name": "\u5f00\u4ed3\u624b\u7eed\u8d39",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u5e73\u4ed3\u624b\u7eed\u8d39",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u65e5\u5185\u5f00\u4ed3\u624b\u7eed\u8d39",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u65e5\u5185\u5e73\u4ed3\u624b\u7eed\u8d39",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u884c\u6743/\u4ea4\u5272\u624b\u7eed\u8d39\uff08\u7387\uff09",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u884c\u6743/\u4ea4\u5272\u624b\u7eed\u8d39\uff08\u624b\uff09",
+      "data_type": "numeric"
+    },
+    {
+      "column_name": "\u4ea4\u5272\u6708\u4e0b\u5355\u6574\u624b\u6570",
+      "data_type": "integer"
+    },
+    {
+      "column_name": "\u521b\u5efa\u65f6\u95f4",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "column_name": "\u66f4\u65b0\u65f6\u95f4",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone"
+    }
+  ],
+  "completed_at": "2026-10-15T19:27:45.070541+08:00"
+}
