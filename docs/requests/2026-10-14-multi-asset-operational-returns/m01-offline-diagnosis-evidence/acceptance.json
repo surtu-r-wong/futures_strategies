@@ -1,0 +1,53 @@
+{
+  "checked_at": "2026-10-15T20:08:39.411624+08:00",
+  "offline_runs": 2,
+  "network_or_database_source_calls": 0,
+  "diagnosis": {
+    "started_at": "2026-10-15T20:02:35.501623+08:00",
+    "completed_at": "2026-10-15T20:03:21.909596+08:00",
+    "failure_phase": "current_weight_projection",
+    "failure_check": "missing_dominant_or_weight",
+    "failure_trace": [
+      {
+        "file": "forward_inputs/m01_offline.py",
+        "line": 187,
+        "function": "run"
+      },
+      {
+        "file": "forward_inputs/m01.py",
+        "line": 132,
+        "function": "current_weights"
+      }
+    ],
+    "peak_rss_kib": 702016
+  },
+  "verification": {
+    "started_at": "2026-10-15T20:05:31.830594+08:00",
+    "completed_at": "2026-10-15T20:06:21.433429+08:00",
+    "status": "offline_target_ready_execution_blocked",
+    "first_seen_at": "2026-10-15T20:06:17.651021+08:00",
+    "available_at": "2026-10-15T20:06:21.433269+08:00",
+    "source_version": "citic027-r150-t1:offline-20261015:530e02b769281d969e83e5df3995d2a74bce476550de89bff94f3fcc66f191db",
+    "peak_rss_kib": 702016
+  },
+  "row_count": 67,
+  "long": 33,
+  "short": 33,
+  "zero": 1,
+  "gross_target_weight": 2.2617946883905655,
+  "net_target_weight": -7.806255641895632e-17,
+  "native_current_weights_and_dominants_identical_across_runs": true,
+  "original_failed_directory_unchanged": true,
+  "unscaled_native_weights_match": true,
+  "independent_scale_cap_check_max_absolute_error": 4.440892098500626e-16,
+  "target_csv_sha256": "3ce0759efb9c4a3f2ae105fc864768ab50eeccd0d107ab0b9b9ca260e909f248",
+  "parameters_sha256": "fe2730f60fb5b2db2a6afb3189187009bca3917a05ffd00d9baf5470660af657",
+  "failure_before_fix_source_commit": "181172f",
+  "tests": {
+    "m01_current_target": 11,
+    "m01_offline": 4,
+    "citic_book": 11,
+    "passed": 26
+  },
+  "existing_source_receipt_adapter_verified": true
+}

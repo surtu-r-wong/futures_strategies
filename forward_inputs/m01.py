@@ -121,6 +121,11 @@ def current_weights(result, signal_date, config):
         raise ValueError("native volatility window is incomplete")
     weights = result.weights.loc[result.weights["trade_date"] == signal_date]
     selected = lever(weights, scale, config=config)
+    # scale_weights returns a sparse map and deliberately omits zero weights.
+    # lever maps it onto the dense native table, leaving NaN at explicit zero
+    # ranks. Restore only those proven zeros; unexplained missing values still
+    # fail the completeness checks below. No normalization or extra scaling.
+    selected.loc[selected["weight"].eq(0), "target_weight"] = 0.0
     if selected.empty or selected["product"].duplicated().any():
         raise ValueError("empty or duplicate native weights")
     legs = result.legs.loc[

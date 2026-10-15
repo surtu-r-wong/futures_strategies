@@ -290,3 +290,58 @@ def test_failure_trace_records_only_code_positions():
     assert isinstance(trace[-1]["line"], int)
     assert set(trace[-1]) == {"file", "line", "function"}
     assert "SYNTHETIC_SECRET_DO_NOT_RECORD" not in json.dumps(trace)
+
+
+def test_native_zero_rank_weight_keeps_its_contract_as_explicit_zero():
+    result, end = result_fixture()
+    result.weights = pd.concat(
+        [
+            result.weights,
+            pd.DataFrame({"trade_date": [end], "product": ["PB"], "weight": [0.0]}),
+        ],
+        ignore_index=True,
+    )
+    result.legs = pd.concat(
+        [
+            result.legs,
+            pd.DataFrame(
+                {
+                    "trade_date": [end],
+                    "product": ["PB"],
+                    "main_contract": ["PB2611.SHF"],
+                    "main_close": [17000.0],
+                }
+            ),
+        ],
+        ignore_index=True,
+    )
+    actual = current_weights(result, end, PRODUCTION).set_index("contract")
+    assert actual.loc["PB2611.SHF", "raw_weight"] == 0.0
+    assert actual.loc["PB2611.SHF", "target_weight"] == 0.0
+    assert actual.loc["M2701.DCE", "target_weight"] == pytest.approx(-2.0)
+    assert actual.loc["Y2701.DCE", "target_weight"] == pytest.approx(2.0)
+    assert len(actual) == 3
+    assert actual["target_weight"].notna().all()
+
+
+def test_unexplained_missing_scaled_nonzero_weight_still_refuses(monkeypatch):
+    from forward_inputs import m01
+
+    result, end = result_fixture()
+    monkeypatch.setattr(
+        m01,
+        "lever",
+        lambda weights, scale, config: weights.assign(
+            vol_scale=2.0, target_weight=float("nan")
+        ),
+    )
+    with pytest.raises(ValueError, match="missing dominant contract or weight"):
+        current_weights(result, end, PRODUCTION)
+
+
+def test_small_nonzero_native_weight_is_not_rounded_to_zero():
+    result, end = result_fixture()
+    result.weights.loc[0, "weight"] = -1e-20
+    actual = current_weights(result, end, PRODUCTION).set_index("contract")
+    assert actual.loc["M2701.DCE", "target_weight"] < 0
+    assert actual.loc["M2701.DCE", "raw_weight"] == -1e-20

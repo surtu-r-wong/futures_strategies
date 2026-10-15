@@ -1,0 +1,29 @@
+{
+  "checked_at": "2026-10-15T20:11:03.514991+08:00",
+  "old_responses_unchanged": {
+    "response.md": "5d9f9292aa283ebfcb2e2bcb8d87e4234adfc7c8aefdebd10e003b919d4f6925",
+    "implementation-response.md": "168f6f58c3936683f0b33affde546659410d4571a65faccdcf745c6ae16b82ed",
+    "input-adapter-response.md": "cee3ac1ee2e5603e197bb2e7cf85c16cb2f0a22334d4d727f03980d2b052f011",
+    "m01-current-target-response.md": "2d7d4e7cab9d425fe6aefa66e9828c4ea71f4058d1ad5acef54d5aeb3fee4100"
+  },
+  "raw_input_distributed": false,
+  "raw_input_path": "/home/elfbob/claude-code/futures_strategies/output/forward_inputs/m01-20261015/current-target/source-daily.csv.gz",
+  "offline_runs": 2,
+  "code_before_fix_commit": "181172f",
+  "artifacts": {
+    "acceptance.json": "374a7c1ba37bf7ccd6af17e4df9cf5570f366ff6d3e0a82f1645ead26a609971",
+    "diagnosis-01/current-native-legs.csv": "4d9da14460d96927f7047976cf001a5ac76923889800ba7faa922ec2ad1f0d81",
+    "diagnosis-01/current-native-weights.csv": "aa7c76a0f07caafd32f4c414bf064f96719d730675350b2f1ab468cedca64e3c",
+    "diagnosis-01/manifest.json": "591e1ddfde22e66f08d8726a3db0c83abc906d36c10bdd95146faf0153dd6a85",
+    "diagnosis-01/pipeline-start.json": "38fdeaed9a285876860affb1aa471427769dca346674de35572a5bc35a5461b8",
+    "diagnosis-01/run-start.json": "b0a49a3031c0b086e6f8f50e8b5fddf8320f9f857421d1a9806af6cbda9d2d12",
+    "verification-02/current-native-legs.csv": "4d9da14460d96927f7047976cf001a5ac76923889800ba7faa922ec2ad1f0d81",
+    "verification-02/current-native-weights.csv": "aa7c76a0f07caafd32f4c414bf064f96719d730675350b2f1ab468cedca64e3c",
+    "verification-02/manifest.json": "c0ad1235dce3a21298a67f511c4b441411842f9c59dba2aba00833f33f6e03e1",
+    "verification-02/pipeline-start.json": "d6fe5a87a00c7a407b778187546a3d3709880319e31eb0ae939d7fca5062d1a5",
+    "verification-02/preview-evidence.json": "e1e413b557a2260b7dc3f552f8d0785af174b3a43140da4ccead3759af6d2c67",
+    "verification-02/run-start.json": "2bfa5c5b5c27228b06f3fbcc7fbf24bffde62551b0f4e0923ba01d637c05d0ff",
+    "verification-02/source-parameters.json": "fe2730f60fb5b2db2a6afb3189187009bca3917a05ffd00d9baf5470660af657",
+    "verification-02/targets.csv": "3ce0759efb9c4a3f2ae105fc864768ab50eeccd0d107ab0b9b9ca260e909f248"
+  }
+}
