@@ -1,0 +1,32 @@
+{
+  "trade_date": "2026-10-13",
+  "execution": {
+    "kind": "execution",
+    "at": "2026-10-13T09:00:00+08:00",
+    "available_at": "2026-10-13T09:10:00+08:00",
+    "source": "SYNTHETIC hand-calculated prices",
+    "synthetic": true,
+    "prices": {
+      "A.TEST": 100,
+      "B.TEST": 200
+    },
+    "tradable": {
+      "A.TEST": true,
+      "B.TEST": true
+    }
+  },
+  "settlement": {
+    "kind": "settlement",
+    "at": "2026-10-13T15:00:00+08:00",
+    "available_at": "2026-10-13T15:10:00+08:00",
+    "source": "SYNTHETIC hand-calculated prices",
+    "synthetic": true,
+    "prices": {
+      "A.TEST": 110,
+      "B.TEST": 190
+    }
+  },
+  "target_csv": "targets-13.csv",
+  "source_metadata": "source-parameters.json",
+  "source_receipt": "receipt-13.json"
+}

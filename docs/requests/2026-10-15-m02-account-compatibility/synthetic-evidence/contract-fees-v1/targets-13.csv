@@ -1,0 +1,3 @@
+signal_date,contract,target_weight,vol_scale,lots,notional
+2026-10-12,A.TEST,1.5,99,999,999999
+2026-10-12,B.TEST,-0.5,99,999,999999

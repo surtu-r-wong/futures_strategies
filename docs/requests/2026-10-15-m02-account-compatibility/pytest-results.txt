@@ -1,0 +1,14 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.9, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/elfbob/claude-code/futures_strategies
+configfile: pytest.ini
+plugins: anyio-4.14.2
+collected 99 items
+
+tests/test_forward_account.py ...........................                [ 27%]
+tests/test_forward_contract_fees.py ................                     [ 43%]
+tests/test_forward_inputs.py ...........................                 [ 70%]
+tests/test_m02_fee_candidate.py ..                                       [ 72%]
+tests/test_carry_minute_account.py ...........................           [100%]
+
+============================== 99 passed in 1.99s ==============================

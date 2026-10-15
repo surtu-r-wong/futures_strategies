@@ -20,6 +20,7 @@ from .contracts import (
     validate_config,
 )
 from .engine import calculate
+from .fees import description as fee_description
 
 
 def engine_fingerprint():
@@ -100,6 +101,8 @@ def initialize(path, config, calendar):
         "fees": 0.0,
         "row": None,
     }
+    if "fee_model" in config:
+        state["position_lots"] = {}
     with connection(path, create=True) as con:
         _schema(con)
         existing = con.execute(
@@ -418,7 +421,7 @@ def _export_feed(path, output, *, synthetic):
                     "label": ("SYNTHETIC / " if synthetic else "") + c["label"],
                     "currency": c["currency"],
                     "return_basis": "net_nav_time_weighted",
-                    "fee_model": f"{c['cost_bps']} bps per traded notional; {c['fee_description']}; "
+                    "fee_model": f"{fee_description(c)}; {c['fee_description']}; "
                     f"{c['cash_rule']}; {c['financing_rule']}; {ENGINE_VERSION}",
                     "calendar_id": c["calendar_id"],
                     "inception_date": rows[0]["trade_date"],

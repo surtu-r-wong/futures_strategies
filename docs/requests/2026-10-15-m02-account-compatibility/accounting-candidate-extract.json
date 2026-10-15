@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "document_type": "observation_accounting_preparation_not_runtime_config",
+  "prepared_at": "2026-10-15T09:00:36.280114+00:00",
+  "enabled": false,
+  "runtime_ready": false,
+  "reference_scale": {
+    "nav": 100000000,
+    "currency": "CNY",
+    "source": "/home/elfbob/claude-code/multi_asset_backtest_db/templates/backtest_config_no_arbitrage_pg.xlsx",
+    "sheet": "run",
+    "cell": "E2",
+    "status": "consumer_prepared_candidate_for_stock_and_linear_futures",
+    "is_user_capital_allocation": false,
+    "user_margin_conversion_required": false,
+    "suitable_for_current_targets_verified": false,
+    "recheck": "At actual target/price/lot/fee availability, inspect rounding, fee floors and funding; never increase NAV to conceal leverage or margin infeasibility."
+  },
+  "models": {
+    "linear_futures_v1": {
+      "source_project": "futures_strategies",
+      "classification": "native_nav_targets_with_integer_lots",
+      "candidate_fields": {
+        "mode": "paper",
+        "currency": "CNY",
+        "synthetic": false,
+        "initial_capital": 100000000,
+        "initial_unit_nav": 1,
+        "initial_at": null,
+        "lot_rule": "nearest_integer_ties_even",
+        "cash_rule": "no_interest_no_external_flows",
+        "financing_rule": "no_borrowing",
+        "execution_rule": "calendar_day_open",
+        "valuation_rule": "daily_settlement"
+      },
+      "quantity_choice_owner": "consumer candidate; fractional remains a distinct supported model, not mixed in this series",
+      "funding_behavior": "no borrowing; insufficient margin rejects interval, does not rescale native weights",
+      "unresolved": [
+        "cost_bps",
+        "fee_description",
+        "source_version",
+        "calendar",
+        "instruments_with_dated_margin",
+        "current_targets_receipt_execution_settlement"
+      ]
+    }
+  },
+  "profiles": [
+    {
+      "source_project": "futures_strategies",
+      "registry_id": "citic_index / CICSF027.WI",
+      "return_strategy_id": "citic_index / CICSF027.WI",
+      "registry_entry_sha256": "6e655b65533aed9e92a635629961a437c6c6f9d6939d8205bceae9d525223f04",
+      "accounting_model_id": "linear_futures_v1",
+      "enabled": false,
+      "status": "requires_input_and_economic_parameters",
+      "runtime_ready": false,
+      "source_variant": "citic027_r150_t1",
+      "native_leverage_policy": "target_weight already includes source volatility scaling; apply once",
+      "candidate_file": "runs/accounting_preparation_20261015/drafts/futures-citic027_r150_t1.pending.json"
+    }
+  ],
+  "source_evidence": {
+    "path": "/home/elfbob/claude-code/multi_asset_backtest_db/config/observation_accounting.pending.json",
+    "sha256": "edab0a1659d316daa4f55ed12b9625974d85621fcfdb365079fef9a097e706fa"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "factor_kind": "basis_momentum",
+  "window": 150,
+  "min_observations": 1,
+  "smoothing": 1,
+  "t1_leg": "top_two_by_oi",
+  "normalise_by_gap": false,
+  "return_basis": "close_to_close",
+  "execution_lag": 1,
+  "cadence": "daily",
+  "restrict_to_named": false,
+  "roll_blend": true,
+  "target_vol": 0.15,
+  "vol_window": 252,
+  "max_gross_leverage": 4.0
+}

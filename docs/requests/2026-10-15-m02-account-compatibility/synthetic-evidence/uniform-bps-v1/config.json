@@ -1,0 +1,58 @@
+{
+  "account_id": "SYNTHETIC-uniform-bps-v1",
+  "account_version": "SYNTHETIC-uniform-bps-v1",
+  "adapter": "citic027_r150_t1",
+  "source_version": "SYNTHETIC-source-v1",
+  "source_parameters": {
+    "factor_kind": "basis_momentum",
+    "window": 150,
+    "min_observations": 1,
+    "smoothing": 1,
+    "t1_leg": "top_two_by_oi",
+    "normalise_by_gap": false,
+    "return_basis": "close_to_close",
+    "execution_lag": 1,
+    "cadence": "daily",
+    "restrict_to_named": false,
+    "roll_blend": true,
+    "target_vol": 0.15,
+    "vol_window": 252,
+    "max_gross_leverage": 4.0
+  },
+  "label": "M02 invented fee arithmetic / uniform-bps-v1",
+  "mode": "paper",
+  "currency": "CNY",
+  "synthetic": true,
+  "initial_at": "2026-10-12T15:00:00+08:00",
+  "initial_capital": 10000.0,
+  "initial_unit_nav": 1.0,
+  "cost_bps": 10.0,
+  "fee_description": "SYNTHETIC all-in commission/slippage; no other fees modeled",
+  "lot_rule": "nearest_integer_ties_even",
+  "cash_rule": "no_interest_no_external_flows",
+  "financing_rule": "no_borrowing",
+  "execution_rule": "calendar_day_open",
+  "valuation_rule": "daily_settlement",
+  "calendar_id": "synthetic-two-intervals-v1",
+  "calendar_sha256": "77b09739b93df7d26a775d56a7734e75a7a1dd0926179443a4a318fc61f9bdc2",
+  "instruments": {
+    "A.TEST": {
+      "asset_type": "linear_futures",
+      "currency": "CNY",
+      "multiplier": 10,
+      "margin_rate": 0.1,
+      "valid_from": "2026-10-12",
+      "valid_to": "2026-10-14",
+      "source": "SYNTHETIC test specification"
+    },
+    "B.TEST": {
+      "asset_type": "linear_futures",
+      "currency": "CNY",
+      "multiplier": 5,
+      "margin_rate": 0.1,
+      "valid_from": "2026-10-12",
+      "valid_to": "2026-10-14",
+      "source": "SYNTHETIC test specification"
+    }
+  }
+}

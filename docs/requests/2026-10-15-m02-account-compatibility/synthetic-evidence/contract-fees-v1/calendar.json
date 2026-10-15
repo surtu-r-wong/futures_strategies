@@ -1,0 +1,24 @@
+{
+  "calendar_id": "synthetic-two-intervals-v1",
+  "timezone": "Asia/Shanghai",
+  "source": "SYNTHETIC explicit test sessions, not an exchange calendar",
+  "complete": true,
+  "coverage_start": "2026-10-13",
+  "coverage_end": "2026-10-14",
+  "intervals": [
+    {
+      "trade_date": "2026-10-13",
+      "signal_date": "2026-10-12",
+      "start_at": "2026-10-12T15:00:00+08:00",
+      "execution_at": "2026-10-13T09:00:00+08:00",
+      "end_at": "2026-10-13T15:00:00+08:00"
+    },
+    {
+      "trade_date": "2026-10-14",
+      "signal_date": "2026-10-13",
+      "start_at": "2026-10-13T15:00:00+08:00",
+      "execution_at": "2026-10-14T09:00:00+08:00",
+      "end_at": "2026-10-14T15:00:00+08:00"
+    }
+  ]
+}

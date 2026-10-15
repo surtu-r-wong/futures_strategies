@@ -1,0 +1,170 @@
+{
+  "status": "blocked_candidate_only",
+  "synthetic": false,
+  "account_initialized": false,
+  "native_row_count": 67,
+  "signal_date": "2026-10-15",
+  "metadata_valid_from": "2026-10-15",
+  "metadata_valid_to": "2026-10-15",
+  "source_captured_at": "2026-10-15T14:37:20.839200+00:00",
+  "inputs": {
+    "targets": {
+      "path": "/home/elfbob/claude-code/futures_strategies/docs/requests/2026-10-14-multi-asset-operational-returns/m01-offline-diagnosis-evidence/verification-02/targets.csv",
+      "sha256": "3ce0759efb9c4a3f2ae105fc864768ab50eeccd0d107ab0b9b9ca260e909f248"
+    },
+    "metadata_csv": {
+      "path": "/home/elfbob/claude-code/multi_asset_backtest_db/docs/dispatch/2026-10-15-m01-current-targets/metadata-reference-targets.csv",
+      "sha256": "3f68b3e9de54ab6d075d85ccbf69286c7fdaf60cc234fcf93ed4c3bd1b152a76"
+    },
+    "evidence_json": {
+      "path": "/home/elfbob/claude-code/multi_asset_backtest_db/docs/dispatch/2026-10-15-m01-current-targets/metadata-readonly-evidence.json",
+      "sha256": "4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b"
+    },
+    "config_template": {
+      "path": "/home/elfbob/claude-code/futures_strategies/config/forward_inputs/citic027_r150_t1.account.json",
+      "sha256": "5da9f0835329ae83c574bc83b6ee97d41aff75a2f467fa7ff29567fd609a1210"
+    },
+    "accounting_candidate": {
+      "path": "/home/elfbob/claude-code/multi_asset_backtest_db/config/observation_accounting.pending.json",
+      "sha256": "edab0a1659d316daa4f55ed12b9625974d85621fcfdb365079fef9a097e706fa"
+    }
+  },
+  "fee_unit_counts": {
+    "YUAN_PER_LOT": 22,
+    "PERMILLE": 16,
+    "PER_TEN_THOUSAND": 5
+  },
+  "unknown_fee_units": [
+    "AP2701.CZC",
+    "CF2701.CZC",
+    "CJ2701.CZC",
+    "FG2701.CZC",
+    "I2701.DCE",
+    "J2701.DCE",
+    "JD2612.DCE",
+    "JM2701.DCE",
+    "LH2701.DCE",
+    "MA2701.CZC",
+    "OI2701.CZC",
+    "PF2612.CZC",
+    "PK2612.CZC",
+    "PL2612.CZC",
+    "PR2612.CZC",
+    "PX2612.CZC",
+    "RM2701.CZC",
+    "SA2701.CZC",
+    "SF2701.CZC",
+    "SH2701.CZC",
+    "SM2701.CZC",
+    "SR2701.CZC",
+    "TA2701.CZC",
+    "UR2701.CZC"
+  ],
+  "unapproved_quote_currency_assumptions": [
+    "A2701.DCE",
+    "AD2612.SHF",
+    "AG2612.SHF",
+    "AL2611.SHF",
+    "AO2701.SHF",
+    "AU2612.SHF",
+    "B2611.DCE",
+    "BC2611.INE",
+    "BR2612.SHF",
+    "BU2701.SHF",
+    "BZ2611.DCE",
+    "C2701.DCE",
+    "CS2611.DCE",
+    "CU2611.SHF",
+    "EB2611.DCE",
+    "EC2611.INE",
+    "EG2611.DCE",
+    "FU2701.SHF",
+    "HC2701.SHF",
+    "I2701.DCE",
+    "J2701.DCE",
+    "JD2612.DCE",
+    "JM2701.DCE",
+    "L2701.DCE",
+    "LC2701.GFE",
+    "LH2701.DCE",
+    "LU2612.INE",
+    "M2701.DCE",
+    "NI2612.SHF",
+    "NR2612.INE",
+    "OP2612.SHF",
+    "P2701.DCE",
+    "PB2612.SHF",
+    "PD2612.GFE",
+    "PG2612.DCE",
+    "PP2701.DCE",
+    "PS2611.GFE",
+    "PT2612.GFE",
+    "RB2701.SHF",
+    "RU2701.SHF",
+    "SC2612.INE",
+    "SI2612.GFE",
+    "SN2611.SHF",
+    "SP2701.SHF",
+    "SS2612.SHF",
+    "V2701.DCE",
+    "Y2701.DCE",
+    "ZN2612.SHF"
+  ],
+  "missing_independent_lifecycle": [
+    "EC2611.INE"
+  ],
+  "directional_margin_conflicts": [],
+  "blocked_for_all_contracts": [
+    "broker additional fee schedule/source and effective dates",
+    "slippage policy/source; excluded costs declaration",
+    "intraday opening fee policy/source; current implementation is conditional",
+    "fee/margin validity and source publication availability for actual future execution",
+    "account start/version and calendar approval; existing consumer scale/lot/cash/financing candidates retained, activation pending",
+    "actual execution price/tradability and daily settlement price with receipts",
+    "signal availability after 2026-10-15 close; no valid execution interval approved"
+  ],
+  "consumer_accounting_candidate": {
+    "profile": {
+      "source_project": "futures_strategies",
+      "registry_id": "citic_index / CICSF027.WI",
+      "return_strategy_id": "citic_index / CICSF027.WI",
+      "registry_entry_sha256": "6e655b65533aed9e92a635629961a437c6c6f9d6939d8205bceae9d525223f04",
+      "accounting_model_id": "linear_futures_v1",
+      "enabled": false,
+      "status": "requires_input_and_economic_parameters",
+      "runtime_ready": false,
+      "source_variant": "citic027_r150_t1",
+      "native_leverage_policy": "target_weight already includes source volatility scaling; apply once",
+      "candidate_file": "runs/accounting_preparation_20261015/drafts/futures-citic027_r150_t1.pending.json"
+    },
+    "fields": {
+      "mode": "paper",
+      "currency": "CNY",
+      "synthetic": false,
+      "initial_capital": 100000000,
+      "initial_unit_nav": 1,
+      "initial_at": null,
+      "lot_rule": "nearest_integer_ties_even",
+      "cash_rule": "no_interest_no_external_flows",
+      "financing_rule": "no_borrowing",
+      "execution_rule": "calendar_day_open",
+      "valuation_rule": "daily_settlement"
+    },
+    "reference_scale": {
+      "nav": 100000000,
+      "currency": "CNY",
+      "source": "/home/elfbob/claude-code/multi_asset_backtest_db/templates/backtest_config_no_arbitrage_pg.xlsx",
+      "sheet": "run",
+      "cell": "E2",
+      "status": "consumer_prepared_candidate_for_stock_and_linear_futures",
+      "is_user_capital_allocation": false,
+      "user_margin_conversion_required": false,
+      "suitable_for_current_targets_verified": false,
+      "recheck": "At actual target/price/lot/fee availability, inspect rounding, fee floors and funding; never increase NAV to conceal leverage or margin infeasibility."
+    }
+  },
+  "native_weight_scaling": "unchanged; no 0.4 module allocation or 1000 CNY scenario adopted",
+  "new_database_calls": 0,
+  "new_network_calls": 0,
+  "strategy_runs": 0
+}

@@ -5,6 +5,7 @@ import math
 from common.minute.account import EventAccount
 
 from .contracts import number, require_keys, text, timestamp
+from .fees import account_trades
 
 
 def _mark(nav, positions, previous, prices, instruments, start, end):
@@ -135,20 +136,42 @@ def calculate(config, prior, interval, packet, *, available_at):
             q = round(q)
         if q:
             quantities[k] = number(q, "quantity")
-    trades = []
-    for k in sorted(required):
-        delta = quantities.get(k, 0.0) - held.get(k, 0.0)
-        if delta:
-            notional = abs(delta) * execution[k] * instruments[k]["multiplier"]
-            trades.append(
-                {
-                    "contract": k,
-                    "quantity_change": delta,
-                    "price": execution[k],
-                    "notional": notional,
-                    "fee": notional * config["cost_bps"] / 10000,
-                }
-            )
+    position_lots = None
+    if "fee_model" in config:
+        position_lots = prior.get("position_lots")
+        if position_lots is not None:
+            for rows in position_lots.values():
+                if any(
+                    timestamp(lot["opened_at"]) > timestamp(prior["as_of"])
+                    for lot in rows
+                ):
+                    raise ValueError("opening evidence later than prior account state")
+        trades, position_lots = account_trades(
+            config["fee_model"],
+            held,
+            position_lots,
+            quantities,
+            execution,
+            instruments,
+            interval["trade_date"],
+            interval["execution_at"],
+            packet["execution"]["source"],
+        )
+    else:
+        trades = []
+        for k in sorted(required):
+            delta = quantities.get(k, 0.0) - held.get(k, 0.0)
+            if delta:
+                notional = abs(delta) * execution[k] * instruments[k]["multiplier"]
+                trades.append(
+                    {
+                        "contract": k,
+                        "quantity_change": delta,
+                        "price": execution[k],
+                        "notional": notional,
+                        "fee": notional * config["cost_bps"] / 10000,
+                    }
+                )
     fees = math.fsum(t["fee"] for t in trades)
     nav_after_fee = number(pretrade_nav - fees, "NAV after fees", positive=True)
     execution_margin = math.fsum(
@@ -207,6 +230,7 @@ def calculate(config, prior, interval, packet, *, available_at):
         "margin_ratio": margin / closing_nav,
     }
     return {
+        **({"position_lots": position_lots} if position_lots is not None else {}),
         "initialized_at": prior["initialized_at"],
         "as_of": interval["end_at"],
         "next_index": prior["next_index"] + 1,
@@ -220,6 +244,9 @@ def calculate(config, prior, interval, packet, *, available_at):
         "fees": fees,
         "row": row,
         "audit": {
+            "fee_model_version": config.get("fee_model", {}).get(
+                "version", "uniform-bps-v1"
+            ),
             "signal_date": target["signal_date"],
             "execution_at": interval["execution_at"],
             "settlement_at": interval["end_at"],

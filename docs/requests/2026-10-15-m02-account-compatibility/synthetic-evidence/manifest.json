@@ -1,0 +1,12 @@
+{
+  "synthetic": true,
+  "real_account_initialized": false,
+  "sqlite": "temporary test store destroyed after replay",
+  "engine_sha256": "ee734d1dc5d88247ea7ffd3a7149d20c8d00f0efb1cae797aadd9e19373d8bd8",
+  "ledger": "synthetic-ledger.json",
+  "return_feed": "synthetic-returns.json",
+  "expected": "hand-calculated-expected.json",
+  "separate_series": 2,
+  "economic_results_reproducible": true,
+  "publication_timestamps": "actual replay time; timestamps differ on another replay"
+}

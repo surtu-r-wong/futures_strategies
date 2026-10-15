@@ -141,7 +141,7 @@ def validate_config(c, calendar):
             "initial_at",
             "initial_capital",
             "initial_unit_nav",
-            "cost_bps",
+            "fee_model" if "fee_model" in c else "cost_bps",
             "fee_description",
             "lot_rule",
             "cash_rule",
@@ -181,7 +181,12 @@ def validate_config(c, calendar):
         )
     numeric_field(c, "initial_capital", positive=True)
     numeric_field(c, "initial_unit_nav", positive=True)
-    numeric_field(c, "cost_bps", nonnegative=True)
+    if "fee_model" in c:
+        from .fees import validate_model
+
+        validate_model(c["fee_model"], c["instruments"])
+    else:
+        numeric_field(c, "cost_bps", nonnegative=True)
     if c["lot_rule"] not in {"fractional", "nearest_integer_ties_even"}:
         raise ValueError("explicit lot_rule required")
     for k, v in {

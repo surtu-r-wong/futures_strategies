@@ -1,0 +1,117 @@
+[
+  {
+    "trade_date": "2026-10-13",
+    "target": {
+      "source_version": "SYNTHETIC-source-v1",
+      "synthetic": true,
+      "available_at": "2026-10-12T16:00:00+08:00",
+      "row_count": 2,
+      "signal_date": "2026-10-12",
+      "csv_sha256": "c838bc55474dcfb4d98295fc135690f600fd751de70d03e2a53434786f0ca187",
+      "metadata_sha256": "4672365f542892cb1bae9a50ea72e11366de9353c4ff11dfafa6cc8ecaff5b4c",
+      "parameters": {
+        "factor_kind": "basis_momentum",
+        "window": 150,
+        "min_observations": 1,
+        "smoothing": 1,
+        "t1_leg": "top_two_by_oi",
+        "normalise_by_gap": false,
+        "return_basis": "close_to_close",
+        "execution_lag": 1,
+        "cadence": "daily",
+        "restrict_to_named": false,
+        "roll_blend": true,
+        "target_vol": 0.15,
+        "vol_window": 252,
+        "max_gross_leverage": 4.0
+      },
+      "weights": {
+        "A.TEST": 1.5,
+        "B.TEST": -0.5
+      }
+    },
+    "execution": {
+      "kind": "execution",
+      "at": "2026-10-13T09:00:00+08:00",
+      "available_at": "2026-10-13T09:10:00+08:00",
+      "source": "SYNTHETIC hand-calculated prices",
+      "synthetic": true,
+      "prices": {
+        "A.TEST": 100,
+        "B.TEST": 200
+      },
+      "tradable": {
+        "A.TEST": true,
+        "B.TEST": true
+      }
+    },
+    "settlement": {
+      "kind": "settlement",
+      "at": "2026-10-13T15:00:00+08:00",
+      "available_at": "2026-10-13T15:10:00+08:00",
+      "source": "SYNTHETIC hand-calculated prices",
+      "synthetic": true,
+      "prices": {
+        "A.TEST": 110,
+        "B.TEST": 190
+      }
+    }
+  },
+  {
+    "trade_date": "2026-10-14",
+    "target": {
+      "source_version": "SYNTHETIC-source-v1",
+      "synthetic": true,
+      "available_at": "2026-10-13T16:00:00+08:00",
+      "row_count": 2,
+      "signal_date": "2026-10-13",
+      "csv_sha256": "74dd96852e155dd644eaed80c9a6e600db5a04ea1ddaf2052af6d195e1c36087",
+      "metadata_sha256": "4672365f542892cb1bae9a50ea72e11366de9353c4ff11dfafa6cc8ecaff5b4c",
+      "parameters": {
+        "factor_kind": "basis_momentum",
+        "window": 150,
+        "min_observations": 1,
+        "smoothing": 1,
+        "t1_leg": "top_two_by_oi",
+        "normalise_by_gap": false,
+        "return_basis": "close_to_close",
+        "execution_lag": 1,
+        "cadence": "daily",
+        "restrict_to_named": false,
+        "roll_blend": true,
+        "target_vol": 0.15,
+        "vol_window": 252,
+        "max_gross_leverage": 4.0
+      },
+      "weights": {
+        "A.TEST": 0.0,
+        "B.TEST": 1.0
+      }
+    },
+    "execution": {
+      "kind": "execution",
+      "at": "2026-10-14T09:00:00+08:00",
+      "available_at": "2026-10-14T09:10:00+08:00",
+      "source": "SYNTHETIC hand-calculated prices",
+      "synthetic": true,
+      "prices": {
+        "A.TEST": 112,
+        "B.TEST": 188
+      },
+      "tradable": {
+        "A.TEST": true,
+        "B.TEST": true
+      }
+    },
+    "settlement": {
+      "kind": "settlement",
+      "at": "2026-10-14T15:00:00+08:00",
+      "available_at": "2026-10-14T15:10:00+08:00",
+      "source": "SYNTHETIC hand-calculated prices",
+      "synthetic": true,
+      "prices": {
+        "B.TEST": 200
+      }
+    }
+  }
+]
