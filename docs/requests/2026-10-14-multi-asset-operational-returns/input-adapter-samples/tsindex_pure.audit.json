@@ -1,0 +1,116 @@
+{
+  "status": "blocked",
+  "adapter": "tsindex_pure",
+  "synthetic": false,
+  "observed_at": "2026-10-15T18:50:23.991044+08:00",
+  "plan_sha256": "edd5ee5f52bf6a04a8b1f9ad7c0f3c9b41a8181c8d939e6861f375177e5964d2",
+  "blockers": [
+    "missing_account_config",
+    "missing_calendar",
+    "missing_execution",
+    "missing_instruments",
+    "missing_publication",
+    "missing_settlement",
+    "source_parameters_mismatch"
+  ],
+  "observer": {
+    "host": "elfbob-ThinkPad-X1-Carbon-Gen-8",
+    "checkout": "/home/elfbob/claude-code/futures_strategies",
+    "git_head": "f3a752a0eb915a9f024496ca679e6c040e09239e",
+    "adapter_sha256": "98135a8f681dc77d4a2d95eebaf130684cbb92a45cd1981d4134641d866e12a1"
+  },
+  "observations": {
+    "source_metadata": {
+      "path": "/home/elfbob/claude-code/futures_strategies/output/forward_inputs/current-20261015/tsindex_20260909.xlsx",
+      "sha256": "34c12723d4a74bf151b7a9413fba56d14ab79eb62685a33d31d53edc4fd763a9",
+      "bytes": 5469695,
+      "first_seen_scope": "this_capture_only",
+      "first_seen": "2026-10-15T18:50:23.994134+08:00",
+      "observed_at": "2026-10-15T18:50:23.994134+08:00"
+    },
+    "target_csv": {
+      "path": "/home/elfbob/claude-code/futures_strategies/output/forward_inputs/current-20261015/tsindex_20260909_next_targets.csv",
+      "sha256": "2d95b03c7c919801e41933568db3c06cfbd8d52fe711f44d6c4e6884fda97e82",
+      "bytes": 10562,
+      "first_seen_scope": "this_capture_only",
+      "first_seen": "2026-10-15T18:50:24.007459+08:00",
+      "observed_at": "2026-10-15T18:50:24.007459+08:00"
+    }
+  },
+  "target": {
+    "available_at": null,
+    "row_count": 48,
+    "signal_dates": [
+      "2026-09-09"
+    ],
+    "weights": {
+      "A2611.DCE": -0.01475081835030073,
+      "B2611.DCE": -0.04425245505090219,
+      "BR2611.SHF": 0.004916939450100244,
+      "BU2611.SHF": 0.056544803676152805,
+      "BZ2610.DCE": 0.04916939450100244,
+      "C2611.DCE": 0.007375409175150365,
+      "CF2701.CZC": -0.02704316697555134,
+      "CS2611.DCE": 0.01475081835030073,
+      "EB2610.DCE": 0.03933551560080195,
+      "EG2610.DCE": 0.04671092477595232,
+      "FG2701.CZC": -0.05162786422605256,
+      "FU2611.SHF": 0.05162786422605256,
+      "HC2701.SHF": -0.01229234862525061,
+      "I2701.DCE": 0.02458469725050122,
+      "J2701.DCE": -0.04179398532585207,
+      "JM2701.DCE": -0.056544803676152805,
+      "L2701.DCE": 0.03687704587575183,
+      "LC2701.GFE": -0.004916939450100244,
+      "LH2611.DCE": -0.05900327340120292,
+      "LU2611.INE": 0.05900327340120292,
+      "M2701.DCE": -0.002458469725050122,
+      "MA2610.CZC": 0.031960106425651585,
+      "NR2611.INE": -0.022126227525451094,
+      "OI2701.CZC": 0.01229234862525061,
+      "OP2611.SHF": -0.009833878900200488,
+      "P2701.DCE": -0.03933551560080195,
+      "PF2611.CZC": 0.019667757800400976,
+      "PG2610.DCE": 0.017209288075350854,
+      "PL2611.CZC": 0.05408633395110268,
+      "PP2701.DCE": 0.04425245505090219,
+      "PR2611.CZC": 0.04179398532585207,
+      "PS2611.GFE": -0.04916939450100244,
+      "PX2611.CZC": 0.02704316697555134,
+      "RB2701.SHF": -0.019667757800400976,
+      "RM2611.CZC": 0.022126227525451094,
+      "RU2701.SHF": -0.031960106425651585,
+      "SA2701.CZC": -0.04671092477595232,
+      "SC2610.INE": 0.02950163670060146,
+      "SF2611.CZC": 0.009833878900200488,
+      "SH2611.CZC": -0.05408633395110268,
+      "SI2611.GFE": -0.03441857615070171,
+      "SM2611.CZC": -0.017209288075350854,
+      "SP2611.SHF": -0.02458469725050122,
+      "SR2701.CZC": -0.02950163670060146,
+      "TA2701.CZC": 0.03441857615070171,
+      "UR2701.CZC": -0.007375409175150365,
+      "V2701.DCE": -0.03687704587575183,
+      "Y2701.DCE": 0.002458469725050122
+    }
+  },
+  "source_parameters": {
+    "near_leg": "near_dominant",
+    "weighting": "rank_linear",
+    "carry_window": 90,
+    "liquidity_measure": "open_interest_value",
+    "liquidity_window": 20,
+    "liquidity_threshold": 2000000000,
+    "stop_loss_enabled": false,
+    "trend_filter_enabled": false,
+    "missing_open_policy": "defer",
+    "target_vol": 0.15,
+    "max_gross_leverage": 4,
+    "basis_momentum_weight": null
+  },
+  "parameter_mismatches": [
+    "basis_momentum_weight"
+  ],
+  "reference_scope": "initial_proposal_only",
+  "completed_at": "2026-10-15T18:50:24.147142+08:00"
+}

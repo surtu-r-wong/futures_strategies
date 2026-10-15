@@ -1,0 +1,63 @@
+{
+  "host": "WSL ghls@100.120.152.1:2223",
+  "checkout": "/home/ghls/claude-code/futures_strategies",
+  "checkout_observed_at": "2026-10-15T18:41:58.707419+08:00",
+  "checkout_git_head": "5511463208df9598ad02a04a1b7c7dc83586478d",
+  "historical_generator_source_tree_sha256": null,
+  "available_at": null,
+  "files": {
+    "tsindex_20260909_next_targets.csv": {
+      "path": "/home/ghls/claude-code/futures_strategies/output/targets/tsindex_20260909_next_targets.csv",
+      "sha256": "2d95b03c7c919801e41933568db3c06cfbd8d52fe711f44d6c4e6884fda97e82",
+      "bytes": 10562,
+      "first_seen": "2026-10-15T18:42:00.166989+08:00",
+      "observed_at": "2026-10-15T18:42:00.166989+08:00",
+      "available_at": null
+    },
+    "tsindex_20260909.xlsx": {
+      "path": "/home/ghls/claude-code/futures_strategies/output/targets/tsindex_20260909.xlsx",
+      "sha256": "34c12723d4a74bf151b7a9413fba56d14ab79eb62685a33d31d53edc4fd763a9",
+      "bytes": 5469695,
+      "first_seen": "2026-10-15T18:42:02.288302+08:00",
+      "observed_at": "2026-10-15T18:42:02.288302+08:00",
+      "available_at": null
+    },
+    "tsindex_20260916_next_targets.csv": {
+      "path": "/home/ghls/claude-code/futures_strategies/output/targets/tsindex_20260916_next_targets.csv",
+      "sha256": "e69086e37a135c3cb252a43330d35aa4a4b882bb7e997cd54a8ddfcef0727b85",
+      "bytes": 12634,
+      "first_seen": "2026-10-15T18:42:03.740192+08:00",
+      "observed_at": "2026-10-15T18:42:03.740192+08:00",
+      "available_at": null
+    },
+    "tsindex_20260916.xlsx": {
+      "path": "/home/ghls/claude-code/futures_strategies/output/targets/tsindex_20260916.xlsx",
+      "sha256": "cbaeeca66cb25b08df49017d555417b77439876cd21c2cf5a2eab052309633aa",
+      "bytes": 16146040,
+      "first_seen": "2026-10-15T18:42:07.435066+08:00",
+      "observed_at": "2026-10-15T18:42:07.435066+08:00",
+      "available_at": null
+    },
+    "citic027_20260916_next_targets.csv": {
+      "path": "/home/ghls/claude-code/futures_strategies/output/targets/citic027_20260916_next_targets.csv",
+      "sha256": "1ad34fe5614ac40b2cf6a6392019529af79316a1c14cd977db5d2c0e7058489d",
+      "bytes": 11882,
+      "first_seen": "2026-10-15T18:42:08.921332+08:00",
+      "observed_at": "2026-10-15T18:42:08.921332+08:00",
+      "available_at": null
+    },
+    "citic027_20260916_config.json": {
+      "path": "/home/ghls/claude-code/futures_strategies/output/targets/citic027_20260916_config.json",
+      "sha256": "2bff02dfb2743c39cfaf6f46493d80b673d2d0d45932b39805683eb2b35cd23e",
+      "bytes": 1065,
+      "first_seen": "2026-10-15T18:42:10.378639+08:00",
+      "observed_at": "2026-10-15T18:42:10.378639+08:00",
+      "available_at": null
+    }
+  },
+  "current_checkout_source_hashes": {
+    "scripts/carry_tsindex_daily.sh": "5b846bfbae0d674b57d0e6d7307d0671e0ffe6aad75a2688aee3c24ce216f189",
+    "scripts/citic027_daily.sh": "55b93146d5767488b850b402c76aedaf5963bb5d92a38acb5605e3c0378d258c",
+    "citic_index/daily.py": "73036f709f0307ed27775808a92481642442b8abb4e2b5bf373038743e6beb6e"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "adapter": "tsindex_bmom020",
+  "synthetic": false,
+  "trade_date": "2026-10-15",
+  "files": {
+    "target_csv": "../../../../output/forward_inputs/current-20261015/tsindex_20260916_next_targets.csv",
+    "source_metadata": "../../../../output/forward_inputs/current-20261015/tsindex_20260916.xlsx",
+    "publication": null,
+    "execution": null,
+    "settlement": null,
+    "instruments": null,
+    "calendar": null,
+    "account_config": null,
+    "previous_references": null
+  },
+  "columns": {}
+}

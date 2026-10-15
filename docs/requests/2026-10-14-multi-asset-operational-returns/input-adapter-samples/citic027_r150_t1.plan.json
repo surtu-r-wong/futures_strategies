@@ -1,0 +1,17 @@
+{
+  "adapter": "citic027_r150_t1",
+  "synthetic": false,
+  "trade_date": "2026-10-15",
+  "files": {
+    "target_csv": "../../../../output/forward_inputs/current-20261015/citic027_20260916_next_targets.csv",
+    "source_metadata": "../../../../output/forward_inputs/current-20261015/citic027_20260916_config.json",
+    "publication": null,
+    "execution": null,
+    "settlement": null,
+    "instruments": null,
+    "calendar": null,
+    "account_config": null,
+    "previous_references": null
+  },
+  "columns": {}
+}

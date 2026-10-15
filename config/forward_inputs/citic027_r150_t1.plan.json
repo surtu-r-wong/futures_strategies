@@ -1,0 +1,17 @@
+{
+  "adapter": "citic027_r150_t1",
+  "synthetic": false,
+  "trade_date": null,
+  "files": {
+    "target_csv": null,
+    "source_metadata": null,
+    "publication": null,
+    "execution": null,
+    "settlement": null,
+    "instruments": null,
+    "calendar": null,
+    "account_config": null,
+    "previous_references": null
+  },
+  "columns": {}
+}
