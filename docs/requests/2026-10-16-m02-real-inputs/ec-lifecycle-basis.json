@@ -1,0 +1,34 @@
+{
+  "symbol": "EC2611.INE",
+  "product_source": {
+    "url": "https://www.shfe.com.cn/products/futures/index_f/ec_f/",
+    "path": "sources/shfe_ec_product.html",
+    "sha256": "3ba4a95de04fbcbbc139a6c96a44873c06f94ae43961febbce3c4fa575277e5f",
+    "acquired_at": "2026-10-16T01:15:15.600422+00:00"
+  },
+  "table_locator": "currinstrumentprop-f-component / desktop / type_select == 'ec'",
+  "official_field_labels": {
+    "OPENDATE": "上市日",
+    "EXPIREDATE": "到期日",
+    "ENDDELIVDATE": "交割日"
+  },
+  "rule_locator": "let pageList[0] / ContractSymbol=EC / data_standard=2026-05-11",
+  "contract_rule": {
+    "ContractSymbol": "EC",
+    "data_standard": "2026-05-11",
+    "LastTradingDay": "合约交割月份最后一个开展期货交易的周一（上海国际能源交易中心可以根据国家法定节假日等调整最后交易日）",
+    "DeliveryPeriod": "同最后交易日"
+  },
+  "date_field_used": "ENDDELIVDATE",
+  "last_trade_date": "2026-11-30",
+  "derivation": "官方EC表ENDDELIVDATE标签为交割日；EC标准合约DeliveryPeriod为同最后交易日，故由交割日映射最后交易日。EXPIREDATE仅标为到期日，不单独用于推定最后交易日。",
+  "calendar_cross_check": {
+    "weekday": "Monday",
+    "last_calendar_day_of_month": true,
+    "internal_calendar_path": "calendar.disabled.json",
+    "internal_sfe_open": true,
+    "independent_ine_session_certification": false,
+    "scope": "2026-11-30是11月最后一个自然日且为周一；内部sfe标志仅佐证，未独立认证INE未来会话。"
+  },
+  "future_adjustments": "官方参数未含节假日调整；合约规则允许能源中心根据法定节假日等调整最后交易日。当前映射保留此限制，未来D须复核公告及日历，不构成未来适用或执行授权。"
+}

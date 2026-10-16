@@ -7,7 +7,7 @@
 ## 1. 已取得的事实与来源
 
 - **29/48量纲缺项取得官方规格佐证**：SHFE官网24个清单品种（含5个INE品种）、GFEX官网5个品种。逐个核对交易单位或指数乘数、报价单位、CNY维度与10-15内部乘数相符，见[official-dimensions.json](official-dimensions.json)。加上既有19个CZCE量纲，现共48/67有规格维度依据。当前取得不能证明历史当时可知、未来D仍有效，实际报价源单位声明也尚未验收。
-- **EC2611独立生命周期补齐**：[官方10-15合约参数文件](https://www.shfe.com.cn/data/busiparamdata/future/ContractBaseInfo20261015.dat)给出上市日2026-05-26、到期/交割日2026-11-30，文件内部更新时点2026-10-15 16:20:06（北京时间），实际取得2026-10-16 09:18:44.971942 CST。原始SHA为`f193b82a69d676b1be8b89fbbdd977e8391f997d64fc6b859eda998b8600b36d`。原行EXCHANGEID为SHFE，是交叉发布页面字段；原生身份仍为EC2611.INE。原文参数按日全所发布，本次下载一次文件（80,724字节），只采用EC一行补缺。原有66条生命周期未替换。合约页提示假期调整需再看日历，不将到期字段误说成任何未来执行授权。
+- **EC2611独立生命周期补齐**：[官方10-15合约参数文件](https://www.shfe.com.cn/data/busiparamdata/future/ContractBaseInfo20261015.dat)给出上市日2026-05-26、到期/交割日2026-11-30，文件内部更新时点2026-10-15 16:20:06（北京时间），实际取得2026-10-16 09:18:44.971942 CST。原始SHA为`f193b82a69d676b1be8b89fbbdd977e8391f997d64fc6b859eda998b8600b36d`。原行EXCHANGEID为SHFE，是交叉发布页面字段；原生身份仍为EC2611.INE。原文参数按日全所发布，本次下载一次文件（80,724字节），只采用EC一行补缺。原有66条生命周期未替换。审查补证见[EC日期推导依据](ec-lifecycle-basis.json)：归档[官方EC产品页](https://www.shfe.com.cn/products/futures/index_f/ec_f/)的`currinstrumentprop-f-component`中，`type_select == 'ec'`专用表将`OPENDATE`标为“上市日”、`EXPIREDATE`标为“到期日”、`ENDDELIVDATE`标为“交割日”；同页`pageList[0]`（`data_standard=2026-05-11`）明确`DeliveryPeriod=同最后交易日`。因此最后交易日由`ENDDELIVDATE=20261130`及该规则推出，不从英文`EXPIREDATE`猜测。页面原文SHA为`3ba4a95de04fbcbbc139a6c96a44873c06f94ae43961febbce3c4fa575277e5f`，实际取得2026-10-16 09:15:15.600422 CST。另核验11月30日为当月最后一个自然日且为周一，内部sfe当日开市标志仅作佐证，不能认证INE完整未来会话。规则原文为“合约交割月份最后一个开展期货交易的周一（上海国际能源交易中心可以根据国家法定节假日等调整最后交易日）”；官方参数未含节假日调整，未来D仍需复核公告和日历。此次只复用归档，未新增获取，不扩大未来适用或执行授权。
 - **24费缺项未隐式补值**：复用办公室当次raw，19CZCE/5DCE四费数值均与M01一致，但fee_scale仍NULL。旧官方JM、FG、SA公告只提供有限品种/时点语义，没有完整证据覆盖10-15或未来D，故没有把旧公告填成当前费表。J/LH日内开仓差异与调整政策未证事项逐项保留。
 - **DCE源版本差异原样保留**：5个合约M01库声明原SHA为`741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106`，办公室本次库声明为`ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b`。数值、fee_style/fee_scale及fetched_at未变，原因未证；新raw只绑定新声明。办公室没有导出完整原响应重算SHA，本函也未把“库声明SHA”冒充已验证原始响应字节。两条链见[contract-evidence.json](contract-evidence.json)。
 
@@ -53,7 +53,7 @@ DCE试过官方首页HTTPS、HTTP、有限直连及已知日内规则页；CZCE�
 
 ## 6. 验证与交付边界
 
-[validation.json](validation.json)：**521项离线证据断言通过**，包括全部原文/压缩SHA、67行原权重、29个乘数维度匹配、EC原始行、24单位继续为空、DCE双来源链、逐合约整数算术、91日日历完整性和禁用状态。Ruff检查通过。没有改生产模型代码，因此没有重跑旧99项测试。
+[validation.json](validation.json)：**533项离线证据断言通过**，包括全部原文/压缩SHA、67行原权重、29个乘数维度匹配、EC原始行、24单位继续为空、DCE双来源链、逐合约整数算术、91日日历完整性和禁用状态。Ruff检查通过。没有改生产模型代码，因此没有重跑旧99项测试。
 
 只验证本次数据的复核命令（不联网/查库/初始化）：
 

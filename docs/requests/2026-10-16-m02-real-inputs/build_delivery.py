@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 import csv
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_EVEN
 import gzip
 import hashlib
@@ -47,6 +47,57 @@ def write(path, obj):
 
 def plain(value):
     return html.unescape(re.sub(r"\s+", " ", re.sub("<[^>]*>", " ", value))).strip()
+
+
+def ec_lifecycle_basis(ec, product_source):
+    page = raw(ROOT / product_source["path"]).decode("utf-8")
+    # Use the EC-specific table, not the generic physical-delivery table.
+    table = page.split("<div v-if=\"type_select == 'ec'\">", 1)[1].split(
+        "</el-table>", 1
+    )[0]
+    labels = dict(re.findall(r'prop="([A-Z]+)"\s+label="([^"]+)"', table))
+    assert labels["OPENDATE"] == "上市日"
+    assert labels["EXPIREDATE"] == "到期日"
+    assert labels["ENDDELIVDATE"] == "交割日"
+    first_rule = page.split("let pageList = [", 1)[1].split("},", 1)[0]
+    fields = dict(re.findall(r'"([^"\n]+)"\s*:\s*"([^"\n]*)"', first_rule))
+    assert fields["ContractSymbol"] == "EC"
+    assert fields["DeliveryPeriod"] == "同最后交易日"
+    delivery = datetime.strptime(ec["ENDDELIVDATE"], "%Y%m%d").date()
+    assert delivery.weekday() == 0
+    assert (delivery + timedelta(days=1)).month != delivery.month
+    return {
+        "symbol": "EC2611.INE",
+        "product_source": {
+            k: product_source[k] for k in ("url", "path", "sha256", "acquired_at")
+        },
+        "table_locator": "currinstrumentprop-f-component / desktop / type_select == 'ec'",
+        "official_field_labels": {
+            key: labels[key] for key in ("OPENDATE", "EXPIREDATE", "ENDDELIVDATE")
+        },
+        "rule_locator": "let pageList[0] / ContractSymbol=EC / data_standard=2026-05-11",
+        "contract_rule": {
+            key: fields[key]
+            for key in (
+                "ContractSymbol",
+                "data_standard",
+                "LastTradingDay",
+                "DeliveryPeriod",
+            )
+        },
+        "date_field_used": "ENDDELIVDATE",
+        "last_trade_date": delivery.isoformat(),
+        "derivation": "官方EC表ENDDELIVDATE标签为交割日；EC标准合约DeliveryPeriod为同最后交易日，故由交割日映射最后交易日。EXPIREDATE仅标为到期日，不单独用于推定最后交易日。",
+        "calendar_cross_check": {
+            "weekday": "Monday",
+            "last_calendar_day_of_month": True,
+            "internal_calendar_path": "calendar.disabled.json",
+            "internal_sfe_open": True,
+            "independent_ine_session_certification": False,
+            "scope": "2026-11-30是11月最后一个自然日且为周一；内部sfe标志仅佐证，未独立认证INE未来会话。",
+        },
+        "future_adjustments": "官方参数未含节假日调整；合约规则允许能源中心根据法定节假日等调整最后交易日。当前映射保留此限制，未来D须复核公告及日历，不构成未来适用或执行授权。",
+    }
 
 
 def main():
@@ -215,6 +266,8 @@ def main():
     assert len(lifecycle) == 1
     ec = lifecycle[0]
     assert ec["OPENDATE"] == "20260526" and ec["EXPIREDATE"] == "20261130"
+    ec_basis = ec_lifecycle_basis(ec, byid["shfe_ec_product"])
+    write(ROOT / "ec-lifecycle-basis.json", ec_basis)
     matrix = {}
     missing_units = []
     missing_dimensions = []
@@ -282,7 +335,9 @@ def main():
             item["independent_lifecycle"] = {
                 "symbol": symbol,
                 "listing_date": "2026-05-26",
-                "last_trade_date": "2026-11-30",
+                "last_trade_date": ec_basis["last_trade_date"],
+                "date_field_used": ec_basis["date_field_used"],
+                "derivation_evidence": "ec-lifecycle-basis.json",
                 "raw_row": ec,
                 "raw_exchange_id_note": "SHFE cross-published source uses EXCHANGEID=SHFE; native EC identity remains INE",
                 "source_url": lifecycle_source["url"],
@@ -291,7 +346,7 @@ def main():
                 "source_update_at": lifecycle_raw["update_date"],
                 "source_timezone": "Asia/Shanghai",
                 "acquired_at": lifecycle_source["acquired_at"],
-                "holiday_adjustments": "official page excludes holiday adjustments; reconcile with published calendar",
+                "holiday_adjustments": ec_basis["future_adjustments"],
             }
         if old_fee["fee_scale"] is None:
             missing_units.append(symbol)

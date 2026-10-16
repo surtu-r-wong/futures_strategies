@@ -1,11 +1,13 @@
 """Offline source/evidence invariants; never initialize a ledger or run a strategy."""
 
 import csv
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_EVEN
 import gzip
 import hashlib
 import json
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parent
 PRIOR = ROOT.parent / "2026-10-15-m02-account-compatibility"
@@ -93,6 +95,69 @@ def main():
             contract + " no future validity or quote attestation invented",
         )
     ec = rows["EC2611.INE"]["independent_lifecycle"]
+    basis = load(ROOT / ec["derivation_evidence"])
+    page_bytes = gzip.decompress(
+        (ROOT / "sources/shfe_ec_product.html.gz").read_bytes()
+    )
+    check(
+        hashlib.sha256(page_bytes).hexdigest() == basis["product_source"]["sha256"],
+        "EC label and rule proof bound to archived official HTML",
+    )
+    page = page_bytes.decode("utf-8")
+    table = page.split("<div v-if=\"type_select == 'ec'\">", 1)[1].split(
+        "</el-table>", 1
+    )[0]
+    for field, label in basis["official_field_labels"].items():
+        check(
+            re.search(rf'prop="{field}"\s+label="{label}"', table) is not None,
+            "EC-specific official field label " + field,
+        )
+    first_rule = page.split("let pageList = [", 1)[1].split("},", 1)[0]
+    for field, value in basis["contract_rule"].items():
+        check(
+            re.search(rf'"{field}"\s*:\s*"{re.escape(value)}"', first_rule) is not None,
+            "EC archived current contract rule " + field,
+        )
+    check(
+        basis["official_field_labels"]["ENDDELIVDATE"] == "交割日"
+        and basis["contract_rule"]["DeliveryPeriod"] == "同最后交易日"
+        and basis["date_field_used"] == ec["date_field_used"] == "ENDDELIVDATE"
+        and basis["last_trade_date"] == ec["last_trade_date"]
+        and ec["last_trade_date"].replace("-", "") == ec["raw_row"]["ENDDELIVDATE"],
+        "EC last trade date derived from delivery date and explicit contract rule",
+    )
+    lifecycle_bytes = gzip.decompress(
+        (ROOT / "sources/shfe_lifecycle_20261015.json.gz").read_bytes()
+    )
+    check(
+        hashlib.sha256(lifecycle_bytes).hexdigest() == ec["source_sha256"]
+        and [
+            r
+            for r in json.loads(lifecycle_bytes)["ContractBaseInfo"]
+            if r["INSTRUMENTID"] == "ec2611"
+        ]
+        == [ec["raw_row"]],
+        "EC delivery date bound to official raw lifecycle row",
+    )
+    last_day = date.fromisoformat(ec["last_trade_date"])
+    calendar_row = next(
+        r
+        for r in load(ROOT / "calendar.disabled.json")["rows"]
+        if r["date"] == ec["last_trade_date"]
+    )
+    check(
+        last_day.weekday() == 0
+        and (last_day + timedelta(days=1)).month != last_day.month
+        and calendar_row["internal_sfe_open"] is True,
+        "EC date is final calendar day and Monday with internal sfe corroboration",
+    )
+    check(
+        basis["calendar_cross_check"]["independent_ine_session_certification"] is False
+        and ec["holiday_adjustments"] == basis["future_adjustments"]
+        and "调整最后交易日" in basis["contract_rule"]["LastTradingDay"]
+        and "未来D须复核" in basis["future_adjustments"],
+        "EC future adjustments and incomplete session certification retained",
+    )
     check(
         ec["listing_date"] == "2026-05-26" and ec["last_trade_date"] == "2026-11-30",
         "EC official lifecycle restored",
