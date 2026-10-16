@@ -2,6 +2,8 @@
 
 已完成本地 `contract-fees-v2` 适配及独立禁用候选。**100 手隔夜仓下，官方三例在多、空方向均得到 99／180／120 元；v1 仍为 189／189／189 元，FIFO 持仓结果不变。11 个比例合约单位按用户裁决补为万分，剩余 13 个绝对值单位未确认。** 上轮冻结交付未覆盖，真实候选未启用。
 
+源码、测试及完整证据本地提交：`9bfaf42`（`feat: add versioned DCE intraday fee matching and user unit decisions`）。本行提交号补录另作文档提交；未推送。
+
 ## 实现与版本边界
 
 - `forward_account/fees.py`：保留 `account_trades` 的 v1 双返回值接口；新增 `new_matching_state(model)` 和 `account_trades_with_matching(..., matching_state=state)`，返回成交明细、原 FIFO 持仓批次、独立费用匹配状态。v2 必须显式指定 `dce_intraday_matching={method: prior_open_fifo_same_side, components: [exchange], source: ...}`。缺状态、模型/开仓规则 SHA 改变、逆序时间或无效开仓证据均拒绝。
