@@ -2,7 +2,7 @@
 
 本轮完成可取得资料的补证、67合约完整映射和禁用候选。**新增29个合约规格量纲核对，EC2611.INE独立生命周期已补齐；19个DCE量纲和24个当前费率单位/有效链仍缺，候选不可启用。** 全程保留原67行权重及零权重PB，未截取已知费用子集。
 
-授权采用authorization.json，input-scope.json中旧draft/pending标记是发函前快照，原件未改。办公室补证提交`bc2f5d0`已消费；本地提交号在收尾记录中补列。
+授权采用authorization.json，input-scope.json中旧draft/pending标记是发函前快照，原件未改。办公室补证提交`bc2f5d0`已消费；本轮证据、候选及验证本地提交为`cfcf0df`（`docs: reconcile M02 real-input evidence and disabled futures candidate`）；本回函提交号补列另作文档提交，未推送。
 
 ## 1. 已取得的事实与来源
 
