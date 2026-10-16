@@ -1,0 +1,234 @@
+[
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "交易日期",
+    "data_type": "date",
+    "column_comment": "交易日期",
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "合约代码",
+    "data_type": "character varying(20)",
+    "column_comment": "合约代码",
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "交易所代码",
+    "data_type": "character varying(10)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "品种代码",
+    "data_type": "character varying(10)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "合约名称",
+    "data_type": "character varying(100)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "合约乘数",
+    "data_type": "integer",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "最小价格",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "最后日期",
+    "data_type": "character varying(50)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "多头保证金率",
+    "data_type": "numeric(10,6)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "空头保证金率",
+    "data_type": "numeric(10,6)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "昨夜收盘",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "涨停价",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "跌停价",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "前结算",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "品种交易配额",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "合约交易配额",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "品种持仓配额",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "合约持仓配额",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "手续费收取方式",
+    "data_type": "character varying(50)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "开仓手续费",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "平仓手续费",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "日内开仓手续费",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "日内平仓手续费",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "行权/交割手续费（率）",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "行权/交割手续费（手）",
+    "data_type": "numeric(15,4)",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "交割月下单整手数",
+    "data_type": "integer",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "创建时间",
+    "data_type": "timestamp with time zone",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "更新时间",
+    "data_type": "timestamp with time zone",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  },
+  {
+    "table_schema": "public",
+    "table_name": "futures_contract_info",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone",
+    "column_comment": null,
+    "table_comment": "期货合约基本信息表-每日更新"
+  }
+]

@@ -1,0 +1,125 @@
+{
+  "status": "passed",
+  "synthetic": true,
+  "cases": [
+    {
+      "scenario": 1,
+      "side": "long",
+      "sequence": [
+        10,
+        -3,
+        20,
+        -30
+      ],
+      "overnight_quantity": 100,
+      "expected_fee": 99,
+      "actual_fee": {
+        "contract-fees-v1": 189.0,
+        "contract-fees-v2": 99.0
+      },
+      "intraday_two_leg_quantity": 60.0,
+      "FIFO_inventory_unchanged": true
+    },
+    {
+      "scenario": 2,
+      "side": "long",
+      "sequence": [
+        -10,
+        3,
+        -20,
+        30
+      ],
+      "overnight_quantity": 100,
+      "expected_fee": 180,
+      "actual_fee": {
+        "contract-fees-v1": 189.0,
+        "contract-fees-v2": 180.0
+      },
+      "intraday_two_leg_quantity": 6.0,
+      "FIFO_inventory_unchanged": true
+    },
+    {
+      "scenario": 3,
+      "side": "long",
+      "sequence": [
+        -10,
+        3,
+        20,
+        -30
+      ],
+      "overnight_quantity": 100,
+      "expected_fee": 120,
+      "actual_fee": {
+        "contract-fees-v1": 189.0,
+        "contract-fees-v2": 120.0
+      },
+      "intraday_two_leg_quantity": 46.0,
+      "FIFO_inventory_unchanged": true
+    },
+    {
+      "scenario": 1,
+      "side": "short",
+      "sequence": [
+        10,
+        -3,
+        20,
+        -30
+      ],
+      "overnight_quantity": -100,
+      "expected_fee": 99,
+      "actual_fee": {
+        "contract-fees-v1": 189.0,
+        "contract-fees-v2": 99.0
+      },
+      "intraday_two_leg_quantity": 60.0,
+      "FIFO_inventory_unchanged": true
+    },
+    {
+      "scenario": 2,
+      "side": "short",
+      "sequence": [
+        -10,
+        3,
+        -20,
+        30
+      ],
+      "overnight_quantity": -100,
+      "expected_fee": 180,
+      "actual_fee": {
+        "contract-fees-v1": 189.0,
+        "contract-fees-v2": 180.0
+      },
+      "intraday_two_leg_quantity": 6.0,
+      "FIFO_inventory_unchanged": true
+    },
+    {
+      "scenario": 3,
+      "side": "short",
+      "sequence": [
+        -10,
+        3,
+        20,
+        -30
+      ],
+      "overnight_quantity": -100,
+      "expected_fee": 120,
+      "actual_fee": {
+        "contract-fees-v1": 189.0,
+        "contract-fees-v2": 120.0
+      },
+      "intraday_two_leg_quantity": 46.0,
+      "FIFO_inventory_unchanged": true
+    }
+  ],
+  "source_pdf_sha256": "69e23fce4053acb8001ac508de26c4e27a8bb38074c4d9e9f0ee0860003e4609",
+  "code_sha256": {
+    "forward_account/fees.py": "cd763b85ae4b4aa098b363ee3756a42bd02db4af028f9ef66906f7cee37a05be",
+    "forward_account/engine.py": "771cfeaa0428db660dae8002e0679ab2fc2fb2dba9722a563876c1f95b3cf922",
+    "forward_account/store.py": "01274424e1151fe63ff3257548fb09c00f59f9e9dec71d8457ade22e9a220b73",
+    "forward_account/contracts.py": "e0819f60f359d7272834f7a82bc413c98cb754c692eff781c974cd9933a67313"
+  },
+  "database_calls": 0,
+  "network_calls": 0,
+  "account_initializations": 0,
+  "strategy_runs": 0
+}

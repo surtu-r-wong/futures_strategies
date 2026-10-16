@@ -1,0 +1,65 @@
+[
+  {
+    "path": "sources/dce-intraday-fee-faq.pdf",
+    "sha256": "69e23fce4053acb8001ac508de26c4e27a8bb38074c4d9e9f0ee0860003e4609",
+    "copied_from": "../multi_asset_backtest_db/docs/dispatch/2026-10-16-m02-futures-rule-clarification/sources/dce-intraday-fee-faq.pdf",
+    "copied_at": "2026-10-16T02:42:49.226763+00:00",
+    "representation": "user_supplied_official_pdf"
+  },
+  {
+    "path": "sources/dce-intraday-fee-faq.txt",
+    "sha256": "1d34d5d5eb152dedf116cb9b69fa9efaa65bd6bffab7c7957514b708b9154cc5",
+    "copied_from": "../multi_asset_backtest_db/docs/dispatch/2026-10-16-m02-futures-rule-clarification/sources/dce-intraday-fee-faq.txt",
+    "copied_at": "2026-10-16T02:42:49.227003+00:00",
+    "representation": "reused_coordinator_evidence"
+  },
+  {
+    "path": "schema/columns.json",
+    "sha256": "64c689629d3683b4a2dcfe5e15a35c9a0f3231e089a99d03d8948292ec04a08d",
+    "copied_from": "../multi_asset_backtest_db/docs/dispatch/2026-10-16-m02-futures-rule-clarification/schema/columns.json",
+    "copied_at": "2026-10-16T02:42:49.227218+00:00",
+    "representation": "reused_coordinator_evidence"
+  },
+  {
+    "path": "schema/receipt.json",
+    "sha256": "771a6d7219e309a638d88c2a80f9fb51e8ad33479e3b22ae8b48e795b10c1f40",
+    "copied_from": "../multi_asset_backtest_db/docs/dispatch/2026-10-16-m02-futures-rule-clarification/schema/receipt.json",
+    "copied_at": "2026-10-16T02:42:49.227430+00:00",
+    "representation": "reused_coordinator_evidence"
+  },
+  {
+    "path": "data/contract_info.json",
+    "sha256": "36c74196c0f0b1d81d180fc029cb2ab6a0280eb73f8948cce75f63e7d7edc32c",
+    "copied_from": "../multi_asset_backtest_db/docs/dispatch/2026-10-16-m02-futures-rule-clarification/data/contract_info.json",
+    "copied_at": "2026-10-16T02:42:49.227655+00:00",
+    "representation": "reused_coordinator_evidence"
+  },
+  {
+    "path": "data/receipt.json",
+    "sha256": "93d1d45aae9c202218fa3b08a2674c1b38a3a5d42949d209f9584809c9f3d313",
+    "copied_from": "../multi_asset_backtest_db/docs/dispatch/2026-10-16-m02-futures-rule-clarification/data/receipt.json",
+    "copied_at": "2026-10-16T02:42:49.227807+00:00",
+    "representation": "reused_coordinator_evidence"
+  },
+  {
+    "path": "data-czce/contract_info.json",
+    "sha256": "7a206b74838877b08cc88865f08dfb372823565b6413aa976f8fb688e4884c3e",
+    "copied_from": "../multi_asset_backtest_db/docs/dispatch/2026-10-16-m02-futures-rule-clarification/data-czce/contract_info.json",
+    "copied_at": "2026-10-16T02:42:49.228007+00:00",
+    "representation": "reused_coordinator_evidence"
+  },
+  {
+    "path": "data-czce/receipt.json",
+    "sha256": "b187cbf5b6378256c4281d66e17fb63ed9c7a6451715726603c0a3bc023879e5",
+    "copied_from": "../multi_asset_backtest_db/docs/dispatch/2026-10-16-m02-futures-rule-clarification/data-czce/receipt.json",
+    "copied_at": "2026-10-16T02:42:49.228155+00:00",
+    "representation": "reused_coordinator_evidence"
+  },
+  {
+    "path": "v1-reproduction.json",
+    "sha256": "543aac3a82c1890adbfedd4c939b1762efd00431f96a7ea4719c1918fbca9aee",
+    "copied_from": "../multi_asset_backtest_db/docs/dispatch/2026-10-16-m02-futures-rule-clarification/v1-reproduction.json",
+    "copied_at": "2026-10-16T02:42:49.228326+00:00",
+    "representation": "reused_coordinator_evidence"
+  }
+]

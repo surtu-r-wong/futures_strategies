@@ -1,0 +1,46 @@
+{
+  "started_at": "2026-10-16T02:35:16.293339+00:00",
+  "finished_at": "2026-10-16T02:35:16.334806+00:00",
+  "default_read_only": true,
+  "transaction_read_only": true,
+  "isolation": "repeatable read",
+  "rollback_and_close": true,
+  "status": "completed",
+  "error_type": null,
+  "queries": [
+    {
+      "name": "contract_info",
+      "sql": "SELECT \"交易日期\",\"合约代码\",\"交易所代码\",\"合约名称\",\"合约乘数\",\"手续费收取方式\",\"开仓手续费\",\"平仓手续费\",\"日内开仓手续费\",\"日内平仓手续费\",updated_at FROM public.futures_contract_info WHERE \"交易所代码\"='CZCE' AND \"合约代码\"=ANY(%s) AND \"交易日期\" BETWEEN %s::date AND %s::date ORDER BY \"合约代码\",\"交易日期\" LIMIT 51",
+      "parameters": [
+        [
+          "AP701",
+          "CF701",
+          "CJ701",
+          "FG701",
+          "MA701",
+          "OI701",
+          "PF612",
+          "PK612",
+          "PL612",
+          "PR612",
+          "PX612",
+          "RM701",
+          "SA701",
+          "SF701",
+          "SH701",
+          "SM701",
+          "SR701",
+          "TA701",
+          "UR701"
+        ],
+        "2026-10-15",
+        "2026-10-16"
+      ],
+      "started_at": "2026-10-16T02:35:16.293388+00:00",
+      "acquired_at": "2026-10-16T02:35:16.321342+00:00",
+      "rows": 19,
+      "path": "contract_info.json",
+      "sha256": "7a206b74838877b08cc88865f08dfb372823565b6413aa976f8fb688e4884c3e"
+    }
+  ]
+}

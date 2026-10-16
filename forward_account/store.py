@@ -21,6 +21,7 @@ from .contracts import (
 )
 from .engine import calculate
 from .fees import description as fee_description
+from .fees import MATCHING_VERSION, new_matching_state
 
 
 def engine_fingerprint():
@@ -103,6 +104,8 @@ def initialize(path, config, calendar):
     }
     if "fee_model" in config:
         state["position_lots"] = {}
+        if config["fee_model"]["version"] == MATCHING_VERSION:
+            state["fee_matching_state"] = new_matching_state(config["fee_model"])
     with connection(path, create=True) as con:
         _schema(con)
         existing = con.execute(

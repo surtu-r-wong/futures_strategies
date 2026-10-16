@@ -1,0 +1,32 @@
+{
+  "started_at": "2026-10-16T02:32:02.582274+00:00",
+  "finished_at": "2026-10-16T02:32:02.621379+00:00",
+  "default_read_only": true,
+  "transaction_read_only": true,
+  "isolation": "repeatable read",
+  "rollback_and_close": true,
+  "status": "completed",
+  "error_type": null,
+  "queries": [
+    {
+      "name": "columns",
+      "sql": "SELECT n.nspname AS table_schema,c.relname AS table_name,a.attname AS column_name,pg_catalog.format_type(a.atttypid,a.atttypmod) AS data_type,pg_catalog.col_description(c.oid,a.attnum) AS column_comment,pg_catalog.obj_description(c.oid,'pg_class') AS table_comment FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid WHERE n.nspname=ANY(%s) AND c.relname=ANY(%s) AND a.attnum>0 AND NOT a.attisdropped ORDER BY n.nspname,c.relname,a.attnum LIMIT 201",
+      "parameters": [
+        [
+          "public",
+          "pubulic"
+        ],
+        [
+          "future_ccontract_info",
+          "future_contract_info",
+          "futures_contract_info"
+        ]
+      ],
+      "started_at": "2026-10-16T02:32:02.582300+00:00",
+      "acquired_at": "2026-10-16T02:32:02.606325+00:00",
+      "rows": 29,
+      "path": "columns.json",
+      "sha256": "64c689629d3683b4a2dcfe5e15a35c9a0f3231e089a99d03d8948292ec04a08d"
+    }
+  ]
+}

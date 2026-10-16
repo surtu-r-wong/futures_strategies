@@ -1,0 +1,18 @@
+[
+  {
+    "path": "2026-10-16-m02-real-inputs/account.disabled.json",
+    "sha256": "f405fe6a498c8c406bc911c7fabaae2857a2d1e99c173cc3840c6a5103ebe628"
+  },
+  {
+    "path": "2026-10-16-m02-real-inputs/contract-evidence.json",
+    "sha256": "f31edc0e914a87a9194b315d79477274bd1bdacafb055a358da607fe624ecb55"
+  },
+  {
+    "path": "2026-10-16-m02-real-inputs/preparation-check.json",
+    "sha256": "fc33f2ecc6adb0f017cbe00d3828ed56f6cf4aa7024a2d7ce20bbe388fa99549"
+  },
+  {
+    "path": "2026-10-16-m02-real-inputs/completion-summary.json",
+    "sha256": "157e228de64203081e1ec74377aa2a612d745b4e3ab543f1eae4f89b90d44254"
+  }
+]

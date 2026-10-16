@@ -1,0 +1,80 @@
+{
+  "previous_missing_fee_units": 24,
+  "units_resolved_by_user": [
+    "I2701.DCE",
+    "J2701.DCE",
+    "JD2612.DCE",
+    "JM2701.DCE",
+    "LH2701.DCE",
+    "MA2701.CZC",
+    "PR2612.CZC",
+    "PX2612.CZC",
+    "SA2701.CZC",
+    "SH2701.CZC",
+    "UR2701.CZC"
+  ],
+  "remaining_fee_units": [
+    "AP2701.CZC",
+    "CF2701.CZC",
+    "CJ2701.CZC",
+    "FG2701.CZC",
+    "OI2701.CZC",
+    "PF2612.CZC",
+    "PK2612.CZC",
+    "PL2612.CZC",
+    "RM2701.CZC",
+    "SF2701.CZC",
+    "SM2701.CZC",
+    "SR2701.CZC",
+    "TA2701.CZC"
+  ],
+  "remaining_fee_unit_count": 13,
+  "internal_multiplier_values_present": 67,
+  "remaining_independent_dimensions": [
+    "A2701.DCE",
+    "B2611.DCE",
+    "BZ2611.DCE",
+    "C2701.DCE",
+    "CS2611.DCE",
+    "EB2611.DCE",
+    "EG2611.DCE",
+    "I2701.DCE",
+    "J2701.DCE",
+    "JD2612.DCE",
+    "JM2701.DCE",
+    "L2701.DCE",
+    "LH2701.DCE",
+    "M2701.DCE",
+    "P2701.DCE",
+    "PG2612.DCE",
+    "PP2701.DCE",
+    "V2701.DCE",
+    "Y2701.DCE"
+  ],
+  "public_table_review": {
+    "actual_table": "public.futures_contract_info",
+    "columns": 29,
+    "explicit_currency_quote_multiplier_unit_columns": false,
+    "DCE_rows": 19,
+    "DCE_dates_observed": [
+      "2026-10-15"
+    ],
+    "DCE_20261016_rows": 0,
+    "CZCE_rows": 19,
+    "CZCE_intraday_open_placeholder": "-1.0000",
+    "CZCE_placeholder_semantics_confirmed": false,
+    "CZCE_placeholder_used_as_rate": false
+  },
+  "other_blockers_retained": [
+    "future D, effective fee/margin windows and actual quotes/settlements unknown",
+    "broker/slippage and non-DCE intraday policy unapproved; no zero default",
+    "account identity/start/version and complete sessions not accepted",
+    "five DCE declared source SHA conflicts retained without reassociation",
+    "AU integer target becomes zero under frozen 100m NAV and rounding",
+    "DCE matching FIFO/side/notional choices are not literal FAQ proof"
+  ],
+  "network_calls": 0,
+  "database_calls": 0,
+  "real_account_initializations": 0,
+  "strategy_runs": 0
+}

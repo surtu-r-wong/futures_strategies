@@ -1,0 +1,67 @@
+{
+  "status": "old_fifo_does_not_reproduce_supplied_dce_matching",
+  "synthetic": true,
+  "source_fee_module_sha256": "7a3b78fcd3ef3e0ed8737efc119861b8a7ff6ca625501603028637b9925b056c",
+  "cases": [
+    {
+      "scenario": 1,
+      "sequence": [
+        10,
+        -3,
+        20,
+        -30
+      ],
+      "overnight_quantity": 100,
+      "expected_fee": 99,
+      "actual_fee": 189.0,
+      "matches": false,
+      "filled_actions": [
+        "open",
+        "close",
+        "open",
+        "close"
+      ]
+    },
+    {
+      "scenario": 2,
+      "sequence": [
+        -10,
+        3,
+        -20,
+        30
+      ],
+      "overnight_quantity": 100,
+      "expected_fee": 180,
+      "actual_fee": 189.0,
+      "matches": false,
+      "filled_actions": [
+        "close",
+        "open",
+        "close",
+        "open"
+      ]
+    },
+    {
+      "scenario": 3,
+      "sequence": [
+        -10,
+        3,
+        20,
+        -30
+      ],
+      "overnight_quantity": 100,
+      "expected_fee": 120,
+      "actual_fee": 189.0,
+      "matches": false,
+      "filled_actions": [
+        "close",
+        "open",
+        "open",
+        "close"
+      ]
+    }
+  ],
+  "database_calls": 0,
+  "account_initializations": 0,
+  "network_calls": 0
+}

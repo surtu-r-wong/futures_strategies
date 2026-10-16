@@ -5,7 +5,7 @@ import math
 from common.minute.account import EventAccount
 
 from .contracts import number, require_keys, text, timestamp
-from .fees import account_trades
+from .fees import MATCHING_VERSION, account_trades, account_trades_with_matching
 
 
 def _mark(nav, positions, previous, prices, instruments, start, end):
@@ -137,6 +137,7 @@ def calculate(config, prior, interval, packet, *, available_at):
         if q:
             quantities[k] = number(q, "quantity")
     position_lots = None
+    fee_matching_state = None
     if "fee_model" in config:
         position_lots = prior.get("position_lots")
         if position_lots is not None:
@@ -146,7 +147,7 @@ def calculate(config, prior, interval, packet, *, available_at):
                     for lot in rows
                 ):
                     raise ValueError("opening evidence later than prior account state")
-        trades, position_lots = account_trades(
+        fee_args = (
             config["fee_model"],
             held,
             position_lots,
@@ -157,6 +158,18 @@ def calculate(config, prior, interval, packet, *, available_at):
             interval["execution_at"],
             packet["execution"]["source"],
         )
+        if config["fee_model"]["version"] == MATCHING_VERSION:
+            fee_matching_state = prior.get("fee_matching_state")
+            if fee_matching_state and fee_matching_state["last_at"] is not None:
+                if timestamp(fee_matching_state["last_at"]) > timestamp(prior["as_of"]):
+                    raise ValueError(
+                        "fee matching evidence later than prior account state"
+                    )
+            trades, position_lots, fee_matching_state = account_trades_with_matching(
+                *fee_args, matching_state=fee_matching_state
+            )
+        else:
+            trades, position_lots = account_trades(*fee_args)
     else:
         trades = []
         for k in sorted(required):
@@ -231,6 +244,11 @@ def calculate(config, prior, interval, packet, *, available_at):
     }
     return {
         **({"position_lots": position_lots} if position_lots is not None else {}),
+        **(
+            {"fee_matching_state": fee_matching_state}
+            if fee_matching_state is not None
+            else {}
+        ),
         "initialized_at": prior["initialized_at"],
         "as_of": interval["end_at"],
         "next_index": prior["next_index"] + 1,
