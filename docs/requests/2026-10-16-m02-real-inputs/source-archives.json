@@ -1,0 +1,306 @@
+[
+  {
+    "original_path": "sources/gfex_lc_product.html",
+    "archive_path": "sources/gfex_lc_product.html.gz",
+    "raw_sha256": "1dd790617b4bdcef6c83a0be07148a98e8815238b37247801b63185a649e1b88",
+    "raw_bytes": 64251,
+    "archive_sha256": "0a87d6c75819d29d38fccaa55c3ef581c1c4af8d337208854a2adea3c09fbd59",
+    "archive_bytes": 8865
+  },
+  {
+    "original_path": "sources/gfex_pd_product.html",
+    "archive_path": "sources/gfex_pd_product.html.gz",
+    "raw_sha256": "8ddc28ac982c0b86b019d2a740e6d108124ef4ed473dc64f6860d017c4f256b5",
+    "raw_bytes": 62885,
+    "archive_sha256": "45142313a382534269b54016e07223d55322230af9a6635475185a9cf2a1f814",
+    "archive_bytes": 8657
+  },
+  {
+    "original_path": "sources/gfex_ps_product.html",
+    "archive_path": "sources/gfex_ps_product.html.gz",
+    "raw_sha256": "e20da3484e521a14bdc89547c5e33920cfce7638a56866fdb200e084092da035",
+    "raw_bytes": 63173,
+    "archive_sha256": "4cb3d9b2143bf98170d4950b4dc135359b612df54cdbdfcc78fa89e7c9320f28",
+    "archive_bytes": 8748
+  },
+  {
+    "original_path": "sources/gfex_pt_http.html",
+    "archive_path": "sources/gfex_pt_http.html.gz",
+    "raw_sha256": "c6322687fd8aaba0e24cefa078dd2024ffc8f33f4dc08831b9d97fe73274f705",
+    "raw_bytes": 62878,
+    "archive_sha256": "24dcb1b322d27966b30c91c6bc8d00b45a82ddf09ea8afd47c75996e052fe1b6",
+    "archive_bytes": 8653
+  },
+  {
+    "original_path": "sources/gfex_si_product.html",
+    "archive_path": "sources/gfex_si_product.html.gz",
+    "raw_sha256": "7a875bb6c0214e54e0c825463afc96ae9112eff90403e86016a8d37326205ba4",
+    "raw_bytes": 64690,
+    "archive_sha256": "edcdc177e2689d7741581be0cc8658f6b40a10b032c76826af4608d711e7b801",
+    "archive_bytes": 8830
+  },
+  {
+    "original_path": "sources/ine_ec_product.html",
+    "archive_path": "sources/ine_ec_product.html.gz",
+    "raw_sha256": "9d4525e39b7a9764f26d76d89ffdc86d06a7a2294bfc8c2e813d6ee965205510",
+    "raw_bytes": 10648,
+    "archive_sha256": "08a15df47a4a349bf70e83077ab9c50a95d5ddaacbcb5870f87b8cd489467b4d",
+    "archive_bytes": 3890
+  },
+  {
+    "original_path": "sources/office_czce-202606-fees.html",
+    "archive_path": "sources/office_czce-202606-fees.html.gz",
+    "raw_sha256": "7ccf031fc0845dfff9529c0b0c1a0d936059821d9b33d9acc6c1ee6245accbb9",
+    "raw_bytes": 448043,
+    "archive_sha256": "415cb8b6018aa832d1c0d8e83636590cbf7ebec58f54022e3e8d3ba1446f90cb",
+    "archive_bytes": 38992
+  },
+  {
+    "original_path": "sources/office_dce-202502-fees.html",
+    "archive_path": "sources/office_dce-202502-fees.html.gz",
+    "raw_sha256": "86beb8e1be77d09cc0b34557b704a05b2afd62181bc3f474c6d5fb256bd15b29",
+    "raw_bytes": 52059,
+    "archive_sha256": "07dac1180f075e10c0c37481a277dcb87a45e924ebab211402b9c0af3aca8335",
+    "archive_bytes": 10081
+  },
+  {
+    "original_path": "sources/office_ine_2026_holiday.html",
+    "archive_path": "sources/office_ine_2026_holiday.html.gz",
+    "raw_sha256": "9943d884e6d4732ddd456358d7281271b09fdbc56fb1f48a408dbaad8068741c",
+    "raw_bytes": 123472,
+    "archive_sha256": "9f121b0177da50491521b0fd35f899e004d7cf49fc366a836c8bb424fa4cee0f",
+    "archive_bytes": 18320
+  },
+  {
+    "original_path": "sources/office_shfe_2026_holiday.html",
+    "archive_path": "sources/office_shfe_2026_holiday.html.gz",
+    "raw_sha256": "cc78678ea7e1414b5c6623051e81f33ccf9707813464ed8674c25b8ade15c483",
+    "raw_bytes": 130049,
+    "archive_sha256": "0612174e416a7fe8b0d7af6785e8832ea5cc89134890eea92fd673a7b963fc47",
+    "archive_bytes": 19020
+  },
+  {
+    "original_path": "sources/office_shfe_hours.html",
+    "archive_path": "sources/office_shfe_hours.html.gz",
+    "raw_sha256": "ebb4a872fc0ce4d9fa1f654c58a89dd00bc1100dd7b3de1e305bbc80ecc66058",
+    "raw_bytes": 139794,
+    "archive_sha256": "bbf1c70d1d1104668815ba95e19d034000ebcc392be8d354367ecae139b65530",
+    "archive_bytes": 19690
+  },
+  {
+    "original_path": "sources/shfe_ad_product.html",
+    "archive_path": "sources/shfe_ad_product.html.gz",
+    "raw_sha256": "024a6c9667aa7d6724aae5feb28179b15c92d66c8062c631db910d945e7d6458",
+    "raw_bytes": 363179,
+    "archive_sha256": "5eaa797aa9a602f5dac42cfed054bdea2cfed9a4886dabdfc2365a42dfab8766",
+    "archive_bytes": 37999
+  },
+  {
+    "original_path": "sources/shfe_ag_product.html",
+    "archive_path": "sources/shfe_ag_product.html.gz",
+    "raw_sha256": "917a6137af22b4b5253054a3f6f9b28639b0d234e22c838531bc61017928dc71",
+    "raw_bytes": 357402,
+    "archive_sha256": "aa449496671ae2008f6a76168bc3f4468cc4ccd6edbb1ed01da47223570ebf5c",
+    "archive_bytes": 37877
+  },
+  {
+    "original_path": "sources/shfe_al_product.html",
+    "archive_path": "sources/shfe_al_product.html.gz",
+    "raw_sha256": "f00d4ac046bd773e2f28b489b3214c41d4d7fd612fe3f8dfbc30f6257754342b",
+    "raw_bytes": 363371,
+    "archive_sha256": "02d145c35bd927aa7aefa3c7e02440278cffe02251829c2315ce1e85ec11f554",
+    "archive_bytes": 38244
+  },
+  {
+    "original_path": "sources/shfe_ao_product.html",
+    "archive_path": "sources/shfe_ao_product.html.gz",
+    "raw_sha256": "ed4f8970e7fbce5e08c8815dd0d7fa9212c0caf752dc47836c4b289f989a97d0",
+    "raw_bytes": 363101,
+    "archive_sha256": "564e9f57ba5d9fd8da73744929cb512e9c8d768b48430f3562ca0f2860433ae2",
+    "archive_bytes": 37985
+  },
+  {
+    "original_path": "sources/shfe_api_script.html",
+    "archive_path": "sources/shfe_api_script.html.gz",
+    "raw_sha256": "888923e303b7178af9b3bfac83621c60f2f6ae0871894bf1ebe75a3a2708f86b",
+    "raw_bytes": 16823,
+    "archive_sha256": "68d734f2cdf476da25d6355800bb400013c3e0bf104b090f5ae1252f7240c105",
+    "archive_bytes": 2987
+  },
+  {
+    "original_path": "sources/shfe_au_product.html",
+    "archive_path": "sources/shfe_au_product.html.gz",
+    "raw_sha256": "b1f0637bdf8e0bb92cd6cd87776f2eb74735f5764ec6057cc666d2a59950422a",
+    "raw_bytes": 357529,
+    "archive_sha256": "0f63a01fad202ac4bc0a6d3c619848e74485851428ae1ef7c574007f8fd4c373",
+    "archive_bytes": 37961
+  },
+  {
+    "original_path": "sources/shfe_bc_product.html",
+    "archive_path": "sources/shfe_bc_product.html.gz",
+    "raw_sha256": "7f8299163dc7de1a3a2f70962c718bad5ea0a4e2add48f2e2a42efb792e9f899",
+    "raw_bytes": 363517,
+    "archive_sha256": "e6bd6348e76095051ef34201c7c296dbf604f6dc6debadf1faacb67f43fc7e0e",
+    "archive_bytes": 38222
+  },
+  {
+    "original_path": "sources/shfe_br_product.html",
+    "archive_path": "sources/shfe_br_product.html.gz",
+    "raw_sha256": "c49d900251f42f98866c22377689789d218f92eef022303cc4400fb4b9c656c7",
+    "raw_bytes": 362853,
+    "archive_sha256": "e0a29844378532669abc48e3c1aee21501648da3922b3d9c5f4dfc906ded6d82",
+    "archive_bytes": 38128
+  },
+  {
+    "original_path": "sources/shfe_bu_product.html",
+    "archive_path": "sources/shfe_bu_product.html.gz",
+    "raw_sha256": "93e65835370115caf07ebc169bb84ee87f4e0d435757417744206b2722737951",
+    "raw_bytes": 363512,
+    "archive_sha256": "89d201bcb75fd75c15e30aa44acbd2f7f973fa079b2a2285681171d9bf3e5474",
+    "archive_bytes": 38314
+  },
+  {
+    "original_path": "sources/shfe_contract_script.html",
+    "archive_path": "sources/shfe_contract_script.html.gz",
+    "raw_sha256": "c426c72acd9a5a9513856ce278e199a224234b13e6b63218b968a330d8b7d003",
+    "raw_bytes": 8627,
+    "archive_sha256": "779c2992a09cf012ce606075d8c10817c8d85769e9939ee6ffe1c2f0657f3b7e",
+    "archive_bytes": 2459
+  },
+  {
+    "original_path": "sources/shfe_cu_product.html",
+    "archive_path": "sources/shfe_cu_product.html.gz",
+    "raw_sha256": "9d9578fcac7a794f4ef59afdf6560be407049967803817ee9c65f604af721572",
+    "raw_bytes": 363294,
+    "archive_sha256": "90418396e9728d478f573886392b15bc41c4f662d9ec11cb539f3e78bdd3fc81",
+    "archive_bytes": 38220
+  },
+  {
+    "original_path": "sources/shfe_ec_product.html",
+    "archive_path": "sources/shfe_ec_product.html.gz",
+    "raw_sha256": "3ba4a95de04fbcbbc139a6c96a44873c06f94ae43961febbce3c4fa575277e5f",
+    "raw_bytes": 327429,
+    "archive_sha256": "4f9b63d53dd7ab2708a3fd0fce353c1a439ab3993d807b62dfb14faaf6a95be6",
+    "archive_bytes": 34541
+  },
+  {
+    "original_path": "sources/shfe_fu_product.html",
+    "archive_path": "sources/shfe_fu_product.html.gz",
+    "raw_sha256": "9285059b2384c7229d4474684ef0ae3de095a2430552df2aab3d016413e96081",
+    "raw_bytes": 362919,
+    "archive_sha256": "582e1a720ba44296cfafd2d764f2171583441fcfc3098e737a882b22216b8c4c",
+    "archive_bytes": 38261
+  },
+  {
+    "original_path": "sources/shfe_hc_product.html",
+    "archive_path": "sources/shfe_hc_product.html.gz",
+    "raw_sha256": "ccb09042c8dad3546aeab517bd19898a46703bea86142c3963a0ede641c9838c",
+    "raw_bytes": 358411,
+    "archive_sha256": "b2369d54aff44df70753fb9050d9f503f317d20ba7c3d9bc11a17074db19ba32",
+    "archive_bytes": 38049
+  },
+  {
+    "original_path": "sources/shfe_lifecycle_20261015.json",
+    "archive_path": "sources/shfe_lifecycle_20261015.json.gz",
+    "raw_sha256": "f193b82a69d676b1be8b89fbbdd977e8391f997d64fc6b859eda998b8600b36d",
+    "raw_bytes": 80724,
+    "archive_sha256": "24bdf22456630ec1cceacc40f6e408b461513941dadea700cca129c359cdb347",
+    "archive_bytes": 5104
+  },
+  {
+    "original_path": "sources/shfe_lu_product.html",
+    "archive_path": "sources/shfe_lu_product.html.gz",
+    "raw_sha256": "e224bec8e5a88393355a6499a1d100feefbf563835c7ead01cb5274d574d3c02",
+    "raw_bytes": 363244,
+    "archive_sha256": "d6b4f14ba5aafcc3fc707e0127badad4f408633f9c2a08c392312f20143f9a77",
+    "archive_bytes": 38303
+  },
+  {
+    "original_path": "sources/shfe_ni_product.html",
+    "archive_path": "sources/shfe_ni_product.html.gz",
+    "raw_sha256": "bedb5bbd16639c4589400c3592e6c4c25fcefa91782a731681a6fc4a10f0b338",
+    "raw_bytes": 364048,
+    "archive_sha256": "8b97141b063cd55f98c91dd3f6c09d8b28533cd864436afd01dee6d97af6acf7",
+    "archive_bytes": 38343
+  },
+  {
+    "original_path": "sources/shfe_nr_product.html",
+    "archive_path": "sources/shfe_nr_product.html.gz",
+    "raw_sha256": "98e5b6c4f7d6f57fe110865e088cf96646428a5e30ca0ba406f9d7c21195e51d",
+    "raw_bytes": 364132,
+    "archive_sha256": "da5ee041e7f53303763cb1702e2fa80f9c6c6a67440fa8508f79f70b4a614117",
+    "archive_bytes": 38330
+  },
+  {
+    "original_path": "sources/shfe_op_product.html",
+    "archive_path": "sources/shfe_op_product.html.gz",
+    "raw_sha256": "fe96fbe533a43b230ecaee7a6634f53252a43e8d7a38661a1d8c811a9b417623",
+    "raw_bytes": 363424,
+    "archive_sha256": "59cc378e96220eff73dccbbcdfdbc3c90a0c470b17952afbf1130db92b770c04",
+    "archive_bytes": 38178
+  },
+  {
+    "original_path": "sources/shfe_pb_product.html",
+    "archive_path": "sources/shfe_pb_product.html.gz",
+    "raw_sha256": "fc2f90d088aed91cea7f5b62d56d6a11e16e05e781c025a039bf1c0701d0f8b1",
+    "raw_bytes": 363405,
+    "archive_sha256": "3c3e23c613e5c0188aafaf465815336d12b0f72deb097d30ab20cb9dd5dd0fa9",
+    "archive_bytes": 38209
+  },
+  {
+    "original_path": "sources/shfe_rb_product.html",
+    "archive_path": "sources/shfe_rb_product.html.gz",
+    "raw_sha256": "928e17898727a21468abc6d7d612aa64a9e6b2e1ff97effab90d09c59d984337",
+    "raw_bytes": 358005,
+    "archive_sha256": "08fefaa40e08b18b92b0b3688480fb98bea29fbad6b1b0581ecc879db87ea9f3",
+    "archive_bytes": 37965
+  },
+  {
+    "original_path": "sources/shfe_ru_product.html",
+    "archive_path": "sources/shfe_ru_product.html.gz",
+    "raw_sha256": "6e9b8efcf3ac7a7c86a032ea9898e97dbeaa2a2111b0ed6e3fb43ef3757580c0",
+    "raw_bytes": 364184,
+    "archive_sha256": "8edaa854d9cc215f3db35423c8b270296a5e8ad7591284222d2f9248242cc4de",
+    "archive_bytes": 38500
+  },
+  {
+    "original_path": "sources/shfe_sc_product.html",
+    "archive_path": "sources/shfe_sc_product.html.gz",
+    "raw_sha256": "f222facce644f4455b8c7a6d9dd147b2983a4e273a13afd73122939a7d513588",
+    "raw_bytes": 359361,
+    "archive_sha256": "91bd36c0830243e9f919e91902e55e4c84216dba6e67b4276921d3f470852dd7",
+    "archive_bytes": 37947
+  },
+  {
+    "original_path": "sources/shfe_sn_product.html",
+    "archive_path": "sources/shfe_sn_product.html.gz",
+    "raw_sha256": "1bb98260a7eb86b24a4296a05d0e02cedf44e6c0dc9d11226e698da65915f563",
+    "raw_bytes": 363452,
+    "archive_sha256": "c62583880f8c2c3b1daf00a1e23ddd2952ac63c01dd06eebea8bd55a9a1c31c8",
+    "archive_bytes": 38234
+  },
+  {
+    "original_path": "sources/shfe_sp_product.html",
+    "archive_path": "sources/shfe_sp_product.html.gz",
+    "raw_sha256": "dfe244141a0820bd1e0aadeb586afa49327f93c4b8e821ff924a56c26cb9c2bd",
+    "raw_bytes": 362865,
+    "archive_sha256": "74ce78b12eec61d047fe275410a8be5b37203c81de2b45c557ec34b4d4e8369a",
+    "archive_bytes": 38144
+  },
+  {
+    "original_path": "sources/shfe_ss_product.html",
+    "archive_path": "sources/shfe_ss_product.html.gz",
+    "raw_sha256": "f43c23f147b41d7ab6592c7fe5679d2a5c730972530dcae7c3231967bcd2a250",
+    "raw_bytes": 358322,
+    "archive_sha256": "82744eddb38a3271d4963b9b83c0c132f01df84f191ff4f8156008d846d4f0e4",
+    "archive_bytes": 38164
+  },
+  {
+    "original_path": "sources/shfe_zn_product.html",
+    "archive_path": "sources/shfe_zn_product.html.gz",
+    "raw_sha256": "c8081e45d5da750b21e49eefdedf5522af5c37345b79c94a725a9951bc9b3a86",
+    "raw_bytes": 363347,
+    "archive_sha256": "37b430445a180b92a16dea00aa74cb1a51478779b61632374bedb51ae331bb2c",
+    "archive_bytes": 38217
+  }
+]

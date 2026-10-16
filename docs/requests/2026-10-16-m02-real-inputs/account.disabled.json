@@ -1,0 +1,2672 @@
+{
+  "enabled": false,
+  "runtime_ready": false,
+  "executable": false,
+  "execution_day": null,
+  "status": "evidence_preparation_only",
+  "account_config": {
+    "account_id": null,
+    "account_version": null,
+    "source_version": null,
+    "label": null,
+    "mode": "paper",
+    "currency": "CNY",
+    "initial_at": null,
+    "initial_capital": 100000000,
+    "initial_unit_nav": 1,
+    "fee_description": null,
+    "lot_rule": "nearest_integer_ties_even",
+    "cash_rule": "no_interest_no_external_flows",
+    "financing_rule": "no_borrowing",
+    "execution_rule": "calendar_day_open",
+    "valuation_rule": "daily_settlement",
+    "calendar_id": null,
+    "calendar_sha256": null,
+    "instruments": {
+      "A2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/A2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "AD2612.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.1,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/AD2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/nonferrousmetal/ad_f/ sha256=024a6c9667aa7d6724aae5feb28179b15c92d66c8062c631db910d945e7d6458 acquired_at=2026-10-16T01:15:40.626625+00:00; future applicability NOT approved"
+      },
+      "AG2612.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 15.0,
+        "margin_rate": 0.22,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/AG2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/ferrousandpreciousmetal/ag_f/ sha256=917a6137af22b4b5253054a3f6f9b28639b0d234e22c838531bc61017928dc71 acquired_at=2026-10-16T01:15:22.962556+00:00; future applicability NOT approved"
+      },
+      "AL2611.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.11,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/AL2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/nonferrousmetal/al_f/ sha256=f00d4ac046bd773e2f28b489b3214c41d4d7fd612fe3f8dfbc30f6257754342b acquired_at=2026-10-16T01:15:50.514052+00:00; future applicability NOT approved"
+      },
+      "AO2701.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 20.0,
+        "margin_rate": 0.11,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/AO2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/nonferrousmetal/ao_f/ sha256=ed4f8970e7fbce5e08c8815dd0d7fa9212c0caf752dc47836c4b289f989a97d0 acquired_at=2026-10-16T01:15:54.551610+00:00; future applicability NOT approved"
+      },
+      "AP2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.09,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/AP701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "AU2612.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 1000.0,
+        "margin_rate": 0.16,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/AU2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/ferrousandpreciousmetal/au_f/ sha256=b1f0637bdf8e0bb92cd6cd87776f2eb74735f5764ec6057cc666d2a59950422a acquired_at=2026-10-16T01:15:22.185229+00:00; future applicability NOT approved"
+      },
+      "B2611.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/B2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "BC2611.INE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.11,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; INE/BC2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/nonferrousmetal/bc_f/ sha256=7f8299163dc7de1a3a2f70962c718bad5ea0a4e2add48f2e2a42efb792e9f899 acquired_at=2026-10-16T01:15:52.881300+00:00; future applicability NOT approved"
+      },
+      "BR2612.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.12,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/BR2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/energyandchemical/br_f/ sha256=c49d900251f42f98866c22377689789d218f92eef022303cc4400fb4b9c656c7 acquired_at=2026-10-16T01:14:56.596725+00:00; future applicability NOT approved"
+      },
+      "BU2701.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.14,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/BU2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/energyandchemical/bu_f/ sha256=93e65835370115caf07ebc169bb84ee87f4e0d435757417744206b2722737951 acquired_at=2026-10-16T01:14:53.633642+00:00; future applicability NOT approved"
+      },
+      "BZ2611.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 30.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/BZ2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "C2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/C2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "CF2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/CF701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "CJ2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.08,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/CJ701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "CS2611.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.06,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/CS2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "CU2611.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.11,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/CU2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/nonferrousmetal/cu_f/ sha256=9d9578fcac7a794f4ef59afdf6560be407049967803817ee9c65f604af721572 acquired_at=2026-10-16T01:13:44.762050+00:00; future applicability NOT approved"
+      },
+      "EB2611.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/EB2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "EC2611.INE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 50.0,
+        "margin_rate": 0.17,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; INE/EC2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/index_f/ec_f/ sha256=3ba4a95de04fbcbbc139a6c96a44873c06f94ae43961febbce3c4fa575277e5f acquired_at=2026-10-16T01:15:15.600422+00:00; future applicability NOT approved"
+      },
+      "EG2611.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.09,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/EG2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "FG2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 20.0,
+        "margin_rate": 0.09,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/FG701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "FU2701.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.18,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/FU2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/energyandchemical/fu_f/ sha256=9285059b2384c7229d4474684ef0ae3de095a2430552df2aab3d016413e96081 acquired_at=2026-10-16T01:14:49.903616+00:00; future applicability NOT approved"
+      },
+      "HC2701.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/HC2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/ferrousandpreciousmetal/hc_f/ sha256=ccb09042c8dad3546aeab517bd19898a46703bea86142c3963a0ede641c9838c acquired_at=2026-10-16T01:15:39.286501+00:00; future applicability NOT approved"
+      },
+      "I2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 100.0,
+        "margin_rate": 0.08,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/I2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "J2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 100.0,
+        "margin_rate": 0.12,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/J2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "JD2612.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/JD2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "JM2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 60.0,
+        "margin_rate": 0.12,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/JM2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "L2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/L2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "LC2701.GFE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 1.0,
+        "margin_rate": 0.15,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; GFEX/LC2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement http://www.gfex.com.cn/gfex/tsl/sspz.shtml sha256=1dd790617b4bdcef6c83a0be07148a98e8815238b37247801b63185a649e1b88 acquired_at=2026-10-16T01:19:13.954602+00:00; future applicability NOT approved"
+      },
+      "LH2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 16.0,
+        "margin_rate": 0.08,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/LH2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "LU2612.INE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.18,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; INE/LU2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/energyandchemical/lu_f/ sha256=e224bec8e5a88393355a6499a1d100feefbf563835c7ead01cb5274d574d3c02 acquired_at=2026-10-16T01:15:07.240018+00:00; future applicability NOT approved"
+      },
+      "M2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/M2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "MA2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/MA701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "NI2612.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 1.0,
+        "margin_rate": 0.12,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/NI2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/nonferrousmetal/ni_f/ sha256=bedb5bbd16639c4589400c3592e6c4c25fcefa91782a731681a6fc4a10f0b338 acquired_at=2026-10-16T01:16:09.770208+00:00; future applicability NOT approved"
+      },
+      "NR2612.INE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.09,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; INE/NR2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/energyandchemical/nr_f/ sha256=98e5b6c4f7d6f57fe110865e088cf96646428a5e30ca0ba406f9d7c21195e51d acquired_at=2026-10-16T01:14:57.438843+00:00; future applicability NOT approved"
+      },
+      "OI2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/OI701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "OP2612.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 40.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/OP2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/energyandchemical/op_f/ sha256=fe96fbe533a43b230ecaee7a6634f53252a43e8d7a38661a1d8c811a9b417623 acquired_at=2026-10-16T01:15:08.050814+00:00; future applicability NOT approved"
+      },
+      "P2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.08,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/P2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "PB2612.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.11,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/PB2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/nonferrousmetal/pb_f/ sha256=fc2f90d088aed91cea7f5b62d56d6a11e16e05e781c025a039bf1c0701d0f8b1 acquired_at=2026-10-16T01:16:03.349409+00:00; future applicability NOT approved"
+      },
+      "PD2612.GFE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 1000.0,
+        "margin_rate": 0.14,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; GFEX/PD2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement http://www.gfex.com.cn/gfex/sspzp/sspz.shtml sha256=8ddc28ac982c0b86b019d2a740e6d108124ef4ed473dc64f6860d017c4f256b5 acquired_at=2026-10-16T01:19:13.323796+00:00; future applicability NOT approved"
+      },
+      "PF2612.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/PF612; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "PG2612.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 20.0,
+        "margin_rate": 0.11,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/PG2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "PK2612.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/PK612; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "PL2612.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 20.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/PL612; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "PP2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/PP2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "PR2612.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 15.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/PR612; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "PS2611.GFE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 3.0,
+        "margin_rate": 0.13,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; GFEX/PS2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement http://www.gfex.com.cn/gfex/djg/sspz.shtml sha256=e20da3484e521a14bdc89547c5e33920cfce7638a56866fdb200e084092da035 acquired_at=2026-10-16T01:19:12.540234+00:00; future applicability NOT approved"
+      },
+      "PT2612.GFE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 1000.0,
+        "margin_rate": 0.14,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; GFEX/PT2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement http://www.gfex.com.cn/gfex/sspzb/sspz.shtml sha256=c6322687fd8aaba0e24cefa078dd2024ffc8f33f4dc08831b9d97fe73274f705 acquired_at=2026-10-16T01:17:38.749450+00:00; future applicability NOT approved"
+      },
+      "PX2612.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/PX612; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "RB2701.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/RB2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/ferrousandpreciousmetal/rb_f/ sha256=928e17898727a21468abc6d7d612aa64a9e6b2e1ff97effab90d09c59d984337 acquired_at=2026-10-16T01:15:42.892751+00:00; future applicability NOT approved"
+      },
+      "RM2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/RM701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "RU2701.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.09,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/RU2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/energyandchemical/ru_f/ sha256=6e9b8efcf3ac7a7c86a032ea9898e97dbeaa2a2111b0ed6e3fb43ef3757580c0 acquired_at=2026-10-16T01:15:08.451332+00:00; future applicability NOT approved"
+      },
+      "SA2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 20.0,
+        "margin_rate": 0.08,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/SA701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "SC2612.INE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 1000.0,
+        "margin_rate": 0.18,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; INE/SC2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/energyandchemical/sc_f/ sha256=f222facce644f4455b8c7a6d9dd147b2983a4e273a13afd73122939a7d513588 acquired_at=2026-10-16T01:15:13.419119+00:00; future applicability NOT approved"
+      },
+      "SF2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/SF701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "SH2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 30.0,
+        "margin_rate": 0.08,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/SH701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "SI2612.GFE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.1,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; GFEX/SI2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement http://www.gfex.com.cn/gfex/gyeg/sspz.shtml sha256=7a875bb6c0214e54e0c825463afc96ae9112eff90403e86016a8d37326205ba4 acquired_at=2026-10-16T01:19:15.584084+00:00; future applicability NOT approved"
+      },
+      "SM2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/SM701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "SN2611.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 1.0,
+        "margin_rate": 0.14,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/SN2611; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/nonferrousmetal/sn_f/ sha256=1bb98260a7eb86b24a4296a05d0e02cedf44e6c0dc9d11226e698da65915f563 acquired_at=2026-10-16T01:16:07.352917+00:00; future applicability NOT approved"
+      },
+      "SP2701.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/SP2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/energyandchemical/sp_f/ sha256=dfe244141a0820bd1e0aadeb586afa49327f93c4b8e821ff924a56c26cb9c2bd acquired_at=2026-10-16T01:15:13.115008+00:00; future applicability NOT approved"
+      },
+      "SR2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.06,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/SR701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "SS2612.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/SS2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/ferrousandpreciousmetal/ss_f/ sha256=f43c23f147b41d7ab6592c7fe5679d2a5c730972530dcae7c3231967bcd2a250 acquired_at=2026-10-16T01:15:31.416186+00:00; future applicability NOT approved"
+      },
+      "TA2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/TA701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "UR2701.CZC": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 20.0,
+        "margin_rate": 0.08,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; CZCE/UR701; 2026-10-15; currency/quote dimensions CZCE checked"
+      },
+      "V2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/V2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "Y2701.DCE": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 10.0,
+        "margin_rate": 0.07,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; DCE/Y2701; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption"
+      },
+      "ZN2612.SHF": {
+        "asset_type": "linear_futures",
+        "currency": "CNY",
+        "multiplier": 5.0,
+        "margin_rate": 0.11,
+        "valid_from": "2026-10-15",
+        "valid_to": "2026-10-15",
+        "source": "local evidence sha256=4b8db0bbd970a4b35dde0965982b8e1e3f15409b50f7c59ed27c3e3c8c575a8b; public.futures_contract_info; SHFE/ZN2612; 2026-10-15; currency/quote dimensions UNAPPROVED CNY assumption; dimension supplement https://www.shfe.com.cn/products/futures/metal/nonferrousmetal/zn_f/ sha256=c8081e45d5da750b21e49eefdedf5522af5c37345b79c94a725a9951bc9b3a86 acquired_at=2026-10-16T01:16:19.712508+00:00; future applicability NOT approved"
+      }
+    },
+    "adapter": "citic027_r150_t1",
+    "source_parameters": {
+      "factor_kind": "basis_momentum",
+      "window": 150,
+      "min_observations": 1,
+      "smoothing": 1,
+      "t1_leg": "top_two_by_oi",
+      "normalise_by_gap": false,
+      "return_basis": "close_to_close",
+      "execution_lag": 1,
+      "cadence": "daily",
+      "restrict_to_named": false,
+      "roll_blend": true,
+      "target_vol": 0.15,
+      "vol_window": 252,
+      "max_gross_leverage": 4.0
+    },
+    "synthetic": false,
+    "fee_model": {
+      "version": "contract-fees-v1",
+      "position_accounting": "dated-net-lots-v1",
+      "close_order": "fifo",
+      "broker_fee_basis": "additional_to_exchange",
+      "intraday_open_policy": "ordinary_open_then_same_day_adjustment",
+      "policy_source": null,
+      "excluded_costs": null,
+      "rules": {
+        "A2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-A2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 2.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 2.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 2.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "AD2612.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-AD2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.025,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "AG2612.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-AG2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.025,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "AL2611.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-AL2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "AO2701.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-AO2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.1,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.1,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.1,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "AP2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-AP701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 5.0,
+                "unit": null
+              },
+              "close": {
+                "value": 5.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 5.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 10.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "AU2612.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-AU2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 20.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 20.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 20.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 10.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "B2611.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-B2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "BC2611.INE": [
+          {
+            "rule_id": "exchange-20261015-INE-BC2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.ine.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=c7f4fa0e8602428b13bdf7068b843346fd93be82d273b0e8f90786532fa35aa6; fetched_at=2026-10-15T17:40:37.793518+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.01,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.01,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.01,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.005,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "BR2612.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-BR2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.01,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "BU2701.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-BU2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.025,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "BZ2611.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-BZ2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "C2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-C2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.2,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 1.2,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 1.2,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.2,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "CF2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-CF701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 4.3,
+                "unit": null
+              },
+              "close": {
+                "value": 4.3,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 4.3,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "CJ2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-CJ701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 3.0,
+                "unit": null
+              },
+              "close": {
+                "value": 3.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 3.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 3.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "CS2611.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-CS2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "CU2611.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-CU2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.025,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "EB2611.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-EB2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "EC2611.INE": [
+          {
+            "rule_id": "exchange-20261015-INE-EC2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.ine.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=c7f4fa0e8602428b13bdf7068b843346fd93be82d273b0e8f90786532fa35aa6; fetched_at=2026-10-15T17:40:37.793518+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.6,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.6,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.6,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.3,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "EG2611.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-EG2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "FG2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-FG701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close": {
+                "value": 2.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 2.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "FU2701.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-FU2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.025,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "HC2701.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-HC2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.1,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.1,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.1,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "I2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-I2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close": {
+                "value": 1.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "J2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-J2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close": {
+                "value": 1.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 1.4,
+                "unit": null
+              },
+              "close_today": {
+                "value": 1.4,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "JD2612.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-JD2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.5,
+                "unit": null
+              },
+              "close": {
+                "value": 1.5,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 1.5,
+                "unit": null
+              },
+              "close_today": {
+                "value": 1.5,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "JM2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-JM2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close": {
+                "value": 1.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "L2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-L2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "LC2701.GFE": [
+          {
+            "rule_id": "exchange-20261015-GFEX-LC2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.gfex.com.cn/u/interfacesWebTiFutAndOptSettle/loadList; sha256=f7ac017a83189f9b3e6331c35a8218de615349e818537f1eea286c0f7a2fc82a; fetched_at=2026-10-15T17:40:29.382421+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.8,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "close": {
+                "value": 0.8,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "intraday_open": {
+                "value": 0.8,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "close_today": {
+                "value": 0.8,
+                "unit": "PER_TEN_THOUSAND"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "LH2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-LH2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close": {
+                "value": 1.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 2.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "LU2612.INE": [
+          {
+            "rule_id": "exchange-20261015-INE-LU2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.ine.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=c7f4fa0e8602428b13bdf7068b843346fd93be82d273b0e8f90786532fa35aa6; fetched_at=2026-10-15T17:40:37.793518+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.01,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.01,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.01,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.005,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "M2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-M2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "MA2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-MA701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close": {
+                "value": 1.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "NI2612.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-NI2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "NR2612.INE": [
+          {
+            "rule_id": "exchange-20261015-INE-NR2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.ine.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=c7f4fa0e8602428b13bdf7068b843346fd93be82d273b0e8f90786532fa35aa6; fetched_at=2026-10-15T17:40:37.793518+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.01,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "OI2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-OI701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close": {
+                "value": 2.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 2.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "OP2612.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-OP2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.01,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "P2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-P2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 2.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 2.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 2.5,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PB2612.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-PB2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.04,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.04,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.04,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PD2612.GFE": [
+          {
+            "rule_id": "exchange-20261015-GFEX-PD2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.gfex.com.cn/u/interfacesWebTiFutAndOptSettle/loadList; sha256=f7ac017a83189f9b3e6331c35a8218de615349e818537f1eea286c0f7a2fc82a; fetched_at=2026-10-15T17:40:29.382421+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "close": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": "PER_TEN_THOUSAND"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PF2612.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-PF612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close": {
+                "value": 2.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PG2612.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-PG2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 6.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 6.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 6.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 6.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PK2612.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-PK612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close": {
+                "value": 2.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 2.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PL2612.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-PL612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 3.0,
+                "unit": null
+              },
+              "close": {
+                "value": 3.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 3.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PP2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-PP2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PR2612.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-PR612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.5,
+                "unit": null
+              },
+              "close": {
+                "value": 0.5,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 0.5,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PS2611.GFE": [
+          {
+            "rule_id": "exchange-20261015-GFEX-PS2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.gfex.com.cn/u/interfacesWebTiFutAndOptSettle/loadList; sha256=f7ac017a83189f9b3e6331c35a8218de615349e818537f1eea286c0f7a2fc82a; fetched_at=2026-10-15T17:40:29.382421+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "close": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "close_today": {
+                "value": 2.5,
+                "unit": "PER_TEN_THOUSAND"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PT2612.GFE": [
+          {
+            "rule_id": "exchange-20261015-GFEX-PT2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.gfex.com.cn/u/interfacesWebTiFutAndOptSettle/loadList; sha256=f7ac017a83189f9b3e6331c35a8218de615349e818537f1eea286c0f7a2fc82a; fetched_at=2026-10-15T17:40:29.382421+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "close": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": "PER_TEN_THOUSAND"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "PX2612.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-PX612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close": {
+                "value": 1.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "RB2701.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-RB2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.1,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.1,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.1,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.05,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "RM2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-RM701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.5,
+                "unit": null
+              },
+              "close": {
+                "value": 1.5,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 1.5,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "RU2701.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-RU2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "SA2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-SA701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close": {
+                "value": 1.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "SC2612.INE": [
+          {
+            "rule_id": "exchange-20261015-INE-SC2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.ine.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=c7f4fa0e8602428b13bdf7068b843346fd93be82d273b0e8f90786532fa35aa6; fetched_at=2026-10-15T17:40:37.793518+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 20.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 20.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 20.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 10.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "SF2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-SF701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close": {
+                "value": 2.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "SH2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-SH701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close": {
+                "value": 1.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "SI2612.GFE": [
+          {
+            "rule_id": "exchange-20261015-GFEX-SI2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.gfex.com.cn/u/interfacesWebTiFutAndOptSettle/loadList; sha256=f7ac017a83189f9b3e6331c35a8218de615349e818537f1eea286c0f7a2fc82a; fetched_at=2026-10-15T17:40:29.382421+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "close": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": "PER_TEN_THOUSAND"
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": "PER_TEN_THOUSAND"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "SM2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-SM701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close": {
+                "value": 2.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "SN2611.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-SN2611",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "SP2701.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-SP2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "close": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "intraday_open": {
+                "value": 0.02,
+                "unit": "PERMILLE"
+              },
+              "close_today": {
+                "value": 0.01,
+                "unit": "PERMILLE"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "SR2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-SR701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close": {
+                "value": 2.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 2.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "SS2612.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-SS2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 2.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 2.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "TA2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-TA701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 3.0,
+                "unit": null
+              },
+              "close": {
+                "value": 3.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 3.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 0.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "UR2701.CZC": [
+          {
+            "rule_id": "exchange-20261015-CZCE-UR701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt; sha256=cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac; fetched_at=2026-10-15T17:40:45.063567+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close": {
+                "value": 1.0,
+                "unit": null
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": null
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": null
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "V2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-V2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.0,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "Y2701.DCE": [
+          {
+            "rule_id": "exchange-20261015-DCE-Y2701",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle; sha256=741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106; fetched_at=2026-10-15T17:41:13.505767+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 2.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 2.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 2.5,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 2.5,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ],
+        "ZN2612.SHF": [
+          {
+            "rule_id": "exchange-20261015-SHFE-ZN2612",
+            "valid_from": "2026-10-15",
+            "valid_to": "2026-10-15",
+            "exchange_source": "exchange_data.futures_settle_param; https://www.shfe.com.cn/data/tradedata/future/dailydata/js20261015.dat; sha256=2e1dfc8078aea574ce6f113fd1ef2aa33b01855a4958de2b5e5a4dd19d2c2ee1; fetched_at=2026-10-15T17:40:33.406021+08:00",
+            "broker_source": null,
+            "slippage_source": null,
+            "exchange": {
+              "open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "intraday_open": {
+                "value": 3.0,
+                "unit": "YUAN_PER_LOT"
+              },
+              "close_today": {
+                "value": 1.5,
+                "unit": "YUAN_PER_LOT"
+              }
+            },
+            "broker": null,
+            "slippage": null
+          }
+        ]
+      }
+    }
+  },
+  "evidence_matrix": "contract-evidence.json",
+  "metadata_window_is_not_approved_economic_validity": true
+}

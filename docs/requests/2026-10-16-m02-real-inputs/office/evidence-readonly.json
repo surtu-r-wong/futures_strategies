@@ -1,0 +1,1978 @@
+{
+  "started_at": "2026-10-16T01:15:45.800993+00:00",
+  "scope_request_sha256": "4f4e8c15ed76de15505895b2b6f8e8327639b2025feb2e0746bf3d7cdbfcb045",
+  "queries": {
+    "fee_raw_24": {
+      "sql": "WITH wanted AS (SELECT * FROM unnest(%s::text[],%s::text[]) w(exchange,contract_id)) SELECT t.exchange,t.trade_date,t.contract_id,t.product_id,t.open_fee,t.offset_fee,t.short_open_fee,t.short_offset_fee,t.fee_style,t.fee_scale,t.source_url,t.source_sha256,t.fetched_at,t.raw FROM exchange_data.futures_settle_param t JOIN wanted w ON w.exchange=t.exchange AND w.contract_id=upper(t.contract_id) WHERE t.trade_date=%s::date ORDER BY t.exchange,t.contract_id",
+      "parameters": [
+        [
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "DCE",
+          "DCE",
+          "DCE",
+          "DCE",
+          "DCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE",
+          "CZCE"
+        ],
+        [
+          "AP701",
+          "CF701",
+          "CJ701",
+          "FG701",
+          "I2701",
+          "J2701",
+          "JD2612",
+          "JM2701",
+          "LH2701",
+          "MA701",
+          "OI701",
+          "PF612",
+          "PK612",
+          "PL612",
+          "PR612",
+          "PX612",
+          "RM701",
+          "SA701",
+          "SF701",
+          "SH701",
+          "SM701",
+          "SR701",
+          "TA701",
+          "UR701"
+        ],
+        "2026-10-15"
+      ],
+      "started_at": "2026-10-16T01:15:46.019737+00:00",
+      "acquired_at": "2026-10-16T01:15:46.058581+00:00",
+      "rows": [
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "AP701",
+          "product_id": "AP",
+          "open_fee": "5.0",
+          "offset_fee": "5.0",
+          "short_open_fee": "5.0",
+          "short_offset_fee": "10.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "",
+            "合约代码": "AP701",
+            "交割手续费": "0.00",
+            "交易手续费": "5.00",
+            "当日结算价": "6,204.00",
+            "日持仓限额": "1000",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±8",
+            "交易保证金率(%)": "9",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "10.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "CF701",
+          "product_id": "CF",
+          "open_fee": "4.3",
+          "offset_fee": "4.3",
+          "short_open_fee": "4.3",
+          "short_offset_fee": "0.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "10000",
+            "合约代码": "CF701",
+            "交割手续费": "0.00",
+            "交易手续费": "4.30",
+            "当日结算价": "15,895.00",
+            "日持仓限额": "58181",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "CJ701",
+          "product_id": "CJ",
+          "open_fee": "3.0",
+          "offset_fee": "3.0",
+          "short_open_fee": "3.0",
+          "short_offset_fee": "3.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "",
+            "合约代码": "CJ701",
+            "交割手续费": "0.00",
+            "交易手续费": "3.00",
+            "当日结算价": "6,485.00",
+            "日持仓限额": "600",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±7",
+            "交易保证金率(%)": "8",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "3.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "FG701",
+          "product_id": "FG",
+          "open_fee": "2.0",
+          "offset_fee": "2.0",
+          "short_open_fee": "2.0",
+          "short_offset_fee": "2.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "25000",
+            "合约代码": "FG701",
+            "交割手续费": "0.00",
+            "交易手续费": "2.00",
+            "当日结算价": "855.00",
+            "日持仓限额": "158033",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±8",
+            "交易保证金率(%)": "9",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "2.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "MA701",
+          "product_id": "MA",
+          "open_fee": "1.0",
+          "offset_fee": "1.0",
+          "short_open_fee": "1.0",
+          "short_offset_fee": "1.0",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "25000",
+            "合约代码": "MA701",
+            "交割手续费": "0.00",
+            "交易手续费": "1.00",
+            "当日结算价": "3,231.00",
+            "日持仓限额": "78104",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "比例值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "1.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "OI701",
+          "product_id": "OI",
+          "open_fee": "2.0",
+          "offset_fee": "2.0",
+          "short_open_fee": "2.0",
+          "short_offset_fee": "2.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "10000",
+            "合约代码": "OI701",
+            "交割手续费": "0.00",
+            "交易手续费": "2.00",
+            "当日结算价": "10,318.00",
+            "日持仓限额": "36088",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "2.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "PF612",
+          "product_id": "PF",
+          "open_fee": "2.0",
+          "offset_fee": "2.0",
+          "short_open_fee": "2.0",
+          "short_offset_fee": "0.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "",
+            "合约代码": "PF612",
+            "交割手续费": "0.00",
+            "交易手续费": "2.00",
+            "当日结算价": "8,280.00",
+            "日持仓限额": "18424",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "PK612",
+          "product_id": "PK",
+          "open_fee": "2.0",
+          "offset_fee": "2.0",
+          "short_open_fee": "2.0",
+          "short_offset_fee": "2.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "",
+            "合约代码": "PK612",
+            "交割手续费": "0.00",
+            "交易手续费": "2.00",
+            "当日结算价": "7,878.00",
+            "日持仓限额": "5000",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "2.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "PL612",
+          "product_id": "PL",
+          "open_fee": "3.0",
+          "offset_fee": "3.0",
+          "short_open_fee": "3.0",
+          "short_offset_fee": "0.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "",
+            "合约代码": "PL612",
+            "交割手续费": "0.00",
+            "交易手续费": "3.00",
+            "当日结算价": "9,677.00",
+            "日持仓限额": "2000",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "PR612",
+          "product_id": "PR",
+          "open_fee": "0.5",
+          "offset_fee": "0.5",
+          "short_open_fee": "0.5",
+          "short_offset_fee": "0.0",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "",
+            "合约代码": "PR612",
+            "交割手续费": "0.00",
+            "交易手续费": "0.50",
+            "当日结算价": "8,162.00",
+            "日持仓限额": "4854",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "比例值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "PX612",
+          "product_id": "PX",
+          "open_fee": "1.0",
+          "offset_fee": "1.0",
+          "short_open_fee": "1.0",
+          "short_offset_fee": "0.0",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "",
+            "合约代码": "PX612",
+            "交割手续费": "0.00",
+            "交易手续费": "1.00",
+            "当日结算价": "9,448.00",
+            "日持仓限额": "6000",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "比例值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "RM701",
+          "product_id": "RM",
+          "open_fee": "1.5",
+          "offset_fee": "1.5",
+          "short_open_fee": "1.5",
+          "short_offset_fee": "0.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "15000",
+            "合约代码": "RM701",
+            "交割手续费": "0.00",
+            "交易手续费": "1.50",
+            "当日结算价": "2,370.00",
+            "日持仓限额": "72127",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "SA701",
+          "product_id": "SA",
+          "open_fee": "1.0",
+          "offset_fee": "1.0",
+          "short_open_fee": "1.0",
+          "short_offset_fee": "1.0",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "10000",
+            "合约代码": "SA701",
+            "交割手续费": "0.00",
+            "交易手续费": "1.00",
+            "当日结算价": "937.00",
+            "日持仓限额": "20000",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±7",
+            "交易保证金率(%)": "8",
+            "手续费收取方式": "比例值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "1.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "SF701",
+          "product_id": "SF",
+          "open_fee": "2.0",
+          "offset_fee": "2.0",
+          "short_open_fee": "2.0",
+          "short_offset_fee": "0.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "",
+            "合约代码": "SF701",
+            "交割手续费": "0.00",
+            "交易手续费": "2.00",
+            "当日结算价": "5,936.00",
+            "日持仓限额": "10000",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "SH701",
+          "product_id": "SH",
+          "open_fee": "1.0",
+          "offset_fee": "1.0",
+          "short_open_fee": "1.0",
+          "short_offset_fee": "0.0",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "",
+            "合约代码": "SH701",
+            "交割手续费": "0.00",
+            "交易手续费": "1.00",
+            "当日结算价": "1,758.00",
+            "日持仓限额": "4000",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±7",
+            "交易保证金率(%)": "8",
+            "手续费收取方式": "比例值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "SM701",
+          "product_id": "SM",
+          "open_fee": "2.0",
+          "offset_fee": "2.0",
+          "short_open_fee": "2.0",
+          "short_offset_fee": "0.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "10000",
+            "合约代码": "SM701",
+            "交割手续费": "0.00",
+            "交易手续费": "2.00",
+            "当日结算价": "5,888.00",
+            "日持仓限额": "30000",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "SR701",
+          "product_id": "SR",
+          "open_fee": "2.0",
+          "offset_fee": "2.0",
+          "short_open_fee": "2.0",
+          "short_offset_fee": "0.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "10000",
+            "合约代码": "SR701",
+            "交割手续费": "0.00",
+            "交易手续费": "2.00",
+            "当日结算价": "5,418.00",
+            "日持仓限额": "51811",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±5",
+            "交易保证金率(%)": "6",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "TA701",
+          "product_id": "TA",
+          "open_fee": "3.0",
+          "offset_fee": "3.0",
+          "short_open_fee": "3.0",
+          "short_offset_fee": "0.0",
+          "fee_style": "绝对值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "30000",
+            "合约代码": "TA701",
+            "交割手续费": "0.00",
+            "交易手续费": "3.00",
+            "当日结算价": "6,520.00",
+            "日持仓限额": "110953",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±6",
+            "交易保证金率(%)": "7",
+            "手续费收取方式": "绝对值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "0.00"
+          }
+        },
+        {
+          "exchange": "CZCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "UR701",
+          "product_id": "UR",
+          "open_fee": "1.0",
+          "offset_fee": "1.0",
+          "short_open_fee": "1.0",
+          "short_offset_fee": "1.0",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "https://www.czce.com.cn/cn/DFSStaticFiles/Future/2026/20261015/FutureDataClearParams.txt",
+          "source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+          "fetched_at": "2026-10-15 17:40:45.063567+08:00",
+          "raw": {
+            "交易限额": "",
+            "合约代码": "UR701",
+            "交割手续费": "0.00",
+            "交易手续费": "1.00",
+            "当日结算价": "1,658.00",
+            "日持仓限额": "5000",
+            "是否单边市": "N",
+            "涨跌停板(%)": "±7",
+            "交易保证金率(%)": "8",
+            "手续费收取方式": "比例值",
+            "连续单边市天数": "0",
+            "日内平今仓交易手续费": "1.00"
+          }
+        },
+        {
+          "exchange": "DCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "i2701",
+          "product_id": "i",
+          "open_fee": "1.0",
+          "offset_fee": "1.0",
+          "short_open_fee": "1.0",
+          "short_offset_fee": "1.0",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle",
+          "source_sha256": "ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b",
+          "fetched_at": "2026-10-15 17:41:13.505767+08:00",
+          "raw": {
+            "style": "比例值",
+            "openFee": "1",
+            "variety": "铁矿石",
+            "offsetFee": "1",
+            "clearPrice": "672",
+            "contractId": "i2701",
+            "specBuyRate": "0.08",
+            "hedgeBuyRate": "0.08",
+            "hedgeOpenFee": "0.5",
+            "shortOpenFee": "1",
+            "specSellRate": "0.08",
+            "varietyOrder": "i",
+            "hedgeSellRate": "0.08",
+            "hedgeOffsetFee": "0.5",
+            "shortOffsetFee": "1",
+            "hedgeShortOpenFee": "0.5",
+            "_response_has_date": false,
+            "hedgeShortOffsetFee": "0.5",
+            "_requested_trade_date": "2026-10-15"
+          }
+        },
+        {
+          "exchange": "DCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "j2701",
+          "product_id": "j",
+          "open_fee": "1.0",
+          "offset_fee": "1.0",
+          "short_open_fee": "1.4",
+          "short_offset_fee": "1.4",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle",
+          "source_sha256": "ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b",
+          "fetched_at": "2026-10-15 17:41:13.505767+08:00",
+          "raw": {
+            "style": "比例值",
+            "openFee": "1",
+            "variety": "焦炭",
+            "offsetFee": "1",
+            "clearPrice": "1973",
+            "contractId": "j2701",
+            "specBuyRate": "0.12",
+            "hedgeBuyRate": "0.12",
+            "hedgeOpenFee": "0.5",
+            "shortOpenFee": "1.4",
+            "specSellRate": "0.12",
+            "varietyOrder": "j",
+            "hedgeSellRate": "0.12",
+            "hedgeOffsetFee": "0.5",
+            "shortOffsetFee": "1.4",
+            "hedgeShortOpenFee": "0.5",
+            "_response_has_date": false,
+            "hedgeShortOffsetFee": "0.5",
+            "_requested_trade_date": "2026-10-15"
+          }
+        },
+        {
+          "exchange": "DCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "jd2612",
+          "product_id": "jd",
+          "open_fee": "1.5",
+          "offset_fee": "1.5",
+          "short_open_fee": "1.5",
+          "short_offset_fee": "1.5",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle",
+          "source_sha256": "ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b",
+          "fetched_at": "2026-10-15 17:41:13.505767+08:00",
+          "raw": {
+            "style": "比例值",
+            "openFee": "1.5",
+            "variety": "鸡蛋",
+            "offsetFee": "1.5",
+            "clearPrice": "3365",
+            "contractId": "jd2612",
+            "specBuyRate": "0.07",
+            "hedgeBuyRate": "0.07",
+            "hedgeOpenFee": "0.75",
+            "shortOpenFee": "1.5",
+            "specSellRate": "0.07",
+            "varietyOrder": "jd",
+            "hedgeSellRate": "0.07",
+            "hedgeOffsetFee": "0.75",
+            "shortOffsetFee": "1.5",
+            "hedgeShortOpenFee": "0.75",
+            "_response_has_date": false,
+            "hedgeShortOffsetFee": "0.75",
+            "_requested_trade_date": "2026-10-15"
+          }
+        },
+        {
+          "exchange": "DCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "jm2701",
+          "product_id": "jm",
+          "open_fee": "1.0",
+          "offset_fee": "1.0",
+          "short_open_fee": "1.0",
+          "short_offset_fee": "1.0",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle",
+          "source_sha256": "ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b",
+          "fetched_at": "2026-10-15 17:41:13.505767+08:00",
+          "raw": {
+            "style": "比例值",
+            "openFee": "1",
+            "variety": "焦煤",
+            "offsetFee": "1",
+            "clearPrice": "1498",
+            "contractId": "jm2701",
+            "specBuyRate": "0.12",
+            "hedgeBuyRate": "0.12",
+            "hedgeOpenFee": "0.5",
+            "shortOpenFee": "1",
+            "specSellRate": "0.12",
+            "varietyOrder": "jm",
+            "hedgeSellRate": "0.12",
+            "hedgeOffsetFee": "0.5",
+            "shortOffsetFee": "1",
+            "hedgeShortOpenFee": "0.5",
+            "_response_has_date": false,
+            "hedgeShortOffsetFee": "0.5",
+            "_requested_trade_date": "2026-10-15"
+          }
+        },
+        {
+          "exchange": "DCE",
+          "trade_date": "2026-10-15",
+          "contract_id": "lh2701",
+          "product_id": "lh",
+          "open_fee": "1.0",
+          "offset_fee": "1.0",
+          "short_open_fee": "2.0",
+          "short_offset_fee": "2.0",
+          "fee_style": "比例值",
+          "fee_scale": null,
+          "source_url": "http://www.dce.com.cn/dcereport/publicweb/tradepara/futAndOptSettle",
+          "source_sha256": "ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b",
+          "fetched_at": "2026-10-15 17:41:13.505767+08:00",
+          "raw": {
+            "style": "比例值",
+            "openFee": "1",
+            "variety": "生猪",
+            "offsetFee": "1",
+            "clearPrice": "10465",
+            "contractId": "lh2701",
+            "specBuyRate": "0.08",
+            "hedgeBuyRate": "0.08",
+            "hedgeOpenFee": "0.5",
+            "shortOpenFee": "2",
+            "specSellRate": "0.08",
+            "varietyOrder": "lh",
+            "hedgeSellRate": "0.08",
+            "hedgeOffsetFee": "0.5",
+            "shortOffsetFee": "2",
+            "hedgeShortOpenFee": "0.5",
+            "_response_has_date": false,
+            "hedgeShortOffsetFee": "0.5",
+            "_requested_trade_date": "2026-10-15"
+          }
+        }
+      ],
+      "row_count": 24
+    },
+    "calendar_flags": {
+      "sql": "SELECT calendar_date,sfe,hkxe,created_at,updated_at,deleted_at FROM public.trading_calendar WHERE calendar_date BETWEEN %s::date AND %s::date ORDER BY calendar_date",
+      "parameters": [
+        "2026-09-01",
+        "2026-11-30"
+      ],
+      "started_at": "2026-10-16T01:15:46.058612+00:00",
+      "acquired_at": "2026-10-16T01:15:46.074534+00:00",
+      "rows": [
+        {
+          "calendar_date": "2026-09-01",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-02",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-03",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-04",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-05",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-06",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-07",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-08",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-09",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-10",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-11",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-12",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-13",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-14",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-15",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-16",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-17",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-18",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-19",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-20",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-21",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-22",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-23",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-24",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-25",
+          "sfe": false,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-26",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-27",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-28",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-29",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-09-30",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-01",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-02",
+          "sfe": false,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-03",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-04",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-05",
+          "sfe": false,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-06",
+          "sfe": false,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-07",
+          "sfe": false,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-08",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-09",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-10",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-11",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-12",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-13",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-14",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-15",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-16",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-17",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-18",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-19",
+          "sfe": true,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-20",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-21",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-22",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-23",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-24",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-25",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-26",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-27",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-28",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-29",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-30",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-10-31",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-01",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-02",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-03",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-04",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-05",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-06",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-07",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-08",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-09",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-10",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-11",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-12",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-13",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-14",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-15",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-16",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-17",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-18",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-19",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-20",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-21",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-22",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-23",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-24",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-25",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-26",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-27",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-28",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-29",
+          "sfe": false,
+          "hkxe": false,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        },
+        {
+          "calendar_date": "2026-11-30",
+          "sfe": true,
+          "hkxe": true,
+          "created_at": "2025-12-29 23:30:35.916299",
+          "updated_at": "2025-12-29 23:30:35.916299",
+          "deleted_at": null
+        }
+      ],
+      "row_count": 91
+    },
+    "catalog": {
+      "sql": "SELECT d.dataset_id,d.owner_project,d.state,d.source,d.adapter,d.runbook,r.relation FROM data_manager.dataset d JOIN data_manager.dataset_relation r USING(dataset_id) WHERE r.relation=ANY(%s) ORDER BY d.dataset_id,r.relation",
+      "parameters": [
+        [
+          "public.trading_calendar",
+          "stock_selector.stock_meta",
+          "stock_selector.stock_status",
+          "stock_selector.stock_daily_price",
+          "stock_selector.stock_dividend_event",
+          "stock_selector.stock_dividend_implementation",
+          "public.futures_contract_info",
+          "public.futures_contracts_all",
+          "exchange_data.futures_settle_param",
+          "exchange_data.czce_futures_reference_record",
+          "exchange_data.czce_futures_reference_capture",
+          "public.fx_rate_daily"
+        ]
+      ],
+      "started_at": "2026-10-16T01:15:46.074566+00:00",
+      "acquired_at": "2026-10-16T01:15:46.091768+00:00",
+      "rows": [
+        {
+          "dataset_id": "exchange_data.czce_futures_reference_capture",
+          "owner_project": "data_manager",
+          "state": "ACTIVE",
+          "source": "郑商所公开 ReferenceData；免费源，历史可用性及格式以逐日原文清单为准。",
+          "adapter": "data_manager/scripts/exchange_settle/supplemental_runtime.py → supplemental_daily.py",
+          "runbook": "data_manager/runbooks/2026-09-20-czce-reference.md",
+          "relation": "exchange_data.czce_futures_reference_capture"
+        },
+        {
+          "dataset_id": "exchange_data.czce_futures_reference_record",
+          "owner_project": "data_manager",
+          "state": "ACTIVE",
+          "source": "郑商所公开 ReferenceData；免费源，历史可用性及格式以逐日原文清单为准。",
+          "adapter": "data_manager/scripts/exchange_settle/supplemental_runtime.py → supplemental_daily.py",
+          "runbook": "data_manager/runbooks/2026-09-20-czce-reference.md",
+          "relation": "exchange_data.czce_futures_reference_record"
+        },
+        {
+          "dataset_id": "exchange_data.futures_settle_param",
+          "owner_project": "data_manager",
+          "state": "ACTIVE",
+          "source": "六家交易所官网，0 Wind 额度。起点实测：DCE 2007-02-01（POST tradepara/futAndOptSettle，需 headed 浏览器）· CZCE 2015-09-21（FutureDataClearParams.txt；旧路径 2010-03-04 无手续费）· CFFEX 2010-04-14（/sj/jscs/，**按变更事件发版、非每日**）· SHFE 2012-07-20（dailydata/js{d}.dat）· INE 2018-03-26 · GFEX 2022-12-22。各所字段不全，缺的留 NULL 不当 0。⚠️ 保证金率的**生效口径（当日/次日）六所均未验**，回测使用前须裁，见 runbook §5。",
+          "adapter": "data_manager/scripts/exchange_settle/（六所解析器 + 可续跑采集器 + fail-closed 装载器）；日更跑在 WSL2（用户 2026-09-18 裁）。手续费数值按交易所原样入库，刻度记在 fee_scale：上期所两路同义字段差 1000 倍（TRADEFEERATION 纯比例 vs TRADEFEERATIO ‰），不替交易所换算。",
+          "runbook": "data_manager/requests/2026-09-18-user-exchange-data-all-into-db/disposition.md",
+          "relation": "exchange_data.futures_settle_param"
+        },
+        {
+          "dataset_id": "public.futures_contract_info",
+          "owner_project": "market-monitor",
+          "state": "ACTIVE",
+          "source": "INTERNAL_HTTP_INTAKE（writer /api/data/daily）",
+          "adapter": "/home/elfbob/market-monitor/writer/backend/main.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "public.futures_contract_info"
+        },
+        {
+          "dataset_id": "public.futures_contract_info",
+          "owner_project": "market-monitor",
+          "state": "ACTIVE",
+          "source": "INTERNAL_HTTP_INTAKE（writer /api/data/daily）",
+          "adapter": "/home/elfbob/market-monitor/writer/backend/main.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "public.futures_contract_info"
+        },
+        {
+          "dataset_id": "public.futures_contracts_all",
+          "owner_project": "market-monitor",
+          "state": "ACTIVE",
+          "source": "INTERNAL_HTTP_INTAKE（writer /api/data/daily）",
+          "adapter": "/home/elfbob/market-monitor/writer/backend/futures_minute_store.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "public.futures_contracts_all"
+        },
+        {
+          "dataset_id": "public.futures_contracts_all",
+          "owner_project": "market-monitor",
+          "state": "ACTIVE",
+          "source": "INTERNAL_HTTP_INTAKE（writer /api/data/daily）",
+          "adapter": "/home/elfbob/market-monitor/writer/backend/futures_minute_store.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "public.futures_contracts_all"
+        },
+        {
+          "dataset_id": "public.fx_rate_daily",
+          "owner_project": "market-monitor",
+          "state": "PAUSED",
+          "source": "NONE_CURRENTLY（无写入代码，待 WP1 新建采集链）",
+          "adapter": "/home/elfbob/market-monitor/managementer/daily_position_update.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "public.fx_rate_daily"
+        },
+        {
+          "dataset_id": "public.fx_rate_daily",
+          "owner_project": "market-monitor",
+          "state": "PAUSED",
+          "source": "NONE_CURRENTLY（无写入代码，待 WP1 新建采集链）",
+          "adapter": "/home/elfbob/market-monitor/managementer/daily_position_update.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "public.fx_rate_daily"
+        },
+        {
+          "dataset_id": "public.trading_calendar",
+          "owner_project": "market-monitor",
+          "state": "ACTIVE",
+          "source": "INTERNAL_HTTP_INTAKE（writer /api/data/daily）",
+          "adapter": "/home/elfbob/market-monitor/data-collecter/exchange_daily/calendar.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "public.trading_calendar"
+        },
+        {
+          "dataset_id": "public.trading_calendar",
+          "owner_project": "market-monitor",
+          "state": "ACTIVE",
+          "source": "INTERNAL_HTTP_INTAKE（writer /api/data/daily）",
+          "adapter": "/home/elfbob/market-monitor/data-collecter/exchange_daily/calendar.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "public.trading_calendar"
+        },
+        {
+          "dataset_id": "stock_selector.stock_daily_price",
+          "owner_project": "stock_selector",
+          "state": "ACTIVE",
+          "source": "WIND_API_VIA_stock_selector_adapters（wsd/wss/wset/edb）",
+          "adapter": "WindDataSource gateway /fetch/price，amt→amount、turn→turnover、adjfactor→adj_factor。",
+          "runbook": "docs/operations/dbm-wp0-key-dataset-contracts-2026-09-09.md",
+          "relation": "stock_selector.stock_daily_price"
+        },
+        {
+          "dataset_id": "stock_selector.stock_daily_price",
+          "owner_project": "stock_selector",
+          "state": "ACTIVE",
+          "source": "WIND_API_VIA_stock_selector_adapters（wsd/wss/wset/edb）",
+          "adapter": "WindDataSource gateway /fetch/price，amt→amount、turn→turnover、adjfactor→adj_factor。",
+          "runbook": "docs/operations/dbm-wp0-key-dataset-contracts-2026-09-09.md",
+          "relation": "stock_selector.stock_daily_price"
+        },
+        {
+          "dataset_id": "stock_selector.stock_dividend_event",
+          "owner_project": "stock_selector",
+          "state": "ACTIVE",
+          "source": "WIND_API_VIA_stock_selector_adapters（wsd/wss/wset/edb）",
+          "adapter": "/home/elfbob/claude-code/stock_selector/stock_selector/data/writers.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "stock_selector.stock_dividend_event"
+        },
+        {
+          "dataset_id": "stock_selector.stock_dividend_event",
+          "owner_project": "stock_selector",
+          "state": "ACTIVE",
+          "source": "WIND_API_VIA_stock_selector_adapters（wsd/wss/wset/edb）",
+          "adapter": "/home/elfbob/claude-code/stock_selector/stock_selector/data/writers.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "stock_selector.stock_dividend_event"
+        },
+        {
+          "dataset_id": "stock_selector.stock_dividend_implementation",
+          "owner_project": "stock_selector",
+          "state": "ACTIVE",
+          "source": "WIND_API_VIA_stock_selector_adapters（wsd/wss/wset/edb）",
+          "adapter": "/home/elfbob/claude-code/stock_selector/stock_selector/backfill/bonus.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "stock_selector.stock_dividend_implementation"
+        },
+        {
+          "dataset_id": "stock_selector.stock_dividend_implementation",
+          "owner_project": "stock_selector",
+          "state": "ACTIVE",
+          "source": "WIND_API_VIA_stock_selector_adapters（wsd/wss/wset/edb）",
+          "adapter": "/home/elfbob/claude-code/stock_selector/stock_selector/backfill/bonus.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "stock_selector.stock_dividend_implementation"
+        },
+        {
+          "dataset_id": "stock_selector.stock_meta",
+          "owner_project": "stock_selector",
+          "state": "ACTIVE",
+          "source": "WIND_API_VIA_stock_selector_adapters（wsd/wss/wset/edb）",
+          "adapter": "/home/elfbob/claude-code/stock_selector/stock_selector/data/writers.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "stock_selector.stock_meta"
+        },
+        {
+          "dataset_id": "stock_selector.stock_meta",
+          "owner_project": "stock_selector",
+          "state": "ACTIVE",
+          "source": "WIND_API_VIA_stock_selector_adapters（wsd/wss/wset/edb）",
+          "adapter": "/home/elfbob/claude-code/stock_selector/stock_selector/data/writers.py",
+          "runbook": "docs/operations/dbm-wp0-m1-remaining-contracts-2026-09-10.md",
+          "relation": "stock_selector.stock_meta"
+        },
+        {
+          "dataset_id": "stock_selector.stock_status",
+          "owner_project": "stock_selector",
+          "state": "ACTIVE",
+          "source": "WIND_API_VIA_stock_selector_adapters（wsd/wss/wset/edb）",
+          "adapter": "WindDataSource gateway /fetch/status；riskwarning严格等于“是”；trade_status包含停牌或等于暂停上市；maxupordown缺失填0；上市日期派生is_new。源缺失转False不代表合法业务空值获批。",
+          "runbook": "docs/operations/dbm-wp0-key-dataset-contracts-2026-09-09.md",
+          "relation": "stock_selector.stock_status"
+        },
+        {
+          "dataset_id": "stock_selector.stock_status",
+          "owner_project": "stock_selector",
+          "state": "ACTIVE",
+          "source": "WIND_API_VIA_stock_selector_adapters（wsd/wss/wset/edb）",
+          "adapter": "WindDataSource gateway /fetch/status；riskwarning严格等于“是”；trade_status包含停牌或等于暂停上市；maxupordown缺失填0；上市日期派生is_new。源缺失转False不代表合法业务空值获批。",
+          "runbook": "docs/operations/dbm-wp0-key-dataset-contracts-2026-09-09.md",
+          "relation": "stock_selector.stock_status"
+        }
+      ],
+      "row_count": 21
+    }
+  },
+  "readonly": true,
+  "rollback_and_close": true,
+  "paid_source_calls": 0,
+  "database_writes": 0,
+  "m01_source_hashes_match": false,
+  "source_version_comparisons": [
+    {
+      "exchange": "CZCE",
+      "contract_id": "AP701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "CF701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "CJ701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "FG701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "MA701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "OI701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "PF612",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "PK612",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "PL612",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "PR612",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "PX612",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "RM701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "SA701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "SF701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "SH701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "SM701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "SR701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "TA701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "CZCE",
+      "contract_id": "UR701",
+      "prior_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "current_source_sha256": "cb86fd21b7e6cb55966a2ba3ec287d0fe43cae94d1f3c2e85f0d8c723ad428ac",
+      "prior_fetched_at": "2026-10-15T17:40:45.063567+08:00",
+      "current_fetched_at": "2026-10-15 17:40:45.063567+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "DCE",
+      "contract_id": "i2701",
+      "prior_source_sha256": "741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106",
+      "current_source_sha256": "ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b",
+      "prior_fetched_at": "2026-10-15T17:41:13.505767+08:00",
+      "current_fetched_at": "2026-10-15 17:41:13.505767+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "DCE",
+      "contract_id": "j2701",
+      "prior_source_sha256": "741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106",
+      "current_source_sha256": "ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b",
+      "prior_fetched_at": "2026-10-15T17:41:13.505767+08:00",
+      "current_fetched_at": "2026-10-15 17:41:13.505767+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "DCE",
+      "contract_id": "jd2612",
+      "prior_source_sha256": "741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106",
+      "current_source_sha256": "ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b",
+      "prior_fetched_at": "2026-10-15T17:41:13.505767+08:00",
+      "current_fetched_at": "2026-10-15 17:41:13.505767+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "DCE",
+      "contract_id": "jm2701",
+      "prior_source_sha256": "741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106",
+      "current_source_sha256": "ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b",
+      "prior_fetched_at": "2026-10-15T17:41:13.505767+08:00",
+      "current_fetched_at": "2026-10-15 17:41:13.505767+08:00",
+      "changed_fields": []
+    },
+    {
+      "exchange": "DCE",
+      "contract_id": "lh2701",
+      "prior_source_sha256": "741336afa6a181254d998f4e50c24a0bf8ea2124a6f0a348db260cbd0fa22106",
+      "current_source_sha256": "ead55d52c67399c2a555e36217f73a509d66b94fd9804465067b557844f69e8b",
+      "prior_fetched_at": "2026-10-15T17:41:13.505767+08:00",
+      "current_fetched_at": "2026-10-15 17:41:13.505767+08:00",
+      "changed_fields": []
+    }
+  ],
+  "status": "SOURCE_VERSION_DRIFT_RECORDED_SEPARATELY",
+  "finished_at": "2026-10-16T01:15:46.105225+00:00"
+}

@@ -1,0 +1,25 @@
+{
+  "status": "authorized",
+  "authorized_at_recorded": "2026-10-16T01:09:09.056273+00:00",
+  "user_instruction": "授权发函并实施上述输入补证",
+  "source_thread_id": "01a13f0e-e2ab-7c83-ad9b-bbd87800b49f",
+  "reviewed_local_commit": "908d101",
+  "scope_document": "input-scope.json",
+  "allowed": [
+    "send the office, stock and futures requests",
+    "reuse existing files and narrowly scoped read-only database evidence",
+    "if needed acquire scoped public free official rules and current FX/market/status observations",
+    "prepare disabled configurations and consolidated economic-policy proposals",
+    "necessary local adapter corrections with proportionate verification"
+  ],
+  "excluded": [
+    "paid data vendors",
+    "shared database writes or DDL",
+    "historical backfill or research restart",
+    "new strategy/target computation",
+    "observation ledger initialization",
+    "production or scheduler activation",
+    "trade or return notifications",
+    "remote push"
+  ]
+}

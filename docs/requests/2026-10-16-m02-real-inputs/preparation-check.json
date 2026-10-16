@@ -1,0 +1,27 @@
+{
+  "enabled": false,
+  "execution_simulated": false,
+  "nav_candidate_cny": "100000000",
+  "initial_unit_nav": 1,
+  "lot_rule": "nearest_integer_ties_even",
+  "native_gross_weight": "2.2617946883905694524",
+  "rounded_reference_gross_weight": "2.2598081",
+  "rounded_reference_net_weight": "-0.00009540",
+  "sum_absolute_weight_error": "0.0215810422474054896",
+  "max_absolute_weight_error": "0.004031719587148965",
+  "nonzero_targets_rounded_to_zero": [
+    "AU2612.SHF"
+  ],
+  "exchange_margin_reference_cny": "22048152.60000",
+  "margin_reference_ratio": "0.220481526",
+  "headroom_before_unproved_costs_cny": "77951847.40000",
+  "fee_cost": null,
+  "funding_ready": false,
+  "limitations": [
+    "reference close is not a fill or settlement",
+    "19 DCE dimensions still unproved",
+    "broker margins/fees missing",
+    "exchange dated applicability and order minimums/limits unproved",
+    "no unit NAV or return ledger generated"
+  ]
+}

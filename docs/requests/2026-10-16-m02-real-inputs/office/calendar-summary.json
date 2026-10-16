@@ -1,0 +1,15 @@
+{
+  "range": [
+    "2026-09-01",
+    "2026-11-30"
+  ],
+  "rows": 91,
+  "deleted_rows": 0,
+  "cn_sfe_open_flags": 59,
+  "hk_hkxe_open_flags": 63,
+  "null_sfe": 0,
+  "null_hkxe": 0,
+  "original_exchange_publication_at": null,
+  "acquired_at": "2026-10-16T01:15:46.074534+00:00",
+  "full_session_calendar": false
+}

@@ -1,0 +1,61 @@
+{
+  "observed_at": "2026-10-16T01:24:48.081967+00:00",
+  "files": [
+    {
+      "path": "/home/elfbob/claude-code/futures_strategies/docs/requests/2026-10-14-multi-asset-operational-returns/m01-offline-diagnosis-evidence/verification-02/targets.csv",
+      "sha256": "3ce0759efb9c4a3f2ae105fc864768ab50eeccd0d107ab0b9b9ca260e909f248",
+      "row_count": 67,
+      "signal_dates": [
+        "2026-10-15"
+      ],
+      "filesystem_mtime_is_not_availability": true,
+      "historical_available_at": "2026-10-15T20:06:21.433269+08:00",
+      "kind": "archived_input_offline_reconstruction",
+      "new_target_computation": false
+    },
+    {
+      "path": "/home/elfbob/claude-code/futures_strategies/output/forward_inputs/current-20261015/citic027_20260916_next_targets.csv",
+      "sha256": "1ad34fe5614ac40b2cf6a6392019529af79316a1c14cd977db5d2c0e7058489d",
+      "row_count": 68,
+      "signal_dates": [
+        "2026-09-16"
+      ],
+      "filesystem_mtime_is_not_availability": true,
+      "historical_available_at": null,
+      "kind": "existing_native_file_without_current_execution_receipt",
+      "new_target_computation": false
+    },
+    {
+      "path": "/home/elfbob/claude-code/futures_strategies/output/targets/citic027_20260910_next_targets.csv",
+      "sha256": "10672f30f370445809b6af6790cd4ea96d684508238a7e850da67d8296a16c79",
+      "row_count": 68,
+      "signal_dates": [
+        "2026-09-10"
+      ],
+      "filesystem_mtime_is_not_availability": true,
+      "historical_available_at": null,
+      "kind": "existing_native_file_without_current_execution_receipt",
+      "new_target_computation": false
+    },
+    {
+      "path": "/home/elfbob/claude-code/futures_strategies/output/targets/citic027_20260914_next_targets.csv",
+      "sha256": "7287eeaccd9c84a90190a576aa87800aed9e54696dad12093a6e692b34cd9c9e",
+      "row_count": 68,
+      "signal_dates": [
+        "2026-09-14"
+      ],
+      "filesystem_mtime_is_not_availability": true,
+      "historical_available_at": null,
+      "kind": "existing_native_file_without_current_execution_receipt",
+      "new_target_computation": false
+    }
+  ],
+  "future_daily_target_verified": false,
+  "strategy_runs": 0,
+  "needed_if_fresh_target_authorized": {
+    "entry": "python -m forward_inputs.m01 --as-of YYYY-MM-DD --production-observation <actual-observation.json> --output-dir <new-isolated-dir>",
+    "inputs": "actual source checkout/parameter attestation, production observation and five-exchange daily coverage; existing adapter requires 900 calendar days for R150 plus252-day volatility warmup",
+    "resource_limit": "2GB virtual memory; BLAS/OMP single thread; no parallel historical runs",
+    "scope": "not executed; requires a separately accepted current-target computation scope, not reuse of frozen 10-15 target"
+  }
+}

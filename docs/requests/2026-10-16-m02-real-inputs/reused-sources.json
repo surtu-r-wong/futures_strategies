@@ -1,0 +1,110 @@
+[
+  {
+    "path": "/home/elfbob/claude-code/data_manager/requests/2026-10-16-multi-asset-m02-real-inputs/evidence-readonly.json",
+    "copied_to": "office/evidence-readonly.json",
+    "sha256": "18d404f5bbee0061e4f0f0cce3b9fe381b8c73b0702424389d05e9477b43800c",
+    "copied_at": "2026-10-16T01:24:48.081967+00:00"
+  },
+  {
+    "path": "/home/elfbob/claude-code/data_manager/requests/2026-10-16-multi-asset-m02-real-inputs/calendar-summary.json",
+    "copied_to": "office/calendar-summary.json",
+    "sha256": "12f8767f977862b57d1523a5fec14458f76f72d760189634231b7cc901bafa5d",
+    "copied_at": "2026-10-16T01:24:48.081967+00:00"
+  },
+  {
+    "path": "/home/elfbob/claude-code/data_manager/requests/2026-10-16-multi-asset-m02-real-inputs/response.md",
+    "copied_to": "office/response.md",
+    "sha256": "80962fc43043ce48d4ed89034a28c4486d1e9918adb0e3bd57ff2d2a420b4a1f",
+    "copied_at": "2026-10-16T01:24:48.081967+00:00"
+  },
+  {
+    "path": "/home/elfbob/claude-code/data_manager/requests/2026-10-16-multi-asset-m02-real-inputs/futures-source-map.json",
+    "copied_to": "office/futures-source-map.json",
+    "sha256": "1fffdb2912623d61f54f1cbb081e3dccbaea34a902507b3f2140d3b8f167282a",
+    "copied_at": "2026-10-16T01:24:48.081967+00:00"
+  },
+  {
+    "path": "/home/elfbob/claude-code/data_manager/requests/2026-10-16-multi-asset-m02-real-inputs/validation.json",
+    "copied_to": "office/validation.json",
+    "sha256": "4ecbfcb04afc7b3642c760fd19b31d40b6eeaea4b982daef4e252aa1ea836900",
+    "copied_at": "2026-10-16T01:24:48.081967+00:00"
+  },
+  {
+    "source_id": "shfe_hours",
+    "url": "https://www.shfe.com.cn/services/calenderandholidays/tradinghours/",
+    "retrieved_at": "2026-10-14T12:24:30.954756+00:00",
+    "http_status": 200,
+    "content_type": "text/html",
+    "file": "shfe_hours.html",
+    "sha256": "ebb4a872fc0ce4d9fa1f654c58a89dd00bc1100dd7b3de1e305bbc80ecc66058",
+    "bytes": 139794,
+    "status": "RETRIEVED_BYTES_CONTENT_REVIEW_SEPARATE",
+    "path": "sources/office_shfe_hours.html",
+    "original_path": "/home/elfbob/claude-code/data_manager/findings/2026-10-14-office-final-continuation/official-sources/shfe_hours.html",
+    "representation": "original_response_bytes",
+    "copied_at": "2026-10-16T01:24:48.081967+00:00",
+    "archive_path": "sources/office_shfe_hours.html.gz"
+  },
+  {
+    "source_id": "shfe_2026_holiday",
+    "url": "https://www.shfe.com.cn/services/calenderandholidays/holiday/",
+    "retrieved_at": "2026-10-14T12:24:30.955944+00:00",
+    "http_status": 200,
+    "content_type": "text/html",
+    "file": "shfe_2026_holiday.html",
+    "sha256": "cc78678ea7e1414b5c6623051e81f33ccf9707813464ed8674c25b8ade15c483",
+    "bytes": 130049,
+    "status": "RETRIEVED_BYTES_CONTENT_REVIEW_SEPARATE",
+    "path": "sources/office_shfe_2026_holiday.html",
+    "original_path": "/home/elfbob/claude-code/data_manager/findings/2026-10-14-office-final-continuation/official-sources/shfe_2026_holiday.html",
+    "representation": "original_response_bytes",
+    "copied_at": "2026-10-16T01:24:48.081967+00:00",
+    "archive_path": "sources/office_shfe_2026_holiday.html.gz"
+  },
+  {
+    "source_id": "ine_2026_holiday",
+    "url": "https://www.shfe.com.cn/publicnotice/notice/202609/t20260921_833507.html",
+    "retrieved_at": "2026-10-14T12:24:37.824971+00:00",
+    "http_status": 200,
+    "content_type": "text/html",
+    "file": "ine_2026_holiday.html",
+    "sha256": "9943d884e6d4732ddd456358d7281271b09fdbc56fb1f48a408dbaad8068741c",
+    "bytes": 123472,
+    "status": "RETRIEVED_BYTES_CONTENT_REVIEW_SEPARATE",
+    "path": "sources/office_ine_2026_holiday.html",
+    "original_path": "/home/elfbob/claude-code/data_manager/findings/2026-10-14-office-final-continuation/official-sources/ine_2026_holiday.html",
+    "representation": "original_response_bytes",
+    "copied_at": "2026-10-16T01:24:48.081967+00:00",
+    "archive_path": "sources/office_ine_2026_holiday.html.gz"
+  },
+  {
+    "name": "czce-202606-fees",
+    "url": "https://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2026/6/b4badd9ad3654d43a79ed8577f247ace.htm",
+    "final_url": "https://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2026/6/b4badd9ad3654d43a79ed8577f247ace.htm",
+    "expected_text_found": true,
+    "sha256": "7ccf031fc0845dfff9529c0b0c1a0d936059821d9b33d9acc6c1ee6245accbb9",
+    "bytes": 448043,
+    "navigation_error": null,
+    "checked_at": "2026-09-21T04:41:43.385929+00:00",
+    "path": "sources/office_czce-202606-fees.html",
+    "original_path": "/home/elfbob/claude-code/data_manager/findings/2026-09-20-stock-exchange-direct-sources/followup-rule-evidence/czce-202606-fees.html",
+    "representation": "office_browser_rendered_original_page",
+    "copied_at": "2026-10-16T01:24:48.081967+00:00",
+    "archive_path": "sources/office_czce-202606-fees.html.gz"
+  },
+  {
+    "name": "dce-202502-fees",
+    "url": "http://www.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/8629983/index.html",
+    "final_url": "http://www.dce.com.cn/dalianshangpin/ywfw/jystz/ywtz/8629983/index.html",
+    "expected_text_found": true,
+    "sha256": "86beb8e1be77d09cc0b34557b704a05b2afd62181bc3f474c6d5fb256bd15b29",
+    "bytes": 52059,
+    "navigation_error": null,
+    "checked_at": "2026-09-21T04:42:01.249806+00:00",
+    "path": "sources/office_dce-202502-fees.html",
+    "original_path": "/home/elfbob/claude-code/data_manager/findings/2026-09-20-stock-exchange-direct-sources/followup-rule-evidence/dce-202502-fees.html",
+    "representation": "office_browser_rendered_original_page",
+    "copied_at": "2026-10-16T01:24:48.081967+00:00",
+    "archive_path": "sources/office_dce-202502-fees.html.gz"
+  }
+]
