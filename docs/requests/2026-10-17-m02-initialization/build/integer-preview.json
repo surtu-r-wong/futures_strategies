@@ -1,0 +1,550 @@
+{
+  "note": "PREVIEW ONLY: lots as if built at 2026-10-16 settlement prices; the real build uses D-day 09:30 first-minute-bar open prices",
+  "nav_cny": 100000000.0,
+  "nonzero_contracts": 65,
+  "zero_lot_contracts": [
+    "AU2612.SHF",
+    "PB2612.SHF"
+  ],
+  "preview_gross_notional": 226696055.0,
+  "preview_margin": 26668600.25,
+  "preview_margin_ratio": 0.2666860025,
+  "contracts": {
+    "A2701.DCE": {
+      "weight": -0.0342696164907662,
+      "settle_2026_10_16": 5422.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": -63,
+      "preview_notional": 3415860.0
+    },
+    "AD2612.SHF": {
+      "weight": 0.0342696164907662,
+      "settle_2026_10_16": 22780.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.12,
+      "preview_lots": 15,
+      "preview_notional": 3417000.0
+    },
+    "AG2612.SHF": {
+      "weight": -0.018142738142170343,
+      "settle_2026_10_16": 13889.0,
+      "multiplier": 15.0,
+      "margin_rate": 0.24,
+      "preview_lots": -9,
+      "preview_notional": 1875015.0
+    },
+    "AL2611.SHF": {
+      "weight": 0.020158597935744826,
+      "settle_2026_10_16": 23185.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.13,
+      "preview_lots": 17,
+      "preview_notional": 1970725.0
+    },
+    "AO2701.SHF": {
+      "weight": -0.020158597935744826,
+      "settle_2026_10_16": 2613.0,
+      "multiplier": 20.0,
+      "margin_rate": 0.13,
+      "preview_lots": -39,
+      "preview_notional": 2038140.0
+    },
+    "AP2701.CZC": {
+      "weight": 0.056444074220085516,
+      "settle_2026_10_16": 6096.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.11,
+      "preview_lots": 93,
+      "preview_notional": 5669280.0
+    },
+    "AU2612.SHF": {
+      "weight": -0.004031719587148965,
+      "settle_2026_10_16": 898.8,
+      "multiplier": 1000.0,
+      "margin_rate": 0.18,
+      "preview_lots": 0,
+      "preview_notional": 0.0
+    },
+    "B2611.DCE": {
+      "weight": -0.056444074220085516,
+      "settle_2026_10_16": 3992.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": -141,
+      "preview_notional": 5628720.0
+    },
+    "BC2611.INE": {
+      "weight": -0.022174457729319308,
+      "settle_2026_10_16": 97580.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.13,
+      "preview_lots": -5,
+      "preview_notional": 2439500.0
+    },
+    "BR2612.SHF": {
+      "weight": -0.044348915458638616,
+      "settle_2026_10_16": 15975.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.14,
+      "preview_lots": -56,
+      "preview_notional": 4473000.0
+    },
+    "BU2701.SHF": {
+      "weight": 0.03830133607791517,
+      "settle_2026_10_16": 4470.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.16,
+      "preview_lots": 86,
+      "preview_notional": 3844200.0
+    },
+    "BZ2611.DCE": {
+      "weight": 0.05039649483936206,
+      "settle_2026_10_16": 9358.0,
+      "multiplier": 30.0,
+      "margin_rate": 0.09,
+      "preview_lots": 18,
+      "preview_notional": 5053320.0
+    },
+    "C2701.DCE": {
+      "weight": -0.03023789690361724,
+      "settle_2026_10_16": 2207.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": -137,
+      "preview_notional": 3023590.0
+    },
+    "CF2701.CZC": {
+      "weight": -0.014111018555021379,
+      "settle_2026_10_16": 15880.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": -18,
+      "preview_notional": 1429200.0
+    },
+    "CJ2701.CZC": {
+      "weight": -0.05039649483936206,
+      "settle_2026_10_16": 6435.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.1,
+      "preview_lots": -157,
+      "preview_notional": 5051475.0
+    },
+    "CS2611.DCE": {
+      "weight": -0.03830133607791517,
+      "settle_2026_10_16": 2441.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.08,
+      "preview_lots": -157,
+      "preview_notional": 3832370.0
+    },
+    "CU2611.SHF": {
+      "weight": 0.01612687834859586,
+      "settle_2026_10_16": 109450.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.13,
+      "preview_lots": 3,
+      "preview_notional": 1641750.0
+    },
+    "EB2611.DCE": {
+      "weight": 0.004031719587148965,
+      "settle_2026_10_16": 10264.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": 8,
+      "preview_notional": 410560.0
+    },
+    "EC2611.INE": {
+      "weight": 0.06450751339438345,
+      "settle_2026_10_16": 2754.0,
+      "multiplier": 50.0,
+      "margin_rate": 0.19,
+      "preview_lots": 47,
+      "preview_notional": 6471900.0
+    },
+    "EG2611.DCE": {
+      "weight": 0.06249165360080896,
+      "settle_2026_10_16": 5207.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.11,
+      "preview_lots": 120,
+      "preview_notional": 6248400.0
+    },
+    "FG2701.CZC": {
+      "weight": 0.03628547628434069,
+      "settle_2026_10_16": 861.0,
+      "multiplier": 20.0,
+      "margin_rate": 0.11,
+      "preview_lots": 211,
+      "preview_notional": 3633420.0
+    },
+    "FU2701.SHF": {
+      "weight": 0.06652337318795792,
+      "settle_2026_10_16": 4770.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.2,
+      "preview_lots": 139,
+      "preview_notional": 6630300.0
+    },
+    "HC2701.SHF": {
+      "weight": -0.012095158761446895,
+      "settle_2026_10_16": 3239.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": -37,
+      "preview_notional": 1198430.0
+    },
+    "I2701.DCE": {
+      "weight": 0.014111018555021379,
+      "settle_2026_10_16": 674.0,
+      "multiplier": 100.0,
+      "margin_rate": 0.1,
+      "preview_lots": 21,
+      "preview_notional": 1415400.0
+    },
+    "J2701.DCE": {
+      "weight": -0.0060475793807234475,
+      "settle_2026_10_16": 1975.0,
+      "multiplier": 100.0,
+      "margin_rate": 0.14,
+      "preview_lots": -3,
+      "preview_notional": 592500.0
+    },
+    "JD2612.DCE": {
+      "weight": 0.052412354632936545,
+      "settle_2026_10_16": 3351.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": 156,
+      "preview_notional": 5227560.0
+    },
+    "JM2701.DCE": {
+      "weight": 0.05442821442651103,
+      "settle_2026_10_16": 1485.5,
+      "multiplier": 60.0,
+      "margin_rate": 0.14,
+      "preview_lots": 61,
+      "preview_notional": 5436930.0
+    },
+    "L2701.DCE": {
+      "weight": 0.04838063504578758,
+      "settle_2026_10_16": 8725.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": 111,
+      "preview_notional": 4842375.0
+    },
+    "LC2701.GFE": {
+      "weight": -0.03628547628434069,
+      "settle_2026_10_16": 99080.0,
+      "multiplier": 1.0,
+      "margin_rate": 0.17,
+      "preview_lots": -37,
+      "preview_notional": 3665960.0
+    },
+    "LH2701.DCE": {
+      "weight": -0.052412354632936545,
+      "settle_2026_10_16": 10475.0,
+      "multiplier": 16.0,
+      "margin_rate": 0.1,
+      "preview_lots": -31,
+      "preview_notional": 5195600.0
+    },
+    "LU2612.INE": {
+      "weight": 0.044348915458638616,
+      "settle_2026_10_16": 5894.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.2,
+      "preview_lots": 75,
+      "preview_notional": 4420500.0
+    },
+    "M2701.DCE": {
+      "weight": 0.010079298967872413,
+      "settle_2026_10_16": 3299.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": 31,
+      "preview_notional": 1022690.0
+    },
+    "MA2701.CZC": {
+      "weight": 0.058459934013659995,
+      "settle_2026_10_16": 3187.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": 183,
+      "preview_notional": 5832210.0
+    },
+    "NI2612.SHF": {
+      "weight": 0.0020158597935744827,
+      "settle_2026_10_16": 115430.0,
+      "multiplier": 1.0,
+      "margin_rate": 0.14,
+      "preview_lots": 2,
+      "preview_notional": 230860.0
+    },
+    "NR2612.INE": {
+      "weight": -0.04838063504578758,
+      "settle_2026_10_16": 16920.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.11,
+      "preview_lots": -29,
+      "preview_notional": 4906800.0
+    },
+    "OI2701.CZC": {
+      "weight": 0.028222037110042758,
+      "settle_2026_10_16": 10311.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": 27,
+      "preview_notional": 2783970.0
+    },
+    "OP2612.SHF": {
+      "weight": 0.0060475793807234475,
+      "settle_2026_10_16": 3706.0,
+      "multiplier": 40.0,
+      "margin_rate": 0.09,
+      "preview_lots": 4,
+      "preview_notional": 592960.0
+    },
+    "P2701.DCE": {
+      "weight": -0.06652337318795792,
+      "settle_2026_10_16": 9418.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.1,
+      "preview_lots": -71,
+      "preview_notional": 6686780.0
+    },
+    "PB2612.SHF": {
+      "weight": 0.0,
+      "settle_2026_10_16": 16095.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.13,
+      "preview_lots": 0,
+      "preview_notional": 0.0
+    },
+    "PD2612.GFE": {
+      "weight": -0.02419031752289379,
+      "settle_2026_10_16": 269.05,
+      "multiplier": 1000.0,
+      "margin_rate": 0.16,
+      "preview_lots": -9,
+      "preview_notional": 2421450.0000000005
+    },
+    "PF2612.CZC": {
+      "weight": 0.03023789690361724,
+      "settle_2026_10_16": 8226.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": 74,
+      "preview_notional": 3043620.0
+    },
+    "PG2612.DCE": {
+      "weight": -0.058459934013659995,
+      "settle_2026_10_16": 7186.0,
+      "multiplier": 20.0,
+      "margin_rate": 0.13,
+      "preview_lots": -41,
+      "preview_notional": 5892520.0
+    },
+    "PK2612.CZC": {
+      "weight": -0.05442821442651103,
+      "settle_2026_10_16": 7876.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": -138,
+      "preview_notional": 5434440.0
+    },
+    "PL2612.CZC": {
+      "weight": 0.03225375669719172,
+      "settle_2026_10_16": 9583.0,
+      "multiplier": 20.0,
+      "margin_rate": 0.09,
+      "preview_lots": 17,
+      "preview_notional": 3258220.0
+    },
+    "PP2701.DCE": {
+      "weight": 0.06047579380723448,
+      "settle_2026_10_16": 9382.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": 129,
+      "preview_notional": 6051390.0
+    },
+    "PR2612.CZC": {
+      "weight": 0.04233305566506414,
+      "settle_2026_10_16": 8138.0,
+      "multiplier": 15.0,
+      "margin_rate": 0.09,
+      "preview_lots": 35,
+      "preview_notional": 4272450.0
+    },
+    "PS2611.GFE": {
+      "weight": -0.06450751339438345,
+      "settle_2026_10_16": 34265.0,
+      "multiplier": 3.0,
+      "margin_rate": 0.15,
+      "preview_lots": -63,
+      "preview_notional": 6476085.0
+    },
+    "PT2612.GFE": {
+      "weight": -0.03225375669719172,
+      "settle_2026_10_16": 398.2,
+      "multiplier": 1000.0,
+      "margin_rate": 0.16,
+      "preview_lots": -8,
+      "preview_notional": 3185600.0
+    },
+    "PX2612.CZC": {
+      "weight": 0.022174457729319308,
+      "settle_2026_10_16": 9424.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": 47,
+      "preview_notional": 2214640.0
+    },
+    "RB2701.SHF": {
+      "weight": -0.00806343917429793,
+      "settle_2026_10_16": 3072.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": -26,
+      "preview_notional": 798720.0
+    },
+    "RM2701.CZC": {
+      "weight": 0.026206177316468272,
+      "settle_2026_10_16": 2345.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": 112,
+      "preview_notional": 2626400.0
+    },
+    "RU2701.SHF": {
+      "weight": -0.046364775252213095,
+      "settle_2026_10_16": 19905.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.11,
+      "preview_lots": -23,
+      "preview_notional": 4578150.0
+    },
+    "SA2701.CZC": {
+      "weight": -0.04031719587148965,
+      "settle_2026_10_16": 940.0,
+      "multiplier": 20.0,
+      "margin_rate": 0.1,
+      "preview_lots": -214,
+      "preview_notional": 4023200.0
+    },
+    "SC2612.INE": {
+      "weight": -0.06249165360080896,
+      "settle_2026_10_16": 723.0,
+      "multiplier": 1000.0,
+      "margin_rate": 0.2,
+      "preview_lots": -9,
+      "preview_notional": 6507000.0
+    },
+    "SF2701.CZC": {
+      "weight": 0.04031719587148965,
+      "settle_2026_10_16": 5892.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": 137,
+      "preview_notional": 4036020.0
+    },
+    "SH2701.CZC": {
+      "weight": 0.046364775252213095,
+      "settle_2026_10_16": 1735.0,
+      "multiplier": 30.0,
+      "margin_rate": 0.1,
+      "preview_lots": 89,
+      "preview_notional": 4632450.0
+    },
+    "SI2612.GFE": {
+      "weight": -0.010079298967872413,
+      "settle_2026_10_16": 8890.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.12,
+      "preview_lots": -23,
+      "preview_notional": 1022350.0
+    },
+    "SM2701.CZC": {
+      "weight": 0.012095158761446895,
+      "settle_2026_10_16": 5824.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": 42,
+      "preview_notional": 1223040.0
+    },
+    "SN2611.SHF": {
+      "weight": -0.0020158597935744827,
+      "settle_2026_10_16": 377370.0,
+      "multiplier": 1.0,
+      "margin_rate": 0.16,
+      "preview_lots": -1,
+      "preview_notional": 377370.0
+    },
+    "SP2701.SHF": {
+      "weight": 0.02419031752289379,
+      "settle_2026_10_16": 4770.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": 51,
+      "preview_notional": 2432700.0
+    },
+    "SR2701.CZC": {
+      "weight": -0.01612687834859586,
+      "settle_2026_10_16": 5405.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.08,
+      "preview_lots": -30,
+      "preview_notional": 1621500.0
+    },
+    "SS2612.SHF": {
+      "weight": -0.026206177316468272,
+      "settle_2026_10_16": 13210.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": -40,
+      "preview_notional": 2642000.0
+    },
+    "TA2701.CZC": {
+      "weight": 0.018142738142170343,
+      "settle_2026_10_16": 6486.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": 56,
+      "preview_notional": 1816080.0
+    },
+    "UR2701.CZC": {
+      "weight": -0.06047579380723448,
+      "settle_2026_10_16": 1670.0,
+      "multiplier": 20.0,
+      "margin_rate": 0.1,
+      "preview_lots": -181,
+      "preview_notional": 6045400.0
+    },
+    "V2701.DCE": {
+      "weight": -0.028222037110042758,
+      "settle_2026_10_16": 4848.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.09,
+      "preview_lots": -116,
+      "preview_notional": 2811840.0
+    },
+    "Y2701.DCE": {
+      "weight": -0.04233305566506414,
+      "settle_2026_10_16": 8834.0,
+      "multiplier": 10.0,
+      "margin_rate": 0.09,
+      "preview_lots": -48,
+      "preview_notional": 4240320.0
+    },
+    "ZN2612.SHF": {
+      "weight": 0.00806343917429793,
+      "settle_2026_10_16": 25395.0,
+      "multiplier": 5.0,
+      "margin_rate": 0.13,
+      "preview_lots": 6,
+      "preview_notional": 761850.0
+    }
+  }
+}

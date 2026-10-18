@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-10-18T13:54:33.629532+00:00",
+  "inputs": {
+    "base_candidate": "docs/requests/2026-10-16-m02-futures-rule-clarification/account.disabled.json",
+    "base_candidate_sha256": "7b84f558ebe1b93630ffc43c78ea06968dd102005675f6afe498842ca7aec4df",
+    "frozen_targets_csv": "docs/requests/2026-10-14-multi-asset-operational-returns/m01-offline-diagnosis-evidence/verification-02/targets.csv",
+    "frozen_targets_csv_sha256": "3ce0759efb9c4a3f2ae105fc864768ab50eeccd0d107ab0b9b9ca260e909f248",
+    "frozen_metadata": "docs/requests/2026-10-14-multi-asset-operational-returns/m01-offline-diagnosis-evidence/verification-02/source-parameters.json",
+    "frozen_metadata_sha256": "fe2730f60fb5b2db2a6afb3189187009bca3917a05ffd00d9baf5470660af657",
+    "available_at_source": "docs/requests/2026-10-16-m02-real-inputs/native-target-inventory.json"
+  },
+  "transformations": [
+    "identity: M02 observation account, real (non-synthetic), initial_at=null",
+    "instruments: margin_rate += 0.02, valid_to -> 2026-12-31",
+    "fee rules: broker = 0.1 x exchange per action (x1.1 total), slippage = 4bp PER_TEN_THOUSAND cost-based, valid_to -> 2026-12-31",
+    "lot_rule = nearest_integer_ties_even (AU2612 -> 0 lots accepted, ruling 8a)",
+    "target_policy pins the frozen 2026-10-15 batch (quantity-hold after D)",
+    "calendar from data_manager.business_calendar CN, 09:30 execution / 15:00 settle"
+  ],
+  "calendar_query_receipt": {
+    "table": "data_manager.business_calendar",
+    "calendar_id": "CN",
+    "queried_at": "2026-10-18T13:54:33.629532+00:00",
+    "row_count": 56,
+    "first": "2026-10-15",
+    "last": "2026-12-31",
+    "trade_days_from_d": 53,
+    "prior_trading_day": "2026-10-19"
+  },
+  "checks": {
+    "base_instruments": 67,
+    "base_rules": 134,
+    "validate_config": "passed",
+    "frozen_batch_roundtrip": "67 rows",
+    "calendar_intervals": 53,
+    "broker_total_ratio": "x1.1 per action (0.1 x exchange leg)",
+    "margin_markup": "+0.02 on every instrument",
+    "slippage": "4 PER_TEN_THOUSAND cost-based per contract"
+  }
+}
