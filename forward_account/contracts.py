@@ -7,7 +7,11 @@ import math
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Asia/Shanghai")
-ENGINE_VERSION = "forward-linear-futures-v1"
+# v2: pinned_batch target policy — first interval builds from a frozen target
+# batch whose signal predates the calendar, later intervals hold quantities and
+# settle mark-to-market without execution quotes. Classic per-day targets keep
+# the v1 semantics; accounts bind the engine fingerprint at initialization.
+ENGINE_VERSION = "forward-linear-futures-v2"
 
 TSINDEX = {
     "near_leg": "near_dominant",
@@ -126,34 +130,33 @@ def require_keys(obj, keys, label, *, exact=True):
 
 
 def validate_config(c, calendar):
-    require_keys(
-        c,
-        (
-            "account_id",
-            "account_version",
-            "adapter",
-            "source_version",
-            "source_parameters",
-            "label",
-            "mode",
-            "currency",
-            "synthetic",
-            "initial_at",
-            "initial_capital",
-            "initial_unit_nav",
-            "fee_model" if "fee_model" in c else "cost_bps",
-            "fee_description",
-            "lot_rule",
-            "cash_rule",
-            "financing_rule",
-            "execution_rule",
-            "valuation_rule",
-            "calendar_id",
-            "calendar_sha256",
-            "instruments",
-        ),
-        "config",
-    )
+    keys = [
+        "account_id",
+        "account_version",
+        "adapter",
+        "source_version",
+        "source_parameters",
+        "label",
+        "mode",
+        "currency",
+        "synthetic",
+        "initial_at",
+        "initial_capital",
+        "initial_unit_nav",
+        "fee_model" if "fee_model" in c else "cost_bps",
+        "fee_description",
+        "lot_rule",
+        "cash_rule",
+        "financing_rule",
+        "execution_rule",
+        "valuation_rule",
+        "calendar_id",
+        "calendar_sha256",
+        "instruments",
+    ]
+    if "target_policy" in c:
+        keys.append("target_policy")
+    require_keys(c, keys, "config")
     for key in (
         "account_id",
         "account_version",
@@ -223,6 +226,42 @@ def validate_config(c, calendar):
         if day(spec["valid_from"]) > day(spec["valid_to"]):
             raise ValueError("invalid instrument validity")
         text(spec["source"], "instrument source")
+    if "target_policy" in c:
+        policy = c["target_policy"]
+        require_keys(policy, ("mode", "pinned"), "target_policy")
+        if policy["mode"] != "pinned_batch":
+            raise ValueError("unsupported target policy")
+        pinned = policy["pinned"]
+        require_keys(
+            pinned,
+            (
+                "csv_sha256",
+                "metadata_sha256",
+                "row_count",
+                "signal_date",
+                "available_at",
+                "source_version",
+                "synthetic",
+            ),
+            "pinned target",
+        )
+        for key in ("csv_sha256", "metadata_sha256"):
+            value = pinned[key]
+            if (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(ch not in "0123456789abcdef" for ch in value)
+            ):
+                raise ValueError("pinned source file SHA-256 required")
+        if type(pinned["row_count"]) is not int or pinned["row_count"] <= 0:
+            raise ValueError("pinned row count must be a positive integer")
+        day(pinned["signal_date"])
+        timestamp(pinned["available_at"])
+        if (
+            pinned["source_version"] != c["source_version"]
+            or pinned["synthetic"] is not c["synthetic"]
+        ):
+            raise ValueError("pinned target must match the account source identity")
     validate_calendar(calendar)
     if c["calendar_id"] != calendar["calendar_id"] or c["calendar_sha256"] != digest(
         calendar

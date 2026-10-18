@@ -48,8 +48,15 @@ def _quotes(quote, kind, at, required, now, synthetic):
 
 
 def calculate(config, prior, interval, packet, *, available_at):
+    pinned = config.get("target_policy")
+    # pinned_batch: once the first build holds contracts, later intervals keep
+    # the fixed quantities and never need an execution quote (settle-to-settle
+    # marks only). An empty first build retries the build on later intervals.
+    holding = pinned is not None and bool(prior["positions"])
     require_keys(
-        packet, ("trade_date", "target", "execution", "settlement"), "interval input"
+        packet,
+        ("trade_date", "target", "settlement") + (() if holding else ("execution",)),
+        "interval input",
     )
     if packet["trade_date"] != interval["trade_date"]:
         raise ValueError("next calendar trade_date required")
@@ -84,14 +91,25 @@ def calculate(config, prior, interval, packet, *, available_at):
             or any(c not in "0123456789abcdef" for c in value)
         ):
             raise ValueError("source file SHA-256 required")
-    if target["signal_date"] != interval["signal_date"]:
-        raise ValueError("target signal_date is not the calendar's prior trading day")
-    if (
-        not timestamp(interval["start_at"])
-        <= timestamp(target["available_at"])
-        <= timestamp(interval["execution_at"])
-    ):
-        raise ValueError("target not available before simulated execution")
+    if pinned is None:
+        if target["signal_date"] != interval["signal_date"]:
+            raise ValueError("target signal_date is not the calendar's prior trading day")
+        if (
+            not timestamp(interval["start_at"])
+            <= timestamp(target["available_at"])
+            <= timestamp(interval["execution_at"])
+        ):
+            raise ValueError("target not available before simulated execution")
+    else:
+        declaration = pinned["pinned"]
+        if (
+            target["csv_sha256"] != declaration["csv_sha256"]
+            or target["metadata_sha256"] != declaration["metadata_sha256"]
+            or target["row_count"] != declaration["row_count"]
+            or target["signal_date"] != declaration["signal_date"]
+            or timestamp(target["available_at"]) != timestamp(declaration["available_at"])
+        ):
+            raise ValueError("target batch does not match the pinned declaration")
     if timestamp(interval["end_at"]) > timestamp(available_at):
         raise ValueError("full valuation interval has not completed")
     if (
@@ -110,91 +128,112 @@ def calculate(config, prior, interval, packet, *, available_at):
         spec = instruments[k]
         if not spec["valid_from"] <= interval["trade_date"] <= spec["valid_to"]:
             raise ValueError("contract specification outside validity")
-    execution = _quotes(
-        packet["execution"],
-        "execution",
-        interval["execution_at"],
-        required,
-        available_at,
-        config["synthetic"],
-    )
     opening_nav = prior["nav"]
-    gap_pnl = _mark(
-        opening_nav,
-        held,
-        prior["prices"],
-        execution,
-        instruments,
-        prior["as_of"],
-        interval["execution_at"],
-    )
-    pretrade_nav = number(opening_nav + gap_pnl, "pretrade NAV", positive=True)
-    quantities = {}
-    for k, weight in weights.items():
-        q = weight * pretrade_nav / (execution[k] * instruments[k]["multiplier"])
-        if config["lot_rule"] == "nearest_integer_ties_even":
-            q = round(q)
-        if q:
-            quantities[k] = number(q, "quantity")
-    position_lots = None
-    fee_matching_state = None
-    if "fee_model" in config:
+    if holding:
+        # No trades are possible: quantities are the held integers, no fees
+        # accrue, and the period PnL runs settlement-to-settlement below.
+        execution = None
+        gap_pnl = 0.0
+        pretrade_nav = opening_nav
+        quantities = {k: v for k, v in held.items() if v}
         position_lots = prior.get("position_lots")
-        if position_lots is not None:
-            for rows in position_lots.values():
-                if any(
-                    timestamp(lot["opened_at"]) > timestamp(prior["as_of"])
-                    for lot in rows
-                ):
-                    raise ValueError("opening evidence later than prior account state")
-        fee_args = (
-            config["fee_model"],
+        fee_matching_state = prior.get("fee_matching_state")
+        trades = []
+    else:
+        execution = _quotes(
+            packet["execution"],
+            "execution",
+            interval["execution_at"],
+            required,
+            available_at,
+            config["synthetic"],
+        )
+        gap_pnl = _mark(
+            opening_nav,
             held,
-            position_lots,
-            quantities,
+            prior["prices"],
             execution,
             instruments,
-            interval["trade_date"],
+            prior["as_of"],
             interval["execution_at"],
-            packet["execution"]["source"],
         )
-        if config["fee_model"]["version"] == MATCHING_VERSION:
-            fee_matching_state = prior.get("fee_matching_state")
-            if fee_matching_state and fee_matching_state["last_at"] is not None:
-                if timestamp(fee_matching_state["last_at"]) > timestamp(prior["as_of"]):
-                    raise ValueError(
-                        "fee matching evidence later than prior account state"
-                    )
-            trades, position_lots, fee_matching_state = account_trades_with_matching(
-                *fee_args, matching_state=fee_matching_state
+        pretrade_nav = number(opening_nav + gap_pnl, "pretrade NAV", positive=True)
+        quantities = {}
+        for k, weight in weights.items():
+            q = weight * pretrade_nav / (execution[k] * instruments[k]["multiplier"])
+            if config["lot_rule"] == "nearest_integer_ties_even":
+                q = round(q)
+            if q:
+                quantities[k] = number(q, "quantity")
+        position_lots = None
+        fee_matching_state = None
+        if "fee_model" in config:
+            position_lots = prior.get("position_lots")
+            if position_lots is not None:
+                for rows in position_lots.values():
+                    if any(
+                        timestamp(lot["opened_at"]) > timestamp(prior["as_of"])
+                        for lot in rows
+                    ):
+                        raise ValueError("opening evidence later than prior account state")
+            fee_args = (
+                config["fee_model"],
+                held,
+                position_lots,
+                quantities,
+                execution,
+                instruments,
+                interval["trade_date"],
+                interval["execution_at"],
+                packet["execution"]["source"],
             )
-        else:
-            trades, position_lots = account_trades(*fee_args)
-    else:
-        trades = []
-        for k in sorted(required):
-            delta = quantities.get(k, 0.0) - held.get(k, 0.0)
-            if delta:
-                notional = abs(delta) * execution[k] * instruments[k]["multiplier"]
-                trades.append(
-                    {
-                        "contract": k,
-                        "quantity_change": delta,
-                        "price": execution[k],
-                        "notional": notional,
-                        "fee": notional * config["cost_bps"] / 10000,
-                    }
+            if config["fee_model"]["version"] == MATCHING_VERSION:
+                fee_matching_state = prior.get("fee_matching_state")
+                if fee_matching_state and fee_matching_state["last_at"] is not None:
+                    if timestamp(fee_matching_state["last_at"]) > timestamp(
+                        prior["as_of"]
+                    ):
+                        raise ValueError(
+                            "fee matching evidence later than prior account state"
+                        )
+                (
+                    trades,
+                    position_lots,
+                    fee_matching_state,
+                ) = account_trades_with_matching(
+                    *fee_args, matching_state=fee_matching_state
                 )
+            else:
+                trades, position_lots = account_trades(*fee_args)
+        else:
+            trades = []
+            for k in sorted(required):
+                delta = quantities.get(k, 0.0) - held.get(k, 0.0)
+                if delta:
+                    notional = abs(delta) * execution[k] * instruments[k]["multiplier"]
+                    trades.append(
+                        {
+                            "contract": k,
+                            "quantity_change": delta,
+                            "price": execution[k],
+                            "notional": notional,
+                            "fee": notional * config["cost_bps"] / 10000,
+                        }
+                    )
     fees = math.fsum(t["fee"] for t in trades)
     nav_after_fee = number(pretrade_nav - fees, "NAV after fees", positive=True)
-    execution_margin = math.fsum(
-        abs(q)
-        * execution[k]
-        * instruments[k]["multiplier"]
-        * instruments[k]["margin_rate"]
-        for k, q in quantities.items()
+    execution_margin = (
+        None
+        if execution is None
+        else math.fsum(
+            abs(q)
+            * execution[k]
+            * instruments[k]["multiplier"]
+            * instruments[k]["margin_rate"]
+            for k, q in quantities.items()
+        )
     )
-    if execution_margin > nav_after_fee:
+    if execution_margin is not None and execution_margin > nav_after_fee:
         raise ValueError("insufficient margin at execution; borrowing unsupported")
     settlement = _quotes(
         packet["settlement"],
@@ -207,10 +246,10 @@ def calculate(config, prior, interval, packet, *, available_at):
     intraday_pnl = _mark(
         nav_after_fee,
         quantities,
-        execution,
+        prior["prices"] if holding else execution,
         settlement,
         instruments,
-        interval["execution_at"],
+        prior["as_of"] if holding else interval["execution_at"],
         interval["end_at"],
     )
     closing_nav = number(nav_after_fee + intraday_pnl, "closing NAV", positive=True)
@@ -273,6 +312,7 @@ def calculate(config, prior, interval, packet, *, available_at):
             "intraday_pnl": intraday_pnl,
             "trades": trades,
             "target_weights": weights,
+            "target_policy": None if pinned is None else pinned["mode"],
             "execution_margin": execution_margin,
             "settlement_rule": config["valuation_rule"],
         },
