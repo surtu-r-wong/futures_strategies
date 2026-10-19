@@ -979,3 +979,19 @@ def test_multiplier_rejects_a_positive_volume_reversed_price_range():
 
     _assert_error(exc_info, "minute_price_range")
     assert exc_info.value.timestamp == frame.loc[1, "bar_time"]
+
+
+def test_vwap_explicit_unknown_open_uses_only_required_fields():
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    slots=tuple(datetime(2026,10,13,9,0,tzinfo=ZoneInfo('Asia/Shanghai'))+timedelta(minutes=i) for i in range(5))
+    frame=pd.DataFrame([dict(bar_time=t,symbol='PP2703',open=None,high=12.,low=9.,close=10.,volume=2.,amount=100.) for t in slots])
+    with pytest.raises(MinuteDataError):
+        five_minute_vwap(frame,slots=slots,contract='PP2703',multiplier=5)
+    fill=five_minute_vwap(frame,slots=slots,contract='PP2703',multiplier=5,allow_unknown_open=True)
+    assert fill.price==10. and fill.volume==10. and frame.open.isna().all()
+    with pytest.raises(MinuteDataError):
+        aggregate_fifteen_minute_bar(frame,slots=slots,contract='PP2703')
+    frame.loc[0,'high']=float('nan')
+    with pytest.raises(MinuteDataError):
+        five_minute_vwap(frame,slots=slots,contract='PP2703',multiplier=5,allow_unknown_open=True)

@@ -420,6 +420,7 @@ def _bound_rows(
     slots: Sequence[datetime],
     contract: str,
     required_count: int | None = None,
+    require_open: bool = True,
 ) -> tuple[
     pd.DataFrame,
     tuple[datetime, ...],
@@ -526,7 +527,7 @@ def _bound_rows(
     invalid_fields = tuple(
         column
         for column in _POSITIVE_VOLUME_COLUMNS
-        if (
+        if (column != "open" or require_open) and (
             positive
             & ~pd.Series(
                 np.isfinite(working[column].to_numpy(dtype=float)),
@@ -990,12 +991,16 @@ def five_minute_vwap(
     contract: str,
     multiplier: int,
     pricing_basis: str = "amount_vwap",
+    allow_unknown_open: bool = False,
 ) -> VwapFill:
+    # Explicit research opt-in: neither supported pricing basis uses open.
+    # Slot authority and finite high/low/close/amount/volume checks still apply.
     ordered, slot_values, clock, missing_slot_times = _bound_rows(
         frame,
         slots=slots,
         contract=contract,
         required_count=5,
+        require_open=not allow_unknown_open,
     )
     if type(multiplier) is not int or multiplier <= 0:
         raise _minute_error(
