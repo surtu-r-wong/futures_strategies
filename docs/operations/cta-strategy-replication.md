@@ -9,7 +9,10 @@
 
 ## 数据口径
 
-CTA 模块默认读取 PostgreSQL `public` schema：`continuous_contract_ohlc`、`spot_prices`、`inventory`。默认排除股指与国债期货（`IF`、`IC`、`IH`、`IM`、`T`、`TF`、`TL`、`TS`），需要纳入时加 `--include-financial`。也保留目录型离线数据源，目录中必须包含：
+CTA 价格读取 PostgreSQL `public.continuous_contract_ohlc`；六因子默认读取
+`commodity_research` 已发布的 conservative build，量价路径不查基本面。
+`public.spot_prices` / `inventory` 仅供显式选择的 `legacy` 诊断路径。
+默认排除股指与国债期货（`IF`、`IC`、`IH`、`IM`、`T`、`TF`、`TL`、`TS`），需要纳入时加 `--include-financial`。也保留目录型离线数据源，目录中必须包含：
 
 `prices.csv`
 
@@ -35,7 +38,10 @@ CTA 模块默认读取 PostgreSQL `public` schema：`continuous_contract_ohlc`�
 | `warehouse_receipt` | 仓单，当前预留 |
 | `profit` | 产业利润 |
 
-public schema 映射：`continuous_contract_ohlc.base_symbol -> symbol`，`open_fa/close_fa` 优先作为连续复权价格，`volume` 用于量价相关性，`spot_prices.spot_price` 聚合为现货，`inventory.inventory_value` 聚合为库存。当前数据库里 `spot_prices` 与 `inventory` 只覆盖 `M`，未发现利润字段；利润因子在没有数据的品种上会自然降级为 0 权重贡献。
+价格映射：`continuous_contract_ohlc.base_symbol -> symbol`，`open_fa/close_fa` 优先作为连续复权价格，`volume` 用于量价相关性。
+标准基本面包含现货、未复权基差、库存与利润，缺失时先过覆盖闸，不能把零权重当作覆盖合格。
+旧 `legacy` 表曾只覆盖 M，不代表当前标准路径覆盖。完整契约见
+[`../cta-fundamentals.md`](../cta-fundamentals.md)。
 
 离线文件模式下，上游数据层应先完成主力/次主力合约映射、复权或换月处理。策略层只消费品种级连续序列。
 
@@ -55,10 +61,12 @@ public schema 映射：`continuous_contract_ohlc.base_symbol -> symbol`，`open_
 ```bash
 .venv/bin/python -m cta_gtja \
   --source public-pg \
+  --factor-set six_factor \
+  --fundamentals-source standard \
   --strategy both \
   --start 2019-01-01 \
   --end 2025-09-30 \
-  --symbols M,RB,CU,AL
+  --symbols M,RB,CU,AL,TA,PP,MA,BU,RU
 ```
 
 输出：
@@ -72,13 +80,13 @@ Excel 包含 `metrics`、`period_returns`、`weights`、`factor_allocations`、`
 
 ## 价格/量价 guarded smoke
 
-在上游连续合约复权根因修复前，优先跑价格/量价 guarded smoke。该路径只启用
+量价 guarded 路径用于独立研究或六因子的同品种对照。该路径只启用
 `long_rule_momentum`、`long_cross_momentum`、`price_volume_corr` 三个因子，并按
 `cta_gtja.data_quality` 的 per-symbol 判定选择 `fa` 或 `ba` 价格线；两条复权线都坏的品种默认剔除。
 
 上游 continuous 修复后，`ba_factor` 与 `fa_factor` 表示乘法复权因子，不再表示绝对价差偏移。
-重算前必须确认 pi 上 `continuous_config.yaml` 指向的数据库是 CTA 要读取的目标库。全量重算会先按
-`base_symbol` 与 `rule_type` 清理旧连续合约、主力与换月记录，避免有效生成区间之外的历史脏行残留。
+本仓消费已发布价格；共享库修复、重算按 09-28 章程先向办公室提交请求函，不能依据旧 runbook
+直接清理或重生成上游数据。
 
 ```bash
 .venv/bin/python -m cta_gtja \

@@ -15,17 +15,18 @@
 - `cta_gtja/` — 国君六因子 CTA 因子组合复刻（原 `stock_selector/cta/`，复刻计划见 `docs/plans/2026-05-31-cta-strategy-replication-plan.md`）
 - `cta_carry/` — 国信 Carry 商品期货日线研究版（分合约期限结构 + 动量缩量缩仓过滤 + 吊灯止损）
 - `cta_bollinger/` — 国信 Bollinger 通道商品期货 15 分钟复刻（指标 / 状态机 / 影子筛选 /
-  组合回测 / 报告 / CLI 已实现；全历史验收待面板 bundle）
+  组合回测 / 报告 / CLI 已实现；2026-09-02 完成全历史验收）
 - `cta_dow/` — 国信道氏理论商品期货 15 分钟复刻（累计 MACD 趋势段 / 拐点修正 /
-  道氏共振入场 / 当前持仓等权 / 报告 / CLI 已实现；全历史验收待面板 bundle）
+  道氏共振入场 / 当前持仓等权 / 报告 / CLI 已实现；2026-09-02 完成全历史验收，09-15 更新登记读法并重跑）
 - `index_open_momentum/` — 国信开盘动量股指期货日内复刻（**48/48 checkbox、端到端跑通，
-  但未做全历史真跑**；计划见
+  全历史已跑完，样本外为负**；计划见
   `docs/superpowers/plans/2026-07-09-guosen-open-momentum.md`；进度以
   `docs/ROADMAP.md`「股指期货」段为准）
 - `common/minute/` — 版本化交易时段 / 分钟 bar 校验与聚合 / 有界 PG 访问 /
   逐事件计价账户。商品 Carry 与股指两条线共用，市场特性走 `SessionRuleset` 传入
-- `common/commodity/` — 商品流动性池、主力链与后复权、15 分钟面板、月度筛选/
-  组合和报告原语；`cta_continuous` 保留兼容导出
+- `common/commodity/` — Bollinger/道氏使用的商品流动性池、主力链与后复权、15 分钟面板、月度筛选/
+  组合和报告原语；`cta_continuous` 的主力链与面板仍保留独立实现（09-09 合并裁定）
+- `citic_index/` — 中信策略指数复刻与 027 每日出单；复刻使用结算价收益，生产使用收盘价收益，均为 T+1 成交
 - `docs/plans|operations|specs/` — 随迁的计划 / runbook / 设计文档
 
 ## 数据源
@@ -34,10 +35,10 @@
 `continuous_contract_ohlc`（主力连续，raw/ba/fa 三线 + 数据质量审计）、`spot_prices`、`inventory`。上游生产链是
 data-collecter + 连续合约生成器（用户领域，已归档 `~/claude-code/_archive/2026H1_root_scripts/continuous/`）。
 
-⚠️ 截至 2026-07-13 的已知停摆（见 `market-monitor/DATABASE_INVENTORY.md`）：`futures_daily`
-与 `continuous_contract_ohlc` 的 `standard`/`nanhua` 两套规则均冻结在 2026-04-29，连续合约已追平
-分合约行情，但整个 EOD 日更链仍停摆。历史回测可显式截止 2026-04-29，且不受 `--strict` 扫描影响；
-需要覆盖后续区间或投入调度/实盘前，需先恢复上游日更。
+日线 EOD 日更已恢复（2026-09-15 核验）；运行截止日应按实际交易所覆盖现算，不能沿用
+历史停摆日 2026-04-29。商品分钟时段资产仍止于 2026-01-30，日线恢复不代表分钟面板已延伸。
+六因子使用 `commodity_research` 已发布的 conservative build；上游 09-29 恢复完整构建与日更，
+09-30 首轮验收通过。操作与证据见 [`docs/cta-fundamentals.md`](docs/cta-fundamentals.md)。
 
 ## 配置
 
@@ -60,7 +61,7 @@ runbook：`docs/operations/cta-strategy-replication.md`
 
 `scripts/commodity/build_panel.py` 将一次 PG 取数固化为版本化 bundle：`bars`、
 `universes`、`dominants`、`roll_fills` 四张 Parquet 表和一个逐表 SHA-256 的
-`manifest.json`，供连续信号以及后续 Bollinger/道氏策略复用。bundle 中 OHLC、
+`manifest.json`，供 Bollinger/道氏策略复用。连续信号仍使用自己的构建器，不能假定两套接口等价。bundle 中 OHLC、
 普通成交价和换月两腿成交价均为具体合约原始价格；策略只在计算信号时把
 `adj_factor` 应用一次。
 
@@ -122,9 +123,9 @@ runbook：`docs/operations/carry-daily-research.md`（含成本假设依据与�
 产出 `<prefix>.xlsx`（七张表）/ `.png`（净值图，标出 2021-05-13 那一刀）/
 `.audit.json`（**`EXPLAIN` 产物存档** + 乘数出处 + 分段指标）。
 
-⚠️ **当前可跑区间 2010-04-16 ~ 2026-04-29**：`futures_daily` 的连续覆盖到此为止，
-其后的主力通路（名单取 `futures_contract_info`、量取 `futures_minute`）尚未接线，
-CLI 走到那条会显式报错而非静默降级。
+⚠️ **CLI 当前可跑区间 2010-04-16 ~ 2026-04-29**。日期分流仍硬编码旧日线边界；
+更晚区间会被拒绝或进入尚未接线的备用主力通路（名单取 `futures_contract_info`、量取
+`futures_minute`）。延伸前须重验股指日线/分钟覆盖并更新 CLI 边界，不能把代码常量当作当前数据库事实。
 
 ⛔ **样本外必须单独看**：研报日期 2021-05-13 ⇒ 其样本止于 2021。报告的 `metrics` 表
 逐段一行（`full` / `in_sample` / `out_of_sample`），不给合并数。本仓已在国信 Carry
@@ -159,8 +160,8 @@ runbook（含全部 11 条复刻假设与取数边界）：`docs/operations/guos
 
 `cta_dow/` 复刻国信《CTA 系列专题之四：基于道氏理论的商品期货交易策略》（研报日期
 2022-08-09）。累计 MACD 距离越过 ±ATR 切换初步趋势并划段，段内维护最高/最低价；
-多头需要初步趋势向上、本段回撤未跌破前低、低点在抬高、且收盘突破**本 bar 纳入极值
-之前**的临时极值。入场后锁存，持有到趋势切换或拐点失效；拐点失效只平仓不反手。
+多头需要初步趋势向上、本段回撤未跌破前低、低点在抬高、且收盘突破第一高点
+（`prior_extreme`，2026-09-15 裁决后的默认读法）。入场后锁存，持有到趋势切换或拐点失效；拐点失效只平仓不反手。
 资金只在当前实际持仓品种间等分，组合按月调到 15% 年化波动。
 
 ```bash

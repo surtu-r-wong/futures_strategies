@@ -7,6 +7,13 @@
 本文档是 CTA 六因子策略消费 **已发布 conservative 基本面构建（published conservative build）**
 的操作契约。它描述命令、口径、闸门与报告字段；它 **不** 认证任何一次运行的收益结果。
 
+更新：2026-10-08。标准通路已于 08-18 完成全历史端到端验收；办公室 09-29 恢复完整构建与日更，
+09-30 首轮验收通过。本文原来的「无 build / EOD 停摆 / 固定止于 04-29」状态已失效。
+10-08 实际只读选中的最新 build 覆盖到 09-30，共 86,703 行；
+来源质量问题及后续请求见 [本次核查](research/2026-10-08-fundamental-data-quality.md)。
+换源范围按 08-26/27 已有计划执行：九品种现货、库存、利润全量重填，并接续发布日历版工具；
+实现分支与工作簿见 [接续记录](research/2026-10-08-fundamental-full-refresh-scope.md)。
+
 ---
 
 ## 1. 数据源选择（`--fundamentals-source`）
@@ -45,9 +52,10 @@ PILOT_FUNDAMENTAL_SYMBOLS = ("M", "RB", "CU", "AL", "TA", "PP", "MA", "BU", "RU"
 | 检查 | 口径 | 失败信息 |
 |---|---|---|
 | `daily_fundamental` | 每个交易日、每个 metric（`basis_rate`/`inventory`/`profit`）至少 **6/9** 个品种有有限值 | `2020-01-02 basis_rate coverage=5 required=6` |
-| `inventory_sides` | 库存因子分数至少 2 个多头候选（`>0`）与 2 个空头候选（`<0`）；从第一个"至少 4 个有限分数"的日期起评估（保留 warm-up，不豁免其后的失败） | `2020-01-02 inventory long=1 short=3 required_each=2` |
+| `inventory_sides` | 检查去均值后的实际信号，两侧各至少 2 个候选；不足时当日库存腿停用并记录 `flat`，不终止整个回测 | 审计保留两侧数量及原因 |
 
 - 统计的是 **有限值**（`np.isfinite`），不是"非 null 对象"。
+- `daily_fundamental` 仅豁免当前 build 的 `absence_slices`，标为 `waived`；不按旧文档猜缺失日期。
 - `enforce=True` 是默认值，抛 `FundamentalCoverageError`，策略层 **不捕获** —— CLI 带着精确原因终止。
 - `enforce_coverage=False` 只是合成 fixture 的逃生口：同样产出 `status="fail"` 的审计行与确定性
   `reason` 字符串，但不抛异常。它 **不是** 一种运行分级（run class），报告里也不会因此打任何"合格"戳。
@@ -90,6 +98,7 @@ cd /home/elfbob/claude-code/futures_strategies
   --source public-pg \
   --factor-set price_volume \
   --fundamentals-source none \
+  --symbols M,RB,CU,AL,TA,PP,MA,BU,RU \
   --strategy both \
   --start 2019-01-01 \
   --end 2025-09-30 \
@@ -124,68 +133,33 @@ fundamental_coverage: rows=<n> failed=0 minimum=6
 量价对照组只有 `fundamental_build` 一张，且 `source="none"` —— 它不查、也不宣称任何 build。
 `fundamental_build` 里 **不放** JSON 血统字典。
 
-## 7. ⚠️ 解释边界（在 PENDING 解除并完成 formal run 认证之前一直有效）
+## 7. 解释边界与数据维护
 
-这些是 **数据通路比较运行**，不是策略证据：
+08-18 已发布 build 的结果是同窗口研究证据，不是可交易性认证。尚未做样本外切分与成本敏感性，
+六因子换手约为量价对照的两倍；研报收益与夏普不是数据修复的验收目标。
+保留 PIT、未复权基差、覆盖闸和血统记录，不通过放宽陈旧度或静默填充改善覆盖。
 
-- 其收益序列尚不可作为可信的策略结论；
-- 研报的 Sharpe `2.43`、年化 `17.14%`、持仓周期等数字 **不是验收目标** —— 现在不是，
-  上游修复之后也不是；
-- 本工作的验收口径是：PIT 隔离已证明、基差用未复权价、覆盖度强制执行、可复现、
-  每份报告都带血统。
+日线已恢复，build 的可用区间应从消费者实际选中的 complete conservative 版本查询，
+并与价格覆盖取交集；不能再把 2026-04-29 写死为运行上界。
+既有基本面日更继续运行。替换源、回填、公式升级或重建需按 09-28 章程先写请求函到
+`/home/elfbob/claude-code/data_manager/requests/`，由办公室受理并核算 Wind 批次额度。
+旧的运行认证链和已停止的受控落库路线不属于本次质量工作。
 
-在上游价格复权修复落地、且用户把 CTA 提升为月度使用之前，**不存在"正式运行"（formal run）**。
-运行分级 / 认证链是被显式 deferred 的（见计划文末 Deferred 段）。
+## 8. 已完成的运行证据
 
-### 7.1 上游实测状态（2026-08-05）
+08-18 基线：`conservative-20260818T060911Z-622e88840fa3`，catalog v1，
+2016-01-04..2026-04-29，82,943 行；两条六因子运行均为
+`fundamental_coverage: rows=9980 failed=0`。同九品种、1 bp 成本：
 
-| 项 | 状态 |
-|---|---|
-| pi 比例复权生成器 | ✅ 已落地（`ratio = new_close / old_close`，乘性累乘，带非有限/非正防护） |
-| 连续合约重生成 | ⚠️ 部分：`standard` 74/79、`nanhua` 75/79 |
-| 未重生成品种 | `ZC` `WR` `FU` `OI` `BR` —— **均不属九品种试点** |
-| 九品种试点价格 | ✅ 2019-01-01 ~ 2025-09-30 窗口内 9/9 `status=ok`、`selected_adj=fa`、无需 raw fallback |
-| EOD 日更链 | ❌ 仍停摆：`futures_daily` / `continuous_contract_ohlc` 止于 **2026-04-29** |
-| `spot_prices` / `inventory`（legacy 表） | ❌ 止于 2025-10-17 / 2025-10-16，`legacy` 通路已无研究价值 |
+| 因子集 | 组合 | 年化收益 | 波动 | 夏普 | 最大回撤 | 换手 |
+|---|---|---|---|---|---|---|
+| 六因子 | medium_equal_weight | 3.65% | 8.22% | 0.444 | 15.9% | 0.204 |
+| 六因子 | high_composite | 4.09% | 13.0% | 0.315 | 39.9% | 0.380 |
+| 量价 | medium_equal_weight | 1.11% | 8.88% | 0.124 | 25.2% | 0.094 |
+| 量价 | high_composite | −0.46% | 13.5% | −0.034 | 45.5% | 0.183 |
 
-判据（可复现）：比例复权下 `close_ba / close_raw` 在每个换月段内恒定、`close_ba - close_raw` 逐日变动；
-加性残留则相反，且因子会出现 ≤0 与价格量级取值。
-
-结论：**对这九个品种，复权前提已满足**；deferral 现在只压在"用户把 CTA 提升为月度使用"这一条上。
-
-### 7.2 build 区间会止于 2026-04-29
-
-`commodity_fundamentals/builder.py` 的交易日历取自 `continuous_contract_ohlc` 的实际行
-（`calendar = list(product_futures["trade_date"])`）。因此 **fundamentals build 无论 `--end`
-填什么都只能到 2026-04-29** —— 不报错，安静地少一截。
-
-- Wind **capture 仍应抓到最新**：观测进 append-only 存储，日更链一恢复即可用；
-- **build 的 `--end` 应显式写 `2026-04-29`**，别当成 bug 去查。
-
-## 8. 运行证据表
-
-> **状态：PENDING —— 尚无已发布的 conservative build。**
->
-> `commodity_research.fundamental_build` 在生产库尚不存在，`sync_state` 中 `commodity_research`
-> 为 0 行。Plan 1 Task 8–9 的 Wind 人工确认产物（reviewed `catalog.v1.yaml`、
-> `catalog-v1-preflight.csv`、catalog version + config hash、覆盖结论
-> basis 9/9 · inventory ≥8/9 · profit ≥7/9、2025-01 smoke recovery package 的 `run_id`、
-> manifest SHA-256）必须先在持牌 Wind Windows 机器上产出。
-> 详见 market-monitor `docs/operations/commodity-fundamentals-wind.md`
-> §"Pending Plan 1 handoff boundary"。
->
-> 在拿到真实 build 之前，本表保持为空。**不得**填入合成或推测数值。
-
-| run_at | strategy | source | build_version | catalog_version | 区间 | 品种数 | coverage minimum | coverage failed | ann_return | ann_vol | sharpe | max_drawdown | avg_turnover | workbook |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| _(pending)_ | | | | | | | | | | | | | | |
-
-填表规则：
-
-- `coverage minimum` = `fundamental_coverage` 表 `available_products` 的最小值；
-  `coverage failed` = `status == "fail"` 的行数。两者直接抄 CLI 的
-  `fundamental_coverage:` 行，不得手算。
-- 指标列取 `result.metrics` 的 `ann_return` / `ann_vol` / `sharpe` / `max_drawdown` / `avg_turnover`。
-- `workbook` 写 `output/` 下的相对路径。生成的 `.xlsx` / `.png` **不入 Git**。
-- 三条运行（medium equal weight、high composite、price-volume control）并排记录，
-  差异只作为 **数据/因子证据** 解读，不作为策略优劣结论。
+证据：[上游全窗口验收](/home/elfbob/market-monitor/docs/operations/commodity-fundamentals-full-window-build-20260818.md)。
+09-29 恢复发布与日更首轮验收见
+[发布处置](/home/elfbob/claude-code/data_manager/requests/2026-09-29-fundamental-publication/disposition.md)、
+[首轮验收](/home/elfbob/claude-code/data_manager/findings/2026-09-30-fundamental-first-run/README.md)。
+这些上游更新不等于已重跑上表的策略对照；新源比较须固定 build、价格输入、窗口、九品种和成本。

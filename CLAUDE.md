@@ -4,14 +4,14 @@
 stock_selector `docs/superpowers/plans/2026-07-11-extract-cta-to-futures-strategies.md`）。
 
 - 布局：`common/`（PG 连接 / settings 加载 / 净值指标，拷贝自 stock_selector 后独立演化）+
-  `cta_gtja/`（国君 CTA：量价 guarded 路径可用；完整六因子等待标准基本面 build）+
+  `cta_gtja/`（国君 CTA：量价 guarded 与标准六因子路径均已交付）+
   `cta_carry/`（国信 Carry 日线研究版已交付，实验参数默认保持基线兼容）。当前状态见
   `docs/ROADMAP.md`。
 - 数据源：market_monitor `public` schema（`continuous_contract_ohlc` / `spot_prices` / `inventory`；
   Carry 还需 `futures_daily` 分合约行情）。上游 = data-collecter + 连续合约生成器（用户领域，
-  已归档 `_archive/2026H1_root_scripts/continuous/`）。⚠️ 2026-07-13 时点：`futures_daily` 与
-  `continuous_contract_ohlc` 的 `standard`/`nanhua` 两套规则均冻在 04-29（连续合约已追平分合约行情，
-  但 EOD 日更链仍停摆；见 market-monitor `DATABASE_INVENTORY.md`）。
+  已归档 `_archive/2026H1_root_scripts/continuous/`）。日线 EOD 已恢复（09-15 核验）；
+  每次运行按实际覆盖确定截止日。基本面完整构建与日更于 09-29 恢复、09-30 首轮验收通过；
+  商品分钟时段资产仍止于 2026-01-30。当前证据和边界见 `docs/ROADMAP.md`。
 - 入口：`cd futures_strategies && .venv/bin/python -m cta_gtja --source public-pg ...`；
   测试 `.venv/bin/python -m pytest -q`。详见项目 `README.md` 与
   `docs/operations/cta-strategy-replication.md`。
@@ -20,8 +20,9 @@ stock_selector `docs/superpowers/plans/2026-07-11-extract-cta-to-futures-strateg
 - **股指期货**类策略也落这里（**2026-08-25 用户裁决，推翻 2026-07-12 那条"归股票生态"**）：
   分钟表 `public.futures_minute`（661,966,168 行 / IF 2010-04-16 起无缺口 / 有 `amount` 可算精确
   VWAP）是本仓 2026-08-13 建的（`docs/plans/2026-08-12-futures-minute-ingestion-design.md`），
-  15 分钟执行引擎在 `feature/carry-minute-execution` 上正在建，股指日内策略与之重合约八成。
-  首个对象 = 国信开盘动量，计划 `docs/superpowers/plans/2026-07-09-guosen-open-momentum.md`（**未开工**）。
+  15 分钟执行引擎已合并，公共分钟层在 `common/minute/`。
+  国信开盘动量已完成实现与全历史回测（样本外为负）；尾部备用主力通路仍未接线。
+  计划 `docs/superpowers/plans/2026-07-09-guosen-open-momentum.md`。
 - ⚠️ 只挪策略归属，不挪数据责任：`cta_gtja` / `cta_carry` 的 `public-pg` 路径默认排除股指与
   国债期货（`FINANCIAL_FUTURES`）这条**不变**。
 - ⚠️ 分钟数据一律用 `public.futures_minute`，**不要用 `public.market_data_minute`**（后者是 Wind
