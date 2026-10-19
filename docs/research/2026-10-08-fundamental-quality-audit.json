@@ -1,0 +1,3783 @@
+{
+  "checked_at": "2026-10-08T05:53:50.094171+00:00",
+  "read_only": true,
+  "wind_calls": 0,
+  "production_writes": 0,
+  "source_sha256": "abc24d9c01cce569f3823211b71babe8030db35c869ea0d6bdac4c03e4d15f61",
+  "build": {
+    "build_version": "conservative-20260930T133022Z-8815a8c8a48f",
+    "catalog_version": "v1",
+    "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7",
+    "formula_version": "v1",
+    "formula_hash": "3e70b099abb23d0f03a35256a94564fdc3aa4e862d15b6c1fb1623b0a4b00ecf",
+    "source_recorded_cutoff": "2026-09-30 21:30:22.116050+08:00",
+    "finished_at": "2026-09-30 22:00:09.190987+08:00",
+    "output_rows": 86703,
+    "absence_slices": [
+      {
+        "metric": "profit",
+        "trade_date": "2017-02-06"
+      },
+      {
+        "metric": "basis_rate",
+        "trade_date": "2020-02-07"
+      },
+      {
+        "metric": "profit",
+        "trade_date": "2020-02-07"
+      },
+      {
+        "metric": "basis_rate",
+        "trade_date": "2020-02-10"
+      },
+      {
+        "metric": "profit",
+        "trade_date": "2020-02-10"
+      }
+    ]
+  },
+  "results": {
+    "build_integrity": [
+      {
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "rows": 86703,
+        "dates": 2611,
+        "products": 9,
+        "duplicate_keys": 0,
+        "nonfinite": 0,
+        "pit_violations": 0,
+        "catalog_mismatch": 0,
+        "invalid_age": 0
+      }
+    ],
+    "catalog": [
+      {
+        "series_id": "al.inventory.primary",
+        "product_code": "AL",
+        "metric_role": "inventory",
+        "source_code": "S5811172",
+        "source_name": "中国:库存量:电解铝",
+        "frequency": "weekly",
+        "source_unit": "万吨",
+        "target_unit": "万吨",
+        "release_lag_rule": {
+          "time": null,
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2016-05-12",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "al.profit.import_cost",
+        "product_code": "AL",
+        "metric_role": "profit_component",
+        "source_code": "Y8974089",
+        "source_name": "中国:进口成本:铝",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "10:00",
+          "calendar_days": 1
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2013-11-29",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "al.spot.primary",
+        "product_code": "AL",
+        "metric_role": "spot",
+        "source_code": "S0179655",
+        "source_name": "中国:现货价:铝(A00)",
+        "frequency": "weekly",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": null,
+          "calendar_days": 5
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2006-06-15",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "bu.inventory.primary",
+        "product_code": "BU",
+        "metric_role": "inventory",
+        "source_code": "S0204863",
+        "source_name": "库存小计:沥青",
+        "frequency": "weekly",
+        "source_unit": "吨",
+        "target_unit": "吨",
+        "release_lag_rule": {
+          "time": null,
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2013-12-06",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "bu.spot.primary",
+        "product_code": "BU",
+        "metric_role": "spot",
+        "source_code": "S5133835",
+        "source_name": "中国:华东地区:市场价(主流价):沥青(重交沥青)",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "20:00",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2014-01-02",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "cu.inventory.primary",
+        "product_code": "CU",
+        "metric_role": "inventory",
+        "source_code": "S5811270",
+        "source_name": "中国:上海保税区:库存量:铜",
+        "frequency": "weekly",
+        "source_unit": "万吨",
+        "target_unit": "万吨",
+        "release_lag_rule": {
+          "time": null,
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2015-04-10",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "cu.profit.import_cost",
+        "product_code": "CU",
+        "metric_role": "profit_component",
+        "source_code": "N3608763",
+        "source_name": "中国:进口成本:铜",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "10:00",
+          "calendar_days": 1
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2012-02-24",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "cu.spot.primary",
+        "product_code": "CU",
+        "metric_role": "spot",
+        "source_code": "S0179656",
+        "source_name": "中国:现货价:铜(1#)",
+        "frequency": "weekly",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": null,
+          "calendar_days": 5
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2006-06-15",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "m.inventory.primary",
+        "product_code": "M",
+        "metric_role": "inventory",
+        "source_code": "S5041144",
+        "source_name": "中国:库存量:豆粕",
+        "frequency": "weekly",
+        "source_unit": "万吨",
+        "target_unit": "万吨",
+        "release_lag_rule": {
+          "time": "16:00",
+          "calendar_days": 3
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2012-12-30",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "m.profit.direct",
+        "product_code": "M",
+        "metric_role": "profit_direct",
+        "source_code": "S5006417",
+        "source_name": "中国:广东:压榨利润:大豆(进口)",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "14:00",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2005-04-04",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "m.spot.primary",
+        "product_code": "M",
+        "metric_role": "spot",
+        "source_code": "S0142909",
+        "source_name": "中国:现货价:豆粕",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "15:00",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2008-02-14",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "ma.inventory.primary",
+        "product_code": "MA",
+        "metric_role": "inventory",
+        "source_code": "S5436526",
+        "source_name": "中国:华东港口:库存量:甲醇",
+        "frequency": "weekly",
+        "source_unit": "万吨",
+        "target_unit": "万吨",
+        "release_lag_rule": {
+          "time": "17:00",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2012-08-30",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "ma.profit.import_cost",
+        "product_code": "MA",
+        "metric_role": "profit_component",
+        "source_code": "A7790610",
+        "source_name": "中国:进口成本:甲醇",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": null,
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2013-04-01",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "ma.spot.primary",
+        "product_code": "MA",
+        "metric_role": "spot",
+        "source_code": "S5470332",
+        "source_name": "中国:现货价:甲醇(港口)",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "17:30",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2003-11-07",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "pp.inventory.primary",
+        "product_code": "PP",
+        "metric_role": "inventory",
+        "source_code": "U0460550",
+        "source_name": "中国:商业库存量:聚丙烯",
+        "frequency": "weekly",
+        "source_unit": "万吨",
+        "target_unit": "万吨",
+        "release_lag_rule": {
+          "time": "20:00",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2023-07-12",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "pp.profit.propylene",
+        "product_code": "PP",
+        "metric_role": "profit_component",
+        "source_code": "S5443108",
+        "source_name": "中国:山东地区:市场价(主流价):丙烯",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "20:00",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2013-04-01",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "pp.spot.primary",
+        "product_code": "PP",
+        "metric_role": "spot",
+        "source_code": "S5470409",
+        "source_name": "中国:现货价:聚丙烯(拉丝)",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "17:30",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2004-07-02",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "rb.inventory.primary",
+        "product_code": "RB",
+        "metric_role": "inventory",
+        "source_code": "S0181750",
+        "source_name": "中国:库存量:螺纹钢(含上海全部仓库)",
+        "frequency": "weekly",
+        "source_unit": "万吨",
+        "target_unit": "万吨",
+        "release_lag_rule": {
+          "time": null,
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2010-05-21",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "rb.spot.primary",
+        "product_code": "RB",
+        "metric_role": "spot",
+        "source_code": "S0179664",
+        "source_name": "中国:现货价:螺纹钢(φ25mm)",
+        "frequency": "weekly",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": null,
+          "calendar_days": 5
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2003-07-01",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "ru.inventory.primary",
+        "product_code": "RU",
+        "metric_role": "inventory",
+        "source_code": "S0049508",
+        "source_name": "库存小计:天然橡胶",
+        "frequency": "weekly",
+        "source_unit": "吨",
+        "target_unit": "吨",
+        "release_lag_rule": {
+          "time": null,
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "1999-10-28",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "ru.profit.import_cost",
+        "product_code": "RU",
+        "metric_role": "profit_component",
+        "source_code": "P0672531",
+        "source_name": "中国:进口成本:天然橡胶",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "10:00",
+          "calendar_days": 1
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2010-03-01",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "ru.spot.primary",
+        "product_code": "RU",
+        "metric_role": "spot",
+        "source_code": "S5470428",
+        "source_name": "中国:现货价:天然橡胶(标准胶1#)",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "17:30",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2003-11-28",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "ta.inventory.primary",
+        "product_code": "TA",
+        "metric_role": "inventory",
+        "source_code": "S5446169",
+        "source_name": "中国:库存天数:精对苯二甲酸:生产企业",
+        "frequency": "weekly",
+        "source_unit": "天",
+        "target_unit": "天",
+        "release_lag_rule": {
+          "time": "22:00",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 10,
+        "valid_from": "2013-09-08",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "ta.profit.px",
+        "product_code": "TA",
+        "metric_role": "profit_component",
+        "source_code": "S5470318",
+        "source_name": "中国:现货价:对二甲苯",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "17:30",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2004-02-06",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      },
+      {
+        "series_id": "ta.spot.primary",
+        "product_code": "TA",
+        "metric_role": "spot",
+        "source_code": "S5439947",
+        "source_name": "中国:华东地区:市场价(中间价):精对苯二甲酸",
+        "frequency": "daily",
+        "source_unit": "元/吨",
+        "target_unit": "元/吨",
+        "release_lag_rule": {
+          "time": "16:00",
+          "calendar_days": 0
+        },
+        "max_staleness_trading_days": 3,
+        "valid_from": "2011-12-22",
+        "valid_to": null,
+        "config_hash": "df0be15d92e1bf4aa7cf3e57dd9363c3e99a551df4c476bdbfbe5390ea3f51c7"
+      }
+    ],
+    "source_history_at_build_cutoff": [
+      {
+        "series_id": "al.inventory.primary",
+        "first_observation": "2016-05-12",
+        "last_observation": "2026-09-28",
+        "observations": 1036,
+        "median_gap_days": 4.0,
+        "max_gap_days": 12,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "al.profit.import_cost",
+        "first_observation": "2013-11-29",
+        "last_observation": "2026-09-29",
+        "observations": 3038,
+        "median_gap_days": 1.0,
+        "max_gap_days": 11,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "al.spot.primary",
+        "first_observation": "2006-06-15",
+        "last_observation": "2026-09-25",
+        "observations": 786,
+        "median_gap_days": 7.0,
+        "max_gap_days": 17,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "bu.inventory.primary",
+        "first_observation": "2013-12-06",
+        "last_observation": "2026-09-30",
+        "observations": 658,
+        "median_gap_days": 7.0,
+        "max_gap_days": 15,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "bu.spot.primary",
+        "first_observation": "2014-01-02",
+        "last_observation": "2026-09-30",
+        "observations": 3165,
+        "median_gap_days": 1.0,
+        "max_gap_days": 18,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "cu.inventory.primary",
+        "first_observation": "2015-04-10",
+        "last_observation": "2026-09-30",
+        "observations": 892,
+        "median_gap_days": 4.0,
+        "max_gap_days": 28,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "cu.profit.import_cost",
+        "first_observation": "2012-02-24",
+        "last_observation": "2026-09-29",
+        "observations": 3444,
+        "median_gap_days": 1.0,
+        "max_gap_days": 11,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "cu.spot.primary",
+        "first_observation": "2006-06-15",
+        "last_observation": "2026-09-25",
+        "observations": 786,
+        "median_gap_days": 7.0,
+        "max_gap_days": 17,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "ma.inventory.primary",
+        "first_observation": "2012-08-30",
+        "last_observation": "2026-09-24",
+        "observations": 690,
+        "median_gap_days": 7.0,
+        "max_gap_days": 56,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "ma.profit.import_cost",
+        "first_observation": "2013-04-01",
+        "last_observation": "2026-09-29",
+        "observations": 3246,
+        "median_gap_days": 1.0,
+        "max_gap_days": 15,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "ma.spot.primary",
+        "first_observation": "2003-11-07",
+        "last_observation": "2026-09-30",
+        "observations": 5999,
+        "median_gap_days": 1.0,
+        "max_gap_days": 18,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "m.inventory.primary",
+        "first_observation": "2012-12-30",
+        "last_observation": "2026-09-27",
+        "observations": 682,
+        "median_gap_days": 7.0,
+        "max_gap_days": 28,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "m.profit.direct",
+        "first_observation": "2005-04-04",
+        "last_observation": "2026-09-30",
+        "observations": 4655,
+        "median_gap_days": 1.0,
+        "max_gap_days": 21,
+        "nonfinite": 0,
+        "negative_values": 1866,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "m.spot.primary",
+        "first_observation": "2008-02-14",
+        "last_observation": "2026-09-30",
+        "observations": 4633,
+        "median_gap_days": 1.0,
+        "max_gap_days": 11,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "pp.inventory.primary",
+        "first_observation": "2023-07-12",
+        "last_observation": "2026-09-30",
+        "observations": 164,
+        "median_gap_days": 7.0,
+        "max_gap_days": 15,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "pp.profit.propylene",
+        "first_observation": "2013-04-01",
+        "last_observation": "2026-09-30",
+        "observations": 3366,
+        "median_gap_days": 1.0,
+        "max_gap_days": 12,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "pp.spot.primary",
+        "first_observation": "2004-07-02",
+        "last_observation": "2026-09-30",
+        "observations": 6154,
+        "median_gap_days": 1.0,
+        "max_gap_days": 18,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "rb.inventory.primary",
+        "first_observation": "2010-05-21",
+        "last_observation": "2026-09-24",
+        "observations": 843,
+        "median_gap_days": 7.0,
+        "max_gap_days": 16,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "rb.spot.primary",
+        "first_observation": "2003-07-01",
+        "last_observation": "2026-09-25",
+        "observations": 857,
+        "median_gap_days": 7.0,
+        "max_gap_days": 17,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "ru.inventory.primary",
+        "first_observation": "1999-10-28",
+        "last_observation": "2026-09-30",
+        "observations": 1355,
+        "median_gap_days": 7.0,
+        "max_gap_days": 21,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "ru.profit.import_cost",
+        "first_observation": "2010-03-01",
+        "last_observation": "2026-09-24",
+        "observations": 3904,
+        "median_gap_days": 1.0,
+        "max_gap_days": 46,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "ru.spot.primary",
+        "first_observation": "2003-11-28",
+        "last_observation": "2026-09-30",
+        "observations": 6165,
+        "median_gap_days": 1.0,
+        "max_gap_days": 21,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "ta.inventory.primary",
+        "first_observation": "2013-09-08",
+        "last_observation": "2026-09-24",
+        "observations": 643,
+        "median_gap_days": 7.0,
+        "max_gap_days": 21,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "ta.profit.px",
+        "first_observation": "2004-02-06",
+        "last_observation": "2026-09-30",
+        "observations": 6113,
+        "median_gap_days": 1.0,
+        "max_gap_days": 18,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      },
+      {
+        "series_id": "ta.spot.primary",
+        "first_observation": "2011-12-22",
+        "last_observation": "2026-09-30",
+        "observations": 3673,
+        "median_gap_days": 1.0,
+        "max_gap_days": 13,
+        "nonfinite": 0,
+        "negative_values": 0,
+        "unit_currency_mismatch": 0,
+        "missing_available_at": 0
+      }
+    ],
+    "coverage_by_product_metric": [
+      {
+        "product_code": "AL",
+        "metric": "basis_rate",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 9
+      },
+      {
+        "product_code": "AL",
+        "metric": "inventory",
+        "expected_dates": 2611,
+        "available_dates": 2505,
+        "first_date": "2016-06-13",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "AL",
+        "metric": "profit",
+        "expected_dates": 2611,
+        "available_dates": 2608,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 9
+      },
+      {
+        "product_code": "AL",
+        "metric": "spot",
+        "expected_dates": 2611,
+        "available_dates": 2611,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 9
+      },
+      {
+        "product_code": "BU",
+        "metric": "basis_rate",
+        "expected_dates": 2611,
+        "available_dates": 2608,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "BU",
+        "metric": "inventory",
+        "expected_dates": 2611,
+        "available_dates": 2611,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 4
+      },
+      {
+        "product_code": "BU",
+        "metric": "profit",
+        "expected_dates": 2611,
+        "available_dates": 0,
+        "first_date": null,
+        "last_date": null,
+        "max_staleness": null
+      },
+      {
+        "product_code": "BU",
+        "metric": "spot",
+        "expected_dates": 2611,
+        "available_dates": 2608,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "CU",
+        "metric": "basis_rate",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 9
+      },
+      {
+        "product_code": "CU",
+        "metric": "inventory",
+        "expected_dates": 2611,
+        "available_dates": 2611,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 6
+      },
+      {
+        "product_code": "CU",
+        "metric": "profit",
+        "expected_dates": 2611,
+        "available_dates": 2608,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 9
+      },
+      {
+        "product_code": "CU",
+        "metric": "spot",
+        "expected_dates": 2611,
+        "available_dates": 2611,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 9
+      },
+      {
+        "product_code": "M",
+        "metric": "basis_rate",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 1
+      },
+      {
+        "product_code": "M",
+        "metric": "inventory",
+        "expected_dates": 2611,
+        "available_dates": 2603,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 10
+      },
+      {
+        "product_code": "M",
+        "metric": "profit",
+        "expected_dates": 2611,
+        "available_dates": 2608,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 1
+      },
+      {
+        "product_code": "M",
+        "metric": "spot",
+        "expected_dates": 2611,
+        "available_dates": 2611,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 1
+      },
+      {
+        "product_code": "MA",
+        "metric": "basis_rate",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "MA",
+        "metric": "inventory",
+        "expected_dates": 2611,
+        "available_dates": 2583,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 10
+      },
+      {
+        "product_code": "MA",
+        "metric": "profit",
+        "expected_dates": 2611,
+        "available_dates": 2601,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "MA",
+        "metric": "spot",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "PP",
+        "metric": "basis_rate",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "PP",
+        "metric": "inventory",
+        "expected_dates": 2611,
+        "available_dates": 763,
+        "first_date": "2023-08-09",
+        "last_date": "2026-09-30",
+        "max_staleness": 4
+      },
+      {
+        "product_code": "PP",
+        "metric": "profit",
+        "expected_dates": 2611,
+        "available_dates": 2608,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "PP",
+        "metric": "spot",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "RB",
+        "metric": "basis_rate",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 9
+      },
+      {
+        "product_code": "RB",
+        "metric": "inventory",
+        "expected_dates": 2611,
+        "available_dates": 2611,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 6
+      },
+      {
+        "product_code": "RB",
+        "metric": "profit",
+        "expected_dates": 2611,
+        "available_dates": 0,
+        "first_date": null,
+        "last_date": null,
+        "max_staleness": null
+      },
+      {
+        "product_code": "RB",
+        "metric": "spot",
+        "expected_dates": 2611,
+        "available_dates": 2611,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 9
+      },
+      {
+        "product_code": "RU",
+        "metric": "basis_rate",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "RU",
+        "metric": "inventory",
+        "expected_dates": 2611,
+        "available_dates": 2611,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 4
+      },
+      {
+        "product_code": "RU",
+        "metric": "profit",
+        "expected_dates": 2611,
+        "available_dates": 2591,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "RU",
+        "metric": "spot",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "TA",
+        "metric": "basis_rate",
+        "expected_dates": 2611,
+        "available_dates": 2609,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 2
+      },
+      {
+        "product_code": "TA",
+        "metric": "inventory",
+        "expected_dates": 2611,
+        "available_dates": 2611,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 9
+      },
+      {
+        "product_code": "TA",
+        "metric": "profit",
+        "expected_dates": 2611,
+        "available_dates": 2600,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 3
+      },
+      {
+        "product_code": "TA",
+        "metric": "spot",
+        "expected_dates": 2611,
+        "available_dates": 2611,
+        "first_date": "2016-01-04",
+        "last_date": "2026-09-30",
+        "max_staleness": 2
+      }
+    ],
+    "annual_coverage": [
+      {
+        "year": 2016,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 138
+      },
+      {
+        "year": 2016,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 216
+      },
+      {
+        "year": 2016,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2016,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 244
+      },
+      {
+        "year": 2016,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2017,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2017,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2017,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2017,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 238
+      },
+      {
+        "year": 2017,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2017,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2017,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2017,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2017,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 244
+      },
+      {
+        "year": 2017,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2018,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 239
+      },
+      {
+        "year": 2018,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2018,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2019,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 240
+      },
+      {
+        "year": 2019,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 241
+      },
+      {
+        "year": 2019,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 244
+      },
+      {
+        "year": 2019,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 244
+      },
+      {
+        "year": 2020,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2020,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 241
+      },
+      {
+        "year": 2020,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 235
+      },
+      {
+        "year": 2021,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2021,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2022,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2022,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "inventory",
+        "product_code": "PP",
+        "dates": 97
+      },
+      {
+        "year": 2023,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2023,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "inventory",
+        "product_code": "PP",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 242
+      },
+      {
+        "year": 2024,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 242
+      },
+      {
+        "year": 2025,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "inventory",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 243
+      },
+      {
+        "year": 2025,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 243
+      },
+      {
+        "year": 2026,
+        "metric": "basis_rate",
+        "product_code": "AL",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "basis_rate",
+        "product_code": "BU",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "basis_rate",
+        "product_code": "CU",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "basis_rate",
+        "product_code": "M",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "basis_rate",
+        "product_code": "MA",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "basis_rate",
+        "product_code": "PP",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "basis_rate",
+        "product_code": "RB",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "basis_rate",
+        "product_code": "RU",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "basis_rate",
+        "product_code": "TA",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "inventory",
+        "product_code": "AL",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "inventory",
+        "product_code": "BU",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "inventory",
+        "product_code": "CU",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "inventory",
+        "product_code": "M",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "inventory",
+        "product_code": "MA",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "inventory",
+        "product_code": "PP",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "inventory",
+        "product_code": "RB",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "inventory",
+        "product_code": "RU",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "inventory",
+        "product_code": "TA",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "profit",
+        "product_code": "AL",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "profit",
+        "product_code": "CU",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "profit",
+        "product_code": "M",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "profit",
+        "product_code": "MA",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "profit",
+        "product_code": "PP",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "profit",
+        "product_code": "RU",
+        "dates": 167
+      },
+      {
+        "year": 2026,
+        "metric": "profit",
+        "product_code": "TA",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "spot",
+        "product_code": "AL",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "spot",
+        "product_code": "BU",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "spot",
+        "product_code": "CU",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "spot",
+        "product_code": "M",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "spot",
+        "product_code": "MA",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "spot",
+        "product_code": "PP",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "spot",
+        "product_code": "RB",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "spot",
+        "product_code": "RU",
+        "dates": 181
+      },
+      {
+        "year": 2026,
+        "metric": "spot",
+        "product_code": "TA",
+        "dates": 181
+      }
+    ],
+    "daily_floor_exceptions": [
+      {
+        "trade_date": "2017-02-06",
+        "metric": "profit",
+        "products": 0
+      },
+      {
+        "trade_date": "2020-02-07",
+        "metric": "basis_rate",
+        "products": 0
+      },
+      {
+        "trade_date": "2020-02-07",
+        "metric": "profit",
+        "products": 0
+      },
+      {
+        "trade_date": "2020-02-10",
+        "metric": "basis_rate",
+        "products": 0
+      },
+      {
+        "trade_date": "2020-02-10",
+        "metric": "profit",
+        "products": 0
+      }
+    ],
+    "direct_staleness_violations": [],
+    "latest_product_metrics": [
+      {
+        "product_code": "AL",
+        "metric": "basis_rate",
+        "source_observation_date": "2026-09-18",
+        "available_at": "2026-09-30 15:00:00+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "al.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "AL",
+        "metric": "inventory",
+        "source_observation_date": "2026-09-28",
+        "available_at": "2026-09-29 21:30:54.511834+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "al.inventory.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "AL",
+        "metric": "profit",
+        "source_observation_date": "2026-09-28",
+        "available_at": "2026-09-29 21:30:55.268545+08:00",
+        "staleness_trading_days": 0,
+        "series_id": null,
+        "formula_id": "al.import_margin",
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "AL",
+        "metric": "spot",
+        "source_observation_date": "2026-09-18",
+        "available_at": "2026-09-29 21:30:55.268545+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "al.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "BU",
+        "metric": "basis_rate",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-30 15:00:00+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "bu.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "BU",
+        "metric": "inventory",
+        "source_observation_date": "2026-09-24",
+        "available_at": "2026-09-29 21:30:56.146253+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "bu.inventory.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "BU",
+        "metric": "spot",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:30:56.561645+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "bu.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "CU",
+        "metric": "basis_rate",
+        "source_observation_date": "2026-09-18",
+        "available_at": "2026-09-30 15:00:00+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "cu.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "CU",
+        "metric": "inventory",
+        "source_observation_date": "2026-09-28",
+        "available_at": "2026-09-29 21:30:56.798476+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "cu.inventory.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "CU",
+        "metric": "profit",
+        "source_observation_date": "2026-09-28",
+        "available_at": "2026-09-29 21:30:57.506882+08:00",
+        "staleness_trading_days": 0,
+        "series_id": null,
+        "formula_id": "cu.import_margin",
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "CU",
+        "metric": "spot",
+        "source_observation_date": "2026-09-18",
+        "available_at": "2026-09-29 21:30:57.506882+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "cu.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "M",
+        "metric": "basis_rate",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-30 15:00:00+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "m.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "M",
+        "metric": "inventory",
+        "source_observation_date": "2026-09-20",
+        "available_at": "2026-09-29 21:30:57.851511+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "m.inventory.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "M",
+        "metric": "profit",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:30:58.264363+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "m.profit.direct",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "M",
+        "metric": "spot",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:30:58.655187+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "m.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "MA",
+        "metric": "basis_rate",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-30 15:00:00+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "ma.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "MA",
+        "metric": "inventory",
+        "source_observation_date": "2026-09-24",
+        "available_at": "2026-09-29 21:30:59.068434+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "ma.inventory.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "MA",
+        "metric": "profit",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:30:59.923223+08:00",
+        "staleness_trading_days": 0,
+        "series_id": null,
+        "formula_id": "ma.import_margin",
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "MA",
+        "metric": "spot",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:30:59.923223+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "ma.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "PP",
+        "metric": "basis_rate",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-30 15:00:00+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "pp.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "PP",
+        "metric": "inventory",
+        "source_observation_date": "2026-09-23",
+        "available_at": "2026-09-29 21:31:00.315189+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "pp.inventory.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "PP",
+        "metric": "profit",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:31:01.138558+08:00",
+        "staleness_trading_days": 0,
+        "series_id": null,
+        "formula_id": "pp.gross_polymerization_margin",
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "PP",
+        "metric": "spot",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:31:01.138558+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "pp.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "RB",
+        "metric": "basis_rate",
+        "source_observation_date": "2026-09-18",
+        "available_at": "2026-09-30 15:00:00+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "rb.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "RB",
+        "metric": "inventory",
+        "source_observation_date": "2026-09-24",
+        "available_at": "2026-09-29 21:31:01.551297+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "rb.inventory.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "RB",
+        "metric": "spot",
+        "source_observation_date": "2026-09-18",
+        "available_at": "2026-09-29 21:31:01.959894+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "rb.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "RU",
+        "metric": "basis_rate",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-30 15:00:00+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "ru.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "RU",
+        "metric": "inventory",
+        "source_observation_date": "2026-09-24",
+        "available_at": "2026-09-29 21:31:02.345960+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "ru.inventory.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "RU",
+        "metric": "profit",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:31:03.175736+08:00",
+        "staleness_trading_days": 0,
+        "series_id": null,
+        "formula_id": "ru.import_margin",
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "RU",
+        "metric": "spot",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:31:03.175736+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "ru.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "TA",
+        "metric": "basis_rate",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-30 15:00:00+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "ta.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "TA",
+        "metric": "inventory",
+        "source_observation_date": "2026-09-24",
+        "available_at": "2026-09-29 21:31:03.598604+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "ta.inventory.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "TA",
+        "metric": "profit",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:31:04.433871+08:00",
+        "staleness_trading_days": 0,
+        "series_id": null,
+        "formula_id": "ta.gross_processing_margin",
+        "vintage_quality": "captured_live"
+      },
+      {
+        "product_code": "TA",
+        "metric": "spot",
+        "source_observation_date": "2026-09-29",
+        "available_at": "2026-09-29 21:31:04.433871+08:00",
+        "staleness_trading_days": 0,
+        "series_id": "ta.spot.primary",
+        "formula_id": null,
+        "vintage_quality": "captured_live"
+      }
+    ],
+    "recent_price_coverage": [
+      {
+        "base_symbol": "AL",
+        "first_date": "2026-08-31",
+        "last_date": "2026-09-30",
+        "dates": 22,
+        "bad_close": 0
+      },
+      {
+        "base_symbol": "BU",
+        "first_date": "2026-08-31",
+        "last_date": "2026-09-30",
+        "dates": 22,
+        "bad_close": 0
+      },
+      {
+        "base_symbol": "CU",
+        "first_date": "2026-08-31",
+        "last_date": "2026-09-30",
+        "dates": 22,
+        "bad_close": 0
+      },
+      {
+        "base_symbol": "M",
+        "first_date": "2026-08-31",
+        "last_date": "2026-09-30",
+        "dates": 22,
+        "bad_close": 0
+      },
+      {
+        "base_symbol": "MA",
+        "first_date": "2026-08-31",
+        "last_date": "2026-09-30",
+        "dates": 22,
+        "bad_close": 0
+      },
+      {
+        "base_symbol": "PP",
+        "first_date": "2026-08-31",
+        "last_date": "2026-09-30",
+        "dates": 22,
+        "bad_close": 0
+      },
+      {
+        "base_symbol": "RB",
+        "first_date": "2026-08-31",
+        "last_date": "2026-09-30",
+        "dates": 22,
+        "bad_close": 0
+      },
+      {
+        "base_symbol": "RU",
+        "first_date": "2026-08-31",
+        "last_date": "2026-09-30",
+        "dates": 22,
+        "bad_close": 0
+      },
+      {
+        "base_symbol": "TA",
+        "first_date": "2026-08-31",
+        "last_date": "2026-09-30",
+        "dates": 22,
+        "bad_close": 0
+      }
+    ]
+  },
+  "checks": {
+    "output_rows_match": true,
+    "integrity_zero": true,
+    "catalog_hash_match": true,
+    "unwaived_daily_floor_failures": [],
+    "direct_staleness_pass": true,
+    "source_shape_pass": true,
+    "inventory_nonnegative": true
+  }
+}
