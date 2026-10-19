@@ -61,11 +61,13 @@ BROKER_SOURCE = (
     "10% of the frozen 2026-10-15 exchange rate per action"
 )
 SLIPPAGE_SOURCE = (
-    "user ruling 2026-10-16 4-3: single-side 4bp on raw notional charged as a "
-    "CNY cost; no tick rounding (letter wording deviation, disclosed)"
+    "value per user ruling 2026-10-16 4-2 (\"4-2、滑点4bp\"); cost-basis "
+    "mechanism per user ruling 2026-10-18 21:43+08 (AskUserQuestion: keep 4bp "
+    "as a CNY cost, no tick rounding; letter wording deviation, disclosed)"
 )
 MARGIN_NOTE = (
-    "user ruling 2026-10-16 4-4: exchange margin +2pp; base {} frozen 2026-10-15"
+    "user ruling 2026-10-16 4-3 (\"4-3、先按2%加\"): exchange margin +2pp; "
+    "base {} frozen 2026-10-15"
 )
 FEE_DESCRIPTION = (
     "exchange fee x1.1 (broker +10% of exchange rate, no minimum), single-side "
@@ -290,9 +292,9 @@ def main(argv=None):
         }
     )
     config["fee_model"]["policy_source"] = (
-        "M02 user rulings 2026-10-16 (commission x1.1 no minimum, 4bp slippage "
-        "as CNY cost, exchange margin +2pp) applied to exchange settlement "
-        "parameters frozen 2026-10-15"
+        "M02 user rulings 2026-10-16 (commission x1.1 no minimum, 4bp slippage, "
+        "exchange margin +2pp; cost-basis slippage mechanism per user ruling "
+        "2026-10-18) applied to exchange settlement parameters frozen 2026-10-15"
     )
     config["fee_model"]["excluded_costs"] = [
         "exchange delivery/settlement dues outside trade fees",
