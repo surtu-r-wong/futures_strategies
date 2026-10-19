@@ -112,7 +112,9 @@ def _push_workers():
 def _run_on_host(trade_date, smoke):
     """Create the one-shot session-1 task, run it, poll, return raw stdout."""
     tr = f"{HOST_DIR_W}\\m02_czce_wind_capture_task.cmd --date {trade_date}"
-    if not smoke:
+    if smoke:
+        tr += " --smoke"
+    else:
         tr += f" --out {HOST_DIR_W}\\m02-czce-raw-{trade_date}.json"
     create = (
         "LANG=C /mnt/c/Windows/System32/schtasks.exe "
@@ -241,7 +243,9 @@ def build_receipt(payload, trade_date, raw_name, *, synthetic=False):
             "WindPy wsi minute bars (BarSize=1) from a one-off session-1 "
             "process on the licensed workstation, scheduled via schtasks /IT; "
             "wsi labels bars by minute start, value-identical to "
-            "public.futures_minute (cross-validated AG2612 2026-10-16 09:30)"
+            "public.futures_minute (cross-validated AG2612 2026-10-16 09:30); "
+            "CZCE queried in Wind's one-digit-year spelling (TA701.CZC), "
+            "prices keyed database-style (TA2701.CZC)"
         ),
         "raw_artifact": raw_name,
         "raw_sha256": hashlib.sha256(raw_bytes).hexdigest(),

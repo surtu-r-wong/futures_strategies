@@ -80,6 +80,22 @@ def _bars(result):
     return fields, rows
 
 
+def _czce_wind_code(contract):
+    """Wind's CZCE spelling cuts the delivery year to one digit (TA2701.CZC
+    -> TA701.CZC); the four-digit form the database stores is refused by
+    Wind's data functions with -40520007 "Server not Find Data". Same rule
+    as cta_carry.targets.wind_code (user ruling 2026-09-16). Non-CZCE codes
+    pass through untouched (AG2612.SHF must NOT lose its year digit)."""
+    code, _, suffix = contract.rpartition(".")
+    if suffix != "CZC":
+        return contract
+    letters = code.rstrip("0123456789")
+    digits = code[len(letters):]
+    if len(digits) == 4:
+        digits = digits[1:]
+    return f"{letters}{digits}.{suffix}"
+
+
 def capture(codes, trade_date):
     from WindPy import w
     from wind_batch_mutex import wind_batch_mutex
@@ -96,6 +112,10 @@ def capture(codes, trade_date):
         "bar_size": "1",
         "fields_requested": FIELDS,
         "captured_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "czce_code_mapping": (
+            "wsi queried in Wind's one-digit-year CZCE spelling (TA701.CZC); "
+            "keys below stay database-style (TA2701.CZC)"
+        ),
         "codes": {},
     }
     with wind_batch_mutex(timeout_ms=MUTEX_WAIT_MS):
@@ -124,7 +144,7 @@ def capture(codes, trade_date):
             return payload
         for code in codes:
             result = w.wsi(
-                code,
+                _czce_wind_code(code),
                 FIELDS,
                 f"{trade_date} {WINDOW_BEGIN}",
                 f"{trade_date} {WINDOW_END}",
