@@ -141,6 +141,13 @@ def main(argv=None):
     packet = {"trade_date": trade_date, "target": target}
 
     if not holding:
+        if not args.czce_receipt:
+            # clean error instead of a bare Path(None) traceback; the
+            # Wind CZCE receipt is required on every build day
+            raise ValueError(
+                "build day requires --czce-receipt (Wind CZCE capture receipt "
+                "JSON; hold days need no receipt)"
+            )
         opens = _minute_opens(config["instruments"], trade_date)
         czce, receipt = _czce_opens(args.czce_receipt, config, trade_date)
         opens.update(czce)

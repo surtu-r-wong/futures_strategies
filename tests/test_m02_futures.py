@@ -500,6 +500,9 @@ def test_advance_cli_builds_then_holds_with_zero_trades_and_fees(
 
     receipt_path = _write_receipt(tmp_path, receipt_prices, trade_date="2026-10-16")
     common = ["--state", str(state), "--config", str(config_path), "--feed", str(feed)]
+    # build day without a receipt fails with a clean message (not Path(None))
+    with pytest.raises(ValueError, match="requires --czce-receipt"):
+        adv.main(common)
     assert adv.main(common + ["--czce-receipt", str(receipt_path)]) == 0
     day1 = capsys.readouterr().out
     assert day1.startswith("2026-10-16:")
