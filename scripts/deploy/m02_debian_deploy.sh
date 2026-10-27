@@ -58,13 +58,13 @@ deploy)
 
 drill)
   run_remote "mkdir -p $BASE/drill"
-  rsync -q "$STATE_SRC" "$HOST:$BASE/drill/account.drill.sqlite"
+  rsync -q "$STATE_SRC" "$HOST:$BASE/drill/account.sqlite"
   # roll the drill copy back to the pre-2026-10-26 state (head 10-23).
   # seq>4 (not just seq=5) so the drill still works after the dev chain
   # advanced later intervals into the live store.
   run_remote "/usr/bin/python3.13 - <<'PY'
 import sqlite3
-con = sqlite3.connect(\"$BASE/drill/account.drill.sqlite\")
+con = sqlite3.connect(\"$BASE/drill/account.sqlite\")
 con.execute(\"UPDATE accounts SET head=4\")
 con.execute(\"DELETE FROM ledger WHERE seq > 4\")
 con.commit()
@@ -90,7 +90,8 @@ if v[\"status\"] != \"PASS\" or bad:
     print(\"DRILL FAIL:\", v[\"status\"], bad)
     sys.exit(1)
 pnl = round(row[\"nav\"] - (row[\"nav\"] / (1 + row[\"daily_return\"])), 2)
-print(f\"DRILL PASS: bit-identical; derived PnL {pnl:,.2f}\" + \" ~= 1,234,475.00\" if abs(pnl - 1234475.00) < 0.01 else \"\")
+note = \" (derived PnL matches 1,234,475.00)\" if abs(pnl - 1234475.00) < 0.01 else \"\"
+print(f\"DRILL PASS: bit-identical; derived PnL {pnl:,.2f}{note}\")
 PY"
   ;;
 
