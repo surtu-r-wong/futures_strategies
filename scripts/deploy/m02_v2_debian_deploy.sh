@@ -53,8 +53,13 @@ deploy)
   git -C "$REPO" push -q ssh://$HOST$BARE master
   REL=$BASE/releases/$(date +%Y%m%dT%H%M)-${SHA:0:8}
   run_remote "mkdir -p $BASE/releases && git clone -q $BARE $REL && git -C $REL checkout -q $SHA"
-  run_remote "cd $REL && /usr/bin/python3.13 -m venv .venv \
-    && .venv/bin/pip install -q --disable-pip-version-check -r requirements.txt"
+  # Debian has no reliable PyPI route. When requirements.txt is byte-identical
+  # to the v1 release's, copy v1's venv (read-only source; v1 is not touched).
+  V1=/home/elfbob/jobs/m02-futures/current
+  run_remote "cd $REL && if cmp -s requirements.txt $V1/requirements.txt; then \
+      rm -rf .venv && cp -a $V1/.venv .venv && echo 'venv copied from v1 release'; \
+    else /usr/bin/python3.13 -m venv .venv \
+      && .venv/bin/pip install -q --disable-pip-version-check -r requirements.txt; fi"
   scp -q "$REPO/config/settings.yaml" "$HOST:$REL/config/settings.yaml"
   run_remote "chmod 600 $REL/config/settings.yaml \
     && mkdir -p $BASE/targets $BASE/logs $BASE/config \
