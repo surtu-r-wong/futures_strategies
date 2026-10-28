@@ -63,7 +63,7 @@ deploy)
   scp -q "$REPO/config/settings.yaml" "$HOST:$REL/config/settings.yaml"
   run_remote "chmod 600 $REL/config/settings.yaml \
     && mkdir -p $BASE/targets $BASE/logs $BASE/config \
-    && cp $REL/$BUILD/shadow/calendar.json $BASE/config/targets-calendar.json \
+    && cp $REL/$BUILD/rehearsal/calendar.json $BASE/config/targets-calendar.json \
     && ln -sfn $REL $BASE/current \
     && $REL/.venv/bin/python -c 'import psycopg2, pandas, yaml; print(\"venv deps ok\")'"
   echo "deployed release -> $REL (v2 current; v1 untouched)"
