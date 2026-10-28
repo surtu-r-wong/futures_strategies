@@ -1,0 +1,62 @@
+{
+  "account_id": "m02-futures-observation-v2-rehearsal",
+  "account_version": "m02-futures-observation-v2-rehearsal",
+  "adapter": "citic027_r150_t1",
+  "source_version": "citic027_r150_t1::m02-v2::c59b6eb430d9ee1d",
+  "source_parameters": {
+    "factor_kind": "basis_momentum",
+    "window": 150,
+    "min_observations": 1,
+    "smoothing": 1,
+    "t1_leg": "top_two_by_oi",
+    "normalise_by_gap": false,
+    "return_basis": "close_to_close",
+    "execution_lag": 1,
+    "cadence": "daily",
+    "restrict_to_named": false,
+    "roll_blend": true,
+    "target_vol": 0.15,
+    "vol_window": 252,
+    "max_gross_leverage": 4.0
+  },
+  "label": "REHEARSAL (not published) / M02 futures paper observation v2: 027 native daily targets, 09:30 first-minute execution, daily settlement marks",
+  "mode": "paper",
+  "currency": "CNY",
+  "synthetic": false,
+  "initial_at": null,
+  "initial_capital": 100000000,
+  "initial_unit_nav": 1,
+  "fee_model": {
+    "version": "contract-fees-v2",
+    "position_accounting": "dated-net-lots-v1",
+    "close_order": "fifo",
+    "broker_fee_basis": "additional_to_exchange",
+    "intraday_open_policy": "ordinary_open_then_same_day_adjustment",
+    "policy_source": "M02 user rulings 2026-10-16 (commission x1.1 no minimum, 4bp slippage as CNY cost, exchange margin +2pp) applied to each contract's signal-day exchange settlement parameters; v2 daily-follow ruling 2026-10-28",
+    "excluded_costs": [
+      "exchange delivery/settlement dues outside trade fees",
+      "futures transfer fees and any broker surcharges beyond x1.1"
+    ],
+    "dce_intraday_matching": {
+      "method": "prior_open_fifo_same_side",
+      "components": [
+        "exchange"
+      ],
+      "source": "user-supplied DCE FAQ published 2021-01-21, printed 2026-10-16; sources/dce-intraday-fee-faq.pdf sha256=69e23fce4053acb8001ac508de26c4e27a8bb38074c4d9e9f0ee0860003e4609; official prior-open quantity principle; FIFO across entry prices, same-side net-lot attribution and entry-notional adjustments are explicit model choices; one account represents one trading code; future applicability not approved"
+    },
+    "rules": {}
+  },
+  "fee_description": "exchange fee x1.1 (broker +10% of exchange rate, no minimum), single-side 4bp slippage as CNY cost, exchange margin +2pp; each contract's exchange values registered from its signal day's settlement parameters and frozen for its life",
+  "lot_rule": "nearest_integer_ties_even",
+  "cash_rule": "no_interest_no_external_flows",
+  "financing_rule": "no_borrowing",
+  "execution_rule": "calendar_day_open",
+  "valuation_rule": "daily_settlement",
+  "calendar_id": "m02-futures-v2-rehearsal-cn-2026-10-30_2026-12-31",
+  "calendar_sha256": "9c5d87a3915f6568fc45870c01998215652c56bc990220e155b552e8cb857537",
+  "instruments": {},
+  "daily_policy": {
+    "target_missing": "hold_and_mark",
+    "untradable": "hold_prior_quantity"
+  }
+}

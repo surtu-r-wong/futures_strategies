@@ -1,0 +1,10 @@
+{
+  "trade_date": "2026-10-29",
+  "signal_date": "2026-10-28",
+  "spec_table_sha256": "b8fc3a72cc002c4e2e403e53210761ed32a1d096f982965bff3df5cc104230cd",
+  "nonzero_contracts": 66,
+  "spec_missing": {},
+  "expiry_alerts": [],
+  "held_contracts": [],
+  "ok": true
+}

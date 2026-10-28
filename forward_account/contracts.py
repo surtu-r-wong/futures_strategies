@@ -11,7 +11,23 @@ TZ = ZoneInfo("Asia/Shanghai")
 # batch whose signal predates the calendar, later intervals hold quantities and
 # settle mark-to-market without execution quotes. Classic per-day targets keep
 # the v1 semantics; accounts bind the engine fingerprint at initialization.
-ENGINE_VERSION = "forward-linear-futures-v2"
+# v3: optional daily_policy — a missing daily target carries positions and
+# marks settle-to-settle; an untradable contract keeps its prior quantity;
+# reference extensions may append whole new contracts to the fee schedule.
+# Configs without daily_policy keep the v2 arithmetic.
+ENGINE_VERSION = "forward-linear-futures-v3"
+
+DAILY_POLICY = {
+    "target_missing": "hold_and_mark",
+    "untradable": "hold_prior_quantity",
+}
+# Mechanical classes only; the nightly driver decides, the ledger records.
+TARGET_MISSING_REASONS = (
+    "not_produced",
+    "signal_date_mismatch",
+    "not_available_before_execution",
+    "validation_failed",
+)
 
 TSINDEX = {
     "near_leg": "near_dominant",
@@ -156,7 +172,13 @@ def validate_config(c, calendar):
     ]
     if "target_policy" in c:
         keys.append("target_policy")
+    if "daily_policy" in c:
+        keys.append("daily_policy")
     require_keys(c, keys, "config")
+    if "daily_policy" in c and (
+        c["daily_policy"] != DAILY_POLICY or "target_policy" in c
+    ):
+        raise ValueError("unsupported daily_policy")
     for key in (
         "account_id",
         "account_version",
@@ -200,7 +222,11 @@ def validate_config(c, calendar):
     }.items():
         if c[k] != v:
             raise ValueError(f"unsupported {k}")
-    if not isinstance(c["instruments"], dict) or not c["instruments"]:
+    # daily_policy accounts register each contract on the night it is first
+    # needed (extend_references), so genesis may start with none.
+    if not isinstance(c["instruments"], dict) or (
+        not c["instruments"] and "daily_policy" not in c
+    ):
         raise ValueError("explicit contract specifications required")
     for contract, spec in c["instruments"].items():
         text(contract, "contract")

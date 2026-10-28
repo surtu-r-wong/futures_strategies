@@ -1,0 +1,120 @@
+{
+ "built_at": "2026-10-28T19:31:21.636170+08:00",
+ "as_of": "2026-10-28",
+ "table_sha256": "b8fc3a72cc002c4e2e403e53210761ed32a1d096f982965bff3df5cc104230cd",
+ "products": 82,
+ "closed": 69,
+ "pending": {
+  "CZCE:CY": [
+   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not CY"
+  ],
+  "CZCE:JR": [
+   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not JR"
+  ],
+  "CZCE:PM": [
+   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not PM"
+  ],
+  "CZCE:RI": [
+   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not RI"
+  ],
+  "CZCE:RS": [
+   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not RS"
+  ],
+  "CZCE:WH": [
+   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not WH"
+  ],
+  "CZCE:ZC": [
+   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not ZC"
+  ],
+  "DCE:BB": [
+   "fee unit undeclared (fee_style=比例值); the PER_TEN_THOUSAND ruling covered ['I', 'J', 'JD', 'JM', 'LH'], not BB"
+  ],
+  "DCE:FB": [
+   "fee unit undeclared (fee_style=比例值); the PER_TEN_THOUSAND ruling covered ['I', 'J', 'JD', 'JM', 'LH'], not FB"
+  ],
+  "DCE:L-F": [
+   "non-standard product code (monthly-average contract)"
+  ],
+  "DCE:LG": [
+   "fee unit undeclared (fee_style=比例值); the PER_TEN_THOUSAND ruling covered ['I', 'J', 'JD', 'JM', 'LH'], not LG"
+  ],
+  "DCE:PP-F": [
+   "non-standard product code (monthly-average contract)"
+  ],
+  "DCE:V-F": [
+   "non-standard product code (monthly-average contract)"
+  ]
+ },
+ "v1_reproduction": {
+  "day": "2026-10-15",
+  "contracts": 67,
+  "field_diffs": 0,
+  "fields": "multiplier, margin_rate, exchange/broker fee values+units, slippage"
+ },
+ "queries": [
+  {
+   "sql": "SELECT exchange, trade_date, upper(contract_id) AS contract_id, product_id, product_name, open_fee, offset_fee, short_open_fee, short_offset_fee, fee_style, fee_scale, spec_buy_rate, spec_sell_rate, source_url, source_sha256, fetched_at FROM exchange_data.futures_settle_param WHERE trade_date = %(day)s AND exchange = ANY(%(exchanges)s)",
+   "params": {
+    "day": "2026-10-28",
+    "exchanges": [
+     "CZCE",
+     "DCE",
+     "GFEX",
+     "INE",
+     "SHFE"
+    ]
+   },
+   "started_at": "2026-10-28T19:31:21.229799+08:00",
+   "observed_at": "2026-10-28T19:31:21.312180+08:00",
+   "rows": 842
+  },
+  {
+   "sql": "SELECT \"交易所代码\" AS exchange, \"交易日期\" AS trade_date, upper(\"合约代码\") AS contract_id, \"合约乘数\" AS multiplier, \"最后日期\" AS last_date, \"涨停价\" AS limit_up, \"跌停价\" AS limit_down FROM public.futures_contract_info WHERE \"交易日期\" = %(day)s AND \"交易所代码\" = ANY(%(exchanges)s)",
+   "params": {
+    "day": "2026-10-28",
+    "exchanges": [
+     "CZCE",
+     "DCE",
+     "GFEX",
+     "INE",
+     "SHFE"
+    ]
+   },
+   "started_at": "2026-10-28T19:31:21.335809+08:00",
+   "observed_at": "2026-10-28T19:31:21.394798+08:00",
+   "rows": 4373
+  },
+  {
+   "sql": "SELECT exchange, trade_date, upper(contract_id) AS contract_id, product_id, product_name, open_fee, offset_fee, short_open_fee, short_offset_fee, fee_style, fee_scale, spec_buy_rate, spec_sell_rate, source_url, source_sha256, fetched_at FROM exchange_data.futures_settle_param WHERE trade_date = %(day)s AND exchange = ANY(%(exchanges)s)",
+   "params": {
+    "day": "2026-10-15",
+    "exchanges": [
+     "CZCE",
+     "DCE",
+     "GFEX",
+     "INE",
+     "SHFE"
+    ]
+   },
+   "started_at": "2026-10-28T19:31:21.440745+08:00",
+   "observed_at": "2026-10-28T19:31:21.482849+08:00",
+   "rows": 842
+  },
+  {
+   "sql": "SELECT \"交易所代码\" AS exchange, \"交易日期\" AS trade_date, upper(\"合约代码\") AS contract_id, \"合约乘数\" AS multiplier, \"最后日期\" AS last_date, \"涨停价\" AS limit_up, \"跌停价\" AS limit_down FROM public.futures_contract_info WHERE \"交易日期\" = %(day)s AND \"交易所代码\" = ANY(%(exchanges)s)",
+   "params": {
+    "day": "2026-10-15",
+    "exchanges": [
+     "CZCE",
+     "DCE",
+     "GFEX",
+     "INE",
+     "SHFE"
+    ]
+   },
+   "started_at": "2026-10-28T19:31:21.501536+08:00",
+   "observed_at": "2026-10-28T19:31:21.558774+08:00",
+   "rows": 4365
+  }
+ ]
+}

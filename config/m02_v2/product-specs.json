@@ -1,0 +1,1712 @@
+{
+ "schema": "m02-v2-product-specs.v1",
+ "as_of": "2026-10-28",
+ "derivation": "The 027 universe is open, so the account cannot freeze a contract list the way\nv1 froze 67 contracts. Instead each product carries one reviewed row (exchange,\nmultiplier, fee-unit authority, status) and a contract's instrument spec and fee\nrule are derived the first time the account needs it, from that contract's\nexchange-published settlement parameters of the prior trading day:",
+ "products": {
+  "CZCE:AP": {
+   "exchange": "CZCE",
+   "product": "AP",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "AP2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:CF": {
+   "exchange": "CZCE",
+   "product": "CF",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "CF2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:CJ": {
+   "exchange": "CZCE",
+   "product": "CJ",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "CJ2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:CY": {
+   "exchange": "CZCE",
+   "product": "CY",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not CY"
+   ]
+  },
+  "CZCE:FG": {
+   "exchange": "CZCE",
+   "product": "FG",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 20.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "FG2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:JR": {
+   "exchange": "CZCE",
+   "product": "JR",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 20.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not JR"
+   ]
+  },
+  "CZCE:MA": {
+   "exchange": "CZCE",
+   "product": "MA",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "MA2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:OI": {
+   "exchange": "CZCE",
+   "product": "OI",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "OI2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:PF": {
+   "exchange": "CZCE",
+   "product": "PF",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PF2612.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:PK": {
+   "exchange": "CZCE",
+   "product": "PK",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PK2612.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:PL": {
+   "exchange": "CZCE",
+   "product": "PL",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 20.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PL2612.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:PM": {
+   "exchange": "CZCE",
+   "product": "PM",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 50.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not PM"
+   ]
+  },
+  "CZCE:PR": {
+   "exchange": "CZCE",
+   "product": "PR",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 15.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PR2612.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:PX": {
+   "exchange": "CZCE",
+   "product": "PX",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PX2612.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:RI": {
+   "exchange": "CZCE",
+   "product": "RI",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 20.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not RI"
+   ]
+  },
+  "CZCE:RM": {
+   "exchange": "CZCE",
+   "product": "RM",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "RM2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:RS": {
+   "exchange": "CZCE",
+   "product": "RS",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not RS"
+   ]
+  },
+  "CZCE:SA": {
+   "exchange": "CZCE",
+   "product": "SA",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 20.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "SA2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:SF": {
+   "exchange": "CZCE",
+   "product": "SF",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "SF2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:SH": {
+   "exchange": "CZCE",
+   "product": "SH",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 30.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "SH2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:SM": {
+   "exchange": "CZCE",
+   "product": "SM",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "SM2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:SR": {
+   "exchange": "CZCE",
+   "product": "SR",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "SR2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:TA": {
+   "exchange": "CZCE",
+   "product": "TA",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "绝对值",
+    "unit": "YUAN_PER_LOT",
+    "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "TA2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:UR": {
+   "exchange": "CZCE",
+   "product": "UR",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 20.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "UR2701.CZC",
+   "status": "closed",
+   "pending": []
+  },
+  "CZCE:WH": {
+   "exchange": "CZCE",
+   "product": "WH",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 20.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not WH"
+   ]
+  },
+  "CZCE:ZC": {
+   "exchange": "CZCE",
+   "product": "ZC",
+   "name": null,
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 100.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not ZC"
+   ]
+  },
+  "DCE:A": {
+   "exchange": "DCE",
+   "product": "A",
+   "name": "豆一",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "A2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:B": {
+   "exchange": "DCE",
+   "product": "B",
+   "name": "豆二",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "B2611.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:BB": {
+   "exchange": "DCE",
+   "product": "BB",
+   "name": "胶合板",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 500.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "fee unit undeclared (fee_style=比例值); the PER_TEN_THOUSAND ruling covered ['I', 'J', 'JD', 'JM', 'LH'], not BB"
+   ]
+  },
+  "DCE:BZ": {
+   "exchange": "DCE",
+   "product": "BZ",
+   "name": "纯苯",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 30.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "BZ2611.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:C": {
+   "exchange": "DCE",
+   "product": "C",
+   "name": "玉米",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "C2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:CS": {
+   "exchange": "DCE",
+   "product": "CS",
+   "name": "玉米淀粉",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "CS2611.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:EB": {
+   "exchange": "DCE",
+   "product": "EB",
+   "name": "苯乙烯",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "EB2611.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:EG": {
+   "exchange": "DCE",
+   "product": "EG",
+   "name": "乙二醇",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "EG2611.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:FB": {
+   "exchange": "DCE",
+   "product": "FB",
+   "name": "纤维板",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "fee unit undeclared (fee_style=比例值); the PER_TEN_THOUSAND ruling covered ['I', 'J', 'JD', 'JM', 'LH'], not FB"
+   ]
+  },
+  "DCE:I": {
+   "exchange": "DCE",
+   "product": "I",
+   "name": "铁矿石",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 100.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "I2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:J": {
+   "exchange": "DCE",
+   "product": "J",
+   "name": "焦炭",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 100.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "J2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:JD": {
+   "exchange": "DCE",
+   "product": "JD",
+   "name": "鸡蛋",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "JD2612.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:JM": {
+   "exchange": "DCE",
+   "product": "JM",
+   "name": "焦煤",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 60.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "JM2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:L": {
+   "exchange": "DCE",
+   "product": "L",
+   "name": "聚乙烯",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "L2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:L-F": {
+   "exchange": "DCE",
+   "product": "L-F",
+   "name": "聚乙烯月均价",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "non-standard product code (monthly-average contract)"
+   ]
+  },
+  "DCE:LG": {
+   "exchange": "DCE",
+   "product": "LG",
+   "name": "原木",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 90.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "fee unit undeclared (fee_style=比例值); the PER_TEN_THOUSAND ruling covered ['I', 'J', 'JD', 'JM', 'LH'], not LG"
+   ]
+  },
+  "DCE:LH": {
+   "exchange": "DCE",
+   "product": "LH",
+   "name": "生猪",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 16.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "NULL"
+   ],
+   "fee_unit_ruling": {
+    "fee_style": "比例值",
+    "unit": "PER_TEN_THOUSAND",
+    "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+    "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+   },
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "LH2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:M": {
+   "exchange": "DCE",
+   "product": "M",
+   "name": "豆粕",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "M2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:P": {
+   "exchange": "DCE",
+   "product": "P",
+   "name": "棕榈油",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "P2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:PG": {
+   "exchange": "DCE",
+   "product": "PG",
+   "name": "液化石油气",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 20.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PG2612.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:PP": {
+   "exchange": "DCE",
+   "product": "PP",
+   "name": "聚丙烯",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PP2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:PP-F": {
+   "exchange": "DCE",
+   "product": "PP-F",
+   "name": "聚丙烯月均价",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "non-standard product code (monthly-average contract)"
+   ]
+  },
+  "DCE:RR": {
+   "exchange": "DCE",
+   "product": "RR",
+   "name": "粳米",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:V": {
+   "exchange": "DCE",
+   "product": "V",
+   "name": "聚氯乙烯",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "V2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "DCE:V-F": {
+   "exchange": "DCE",
+   "product": "V-F",
+   "name": "聚氯乙烯月均价",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "pending",
+   "pending": [
+    "non-standard product code (monthly-average contract)"
+   ]
+  },
+  "DCE:Y": {
+   "exchange": "DCE",
+   "product": "Y",
+   "name": "豆油",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "绝对值"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "Y2701.DCE",
+   "status": "closed",
+   "pending": []
+  },
+  "GFEX:LC": {
+   "exchange": "GFEX",
+   "product": "LC",
+   "name": "碳酸锂",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 1.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "PER_TEN_THOUSAND"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "LC2701.GFE",
+   "status": "closed",
+   "pending": []
+  },
+  "GFEX:PD": {
+   "exchange": "GFEX",
+   "product": "PD",
+   "name": "钯",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 1000.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "PER_TEN_THOUSAND"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PD2612.GFE",
+   "status": "closed",
+   "pending": []
+  },
+  "GFEX:PS": {
+   "exchange": "GFEX",
+   "product": "PS",
+   "name": "多晶硅",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 3.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "PER_TEN_THOUSAND"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PS2611.GFE",
+   "status": "closed",
+   "pending": []
+  },
+  "GFEX:PT": {
+   "exchange": "GFEX",
+   "product": "PT",
+   "name": "铂",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 1000.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "PER_TEN_THOUSAND"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PT2612.GFE",
+   "status": "closed",
+   "pending": []
+  },
+  "GFEX:SI": {
+   "exchange": "GFEX",
+   "product": "SI",
+   "name": "工业硅",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "比例值"
+   ],
+   "fee_scales": [
+    "PER_TEN_THOUSAND"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "SI2612.GFE",
+   "status": "closed",
+   "pending": []
+  },
+  "INE:BC": {
+   "exchange": "INE",
+   "product": "BC",
+   "name": "铜(BC)",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "BC2611.INE",
+   "status": "closed",
+   "pending": []
+  },
+  "INE:EC": {
+   "exchange": "INE",
+   "product": "EC",
+   "name": "SCFIS欧线",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 50.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "EC2611.INE",
+   "status": "closed",
+   "pending": []
+  },
+  "INE:LU": {
+   "exchange": "INE",
+   "product": "LU",
+   "name": "低硫燃料油",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "LU2612.INE",
+   "status": "closed",
+   "pending": []
+  },
+  "INE:NR": {
+   "exchange": "INE",
+   "product": "NR",
+   "name": "20号胶",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "NR2612.INE",
+   "status": "closed",
+   "pending": []
+  },
+  "INE:SC": {
+   "exchange": "INE",
+   "product": "SC",
+   "name": "原油",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 1000.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "SC2612.INE",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:AD": {
+   "exchange": "SHFE",
+   "product": "AD",
+   "name": "铸造铝合金",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "AD2612.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:AG": {
+   "exchange": "SHFE",
+   "product": "AG",
+   "name": "白银",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 15.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "AG2612.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:AL": {
+   "exchange": "SHFE",
+   "product": "AL",
+   "name": "铝",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "AL2611.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:AO": {
+   "exchange": "SHFE",
+   "product": "AO",
+   "name": "氧化铝",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 20.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "AO2701.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:AU": {
+   "exchange": "SHFE",
+   "product": "AU",
+   "name": "黄金",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 1000.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "AU2612.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:BR": {
+   "exchange": "SHFE",
+   "product": "BR",
+   "name": "丁二烯橡胶",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "BR2612.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:BU": {
+   "exchange": "SHFE",
+   "product": "BU",
+   "name": "石油沥青",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "BU2701.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:CU": {
+   "exchange": "SHFE",
+   "product": "CU",
+   "name": "铜",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "CU2611.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:FU": {
+   "exchange": "SHFE",
+   "product": "FU",
+   "name": "燃料油",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "FU2701.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:HC": {
+   "exchange": "SHFE",
+   "product": "HC",
+   "name": "热轧卷板",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "HC2701.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:NI": {
+   "exchange": "SHFE",
+   "product": "NI",
+   "name": "镍",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 1.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "NI2612.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:OP": {
+   "exchange": "SHFE",
+   "product": "OP",
+   "name": "胶版印刷纸",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 40.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "OP2612.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:PB": {
+   "exchange": "SHFE",
+   "product": "PB",
+   "name": "铅",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "PB2612.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:RB": {
+   "exchange": "SHFE",
+   "product": "RB",
+   "name": "螺纹钢",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "RB2701.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:RU": {
+   "exchange": "SHFE",
+   "product": "RU",
+   "name": "天然橡胶",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "RU2701.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:SN": {
+   "exchange": "SHFE",
+   "product": "SN",
+   "name": "锡",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 1.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "SN2611.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:SP": {
+   "exchange": "SHFE",
+   "product": "SP",
+   "name": "纸浆",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "SP2701.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:SS": {
+   "exchange": "SHFE",
+   "product": "SS",
+   "name": "不锈钢",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "SS2612.SHF",
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:WR": {
+   "exchange": "SHFE",
+   "product": "WR",
+   "name": "线材",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 10.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "PERMILLE"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": null,
+   "status": "closed",
+   "pending": []
+  },
+  "SHFE:ZN": {
+   "exchange": "SHFE",
+   "product": "ZN",
+   "name": "锌",
+   "revision": 1,
+   "effective_from": "2026-10-28",
+   "multiplier": 5.0,
+   "fee_styles": [
+    "-"
+   ],
+   "fee_scales": [
+    "YUAN_PER_LOT"
+   ],
+   "fee_unit_ruling": null,
+   "price_limit": "per-day exchange limit prices, public.futures_contract_info 涨停价/跌停价 of the trade date",
+   "v1_closed_contract": "ZN2612.SHF",
+   "status": "closed",
+   "pending": []
+  }
+ },
+ "table_sha256": "b8fc3a72cc002c4e2e403e53210761ed32a1d096f982965bff3df5cc104230cd"
+}

@@ -4,7 +4,15 @@ import math
 
 from common.minute.account import EventAccount
 
-from .contracts import number, require_keys, text, timestamp
+from .contracts import (
+    DAILY_POLICY,
+    TARGET_MISSING_REASONS,
+    digest,
+    number,
+    require_keys,
+    text,
+    timestamp,
+)
 from .fees import MATCHING_VERSION, account_trades, account_trades_with_matching
 
 
@@ -47,20 +55,107 @@ def _quotes(quote, kind, at, required, now, synthetic):
     return {k: number(quote["prices"][k], "price", positive=True) for k in required}
 
 
-def calculate(config, prior, interval, packet, *, available_at):
-    pinned = config.get("target_policy")
-    # pinned_batch: once the first build holds contracts, later intervals keep
-    # the fixed quantities and never need an execution quote (settle-to-settle
-    # marks only). An empty first build retries the build on later intervals.
-    holding = pinned is not None and bool(prior["positions"])
+def _daily_execution(quote, at, required, prior_prices, now, synthetic):
+    """Execution quote under daily_policy: per-contract tradable evidence.
+
+    Every required contract carries an explicit True/False. A False contract
+    needs a stated reason and keeps its prior quantity; its 09:30 price is
+    optional (limit-locked bars have one, missing bars do not). Returns the
+    reference price used for marking and sizing, plus the untradable reasons.
+    A held contract without a 09:30 price is referenced at its prior settle,
+    so its whole-day PnL lands in the intraday mark and the total is unchanged.
+    """
     require_keys(
-        packet,
-        ("trade_date", "target", "settlement") + (() if holding else ("execution",)),
-        "interval input",
+        quote,
+        (
+            "kind",
+            "at",
+            "available_at",
+            "source",
+            "synthetic",
+            "prices",
+            "tradable",
+            "untradable_reasons",
+        ),
+        "quote",
     )
-    if packet["trade_date"] != interval["trade_date"]:
-        raise ValueError("next calendar trade_date required")
-    target = packet["target"]
+    if quote["kind"] != "execution" or timestamp(quote["at"]) != timestamp(at):
+        raise ValueError("quote kind/timestamp mismatch")
+    if quote["synthetic"] is not synthetic:
+        raise ValueError("quote synthetic mismatch")
+    if not timestamp(at) <= timestamp(quote["available_at"]) <= timestamp(now):
+        raise ValueError("quote availability outside completed interval")
+    text(quote["source"], "quote source")
+    tradable, reasons, prices = (
+        quote["tradable"],
+        quote["untradable_reasons"],
+        quote["prices"],
+    )
+    if (
+        not isinstance(tradable, dict)
+        or not isinstance(reasons, dict)
+        or not isinstance(prices, dict)
+        or not required.issubset(tradable)
+        or any(type(tradable[k]) is not bool for k in required)
+    ):
+        raise ValueError("explicit tradable evidence required; no simulated fill")
+    blocked = {k for k in required if tradable[k] is False}
+    if set(reasons) != blocked:
+        raise ValueError("untradable reasons must match untradable contracts exactly")
+    untradable = {k: text(reasons[k], "untradable reason") for k in sorted(blocked)}
+    reference = {}
+    for k in required:
+        if k in prices:
+            reference[k] = number(prices[k], "price", positive=True)
+        elif k in blocked:
+            if k in prior_prices:
+                reference[k] = prior_prices[k]
+        else:
+            raise ValueError("missing required contract price")
+    return reference, untradable
+
+
+def _check_specs(instruments, required, trade_date):
+    for k in required:
+        if k not in instruments:
+            raise ValueError("contract multiplier/margin specification missing")
+        spec = instruments[k]
+        if not spec["valid_from"] <= trade_date <= spec["valid_to"]:
+            raise ValueError("contract specification outside validity")
+
+
+def _rebase_matching(config, state, trade_date):
+    """Rebind DCE fee matching to an append-extended fee schedule.
+
+    Under daily_policy, reference extensions add whole new contracts to the
+    fee schedule, which changes the schedule digest the matching state binds.
+    Same-day openings are the only evidence that depends on the schedule, and
+    a new trade date discards them anyway, so rebinding at a day boundary
+    loses nothing. Within a day the digest check stays strict. Each opening
+    lot still binds its own rule digest, so an edited rule still fails.
+    """
+    current = digest(config["fee_model"])
+    if (
+        config.get("daily_policy") is None
+        or state is None
+        or state.get("model_sha256") == current
+        or state.get("trade_date") == trade_date
+    ):
+        return state, False
+    return {**state, "model_sha256": current, "unmatched": {}}, True
+
+
+def _target_missing(evidence):
+    require_keys(evidence, ("reason", "detail", "evidence"), "target_missing")
+    if evidence["reason"] not in TARGET_MISSING_REASONS:
+        raise ValueError("unsupported target_missing reason")
+    text(evidence["detail"], "target_missing detail")
+    if not isinstance(evidence["evidence"], dict):
+        raise ValueError("target_missing evidence object required")
+    return evidence
+
+
+def _validate_target(config, pinned, interval, target, available_at):
     require_keys(
         target,
         (
@@ -118,17 +213,62 @@ def calculate(config, prior, interval, packet, *, available_at):
         or len(target["weights"]) != target["row_count"]
     ):
         raise ValueError("target row count mismatch")
-    weights = {k: number(v, "target_weight") for k, v in target["weights"].items()}
+    return {k: number(v, "target_weight") for k, v in target["weights"].items()}
+
+
+def calculate(config, prior, interval, packet, *, available_at):
+    pinned = config.get("target_policy")
+    daily = config.get("daily_policy")
+    if daily is not None and daily != DAILY_POLICY:
+        raise ValueError("unsupported daily_policy")
+    # pinned_batch: once the first build holds contracts, later intervals keep
+    # the fixed quantities and never need an execution quote (settle-to-settle
+    # marks only). An empty first build retries the build on later intervals.
+    holding = pinned is not None and bool(prior["positions"])
+    # daily_policy: no qualifying target by the execution time means no trade.
+    # Positions carry and mark settle-to-settle; an older target never stands in.
+    missing = (
+        daily is not None and isinstance(packet, dict) and packet.get("target") is None
+    )
+    if missing:
+        require_keys(
+            packet,
+            ("trade_date", "target", "target_missing", "settlement"),
+            "interval input",
+        )
+    else:
+        require_keys(
+            packet,
+            ("trade_date", "target", "settlement")
+            + (() if holding else ("execution",)),
+            "interval input",
+        )
+    if packet["trade_date"] != interval["trade_date"]:
+        raise ValueError("next calendar trade_date required")
+    target_missing = (
+        _target_missing(packet["target_missing"]) if missing else None
+    )
+    if missing:
+        target = None
+        weights = {}
+        holding = True
+        if timestamp(interval["end_at"]) > timestamp(available_at):
+            raise ValueError("full valuation interval has not completed")
+    else:
+        target = packet["target"]
+        weights = _validate_target(config, pinned, interval, target, available_at)
     held = prior["positions"]
-    required = set(held) | set(weights)
+    if daily is None:
+        required = set(held) | set(weights)
+    else:
+        # A zero-weight row for an unheld contract implies no trade; it needs
+        # neither a specification nor a quote.
+        required = set(held) | {k for k, w in weights.items() if w}
     instruments = config["instruments"]
-    for k in required:
-        if k not in instruments:
-            raise ValueError("contract multiplier/margin specification missing")
-        spec = instruments[k]
-        if not spec["valid_from"] <= interval["trade_date"] <= spec["valid_to"]:
-            raise ValueError("contract specification outside validity")
+    _check_specs(instruments, required, interval["trade_date"])
     opening_nav = prior["nav"]
+    untradable = {}
+    rebased = False
     if holding:
         # No trades are possible: quantities are the held integers, no fees
         # accrue, and the period PnL runs settlement-to-settlement below.
@@ -140,14 +280,24 @@ def calculate(config, prior, interval, packet, *, available_at):
         fee_matching_state = prior.get("fee_matching_state")
         trades = []
     else:
-        execution = _quotes(
-            packet["execution"],
-            "execution",
-            interval["execution_at"],
-            required,
-            available_at,
-            config["synthetic"],
-        )
+        if daily is None:
+            execution = _quotes(
+                packet["execution"],
+                "execution",
+                interval["execution_at"],
+                required,
+                available_at,
+                config["synthetic"],
+            )
+        else:
+            execution, untradable = _daily_execution(
+                packet["execution"],
+                interval["execution_at"],
+                required,
+                prior["prices"],
+                available_at,
+                config["synthetic"],
+            )
         gap_pnl = _mark(
             opening_nav,
             held,
@@ -160,11 +310,17 @@ def calculate(config, prior, interval, packet, *, available_at):
         pretrade_nav = number(opening_nav + gap_pnl, "pretrade NAV", positive=True)
         quantities = {}
         for k, weight in weights.items():
+            if daily is not None and (not weight or k in untradable):
+                continue
             q = weight * pretrade_nav / (execution[k] * instruments[k]["multiplier"])
             if config["lot_rule"] == "nearest_integer_ties_even":
                 q = round(q)
             if q:
                 quantities[k] = number(q, "quantity")
+        for k in untradable:
+            # No simulated fill: an untradable contract keeps yesterday's lots.
+            if held.get(k):
+                quantities[k] = held[k]
         position_lots = None
         fee_matching_state = None
         if "fee_model" in config:
@@ -189,6 +345,9 @@ def calculate(config, prior, interval, packet, *, available_at):
             )
             if config["fee_model"]["version"] == MATCHING_VERSION:
                 fee_matching_state = prior.get("fee_matching_state")
+                fee_matching_state, rebased = _rebase_matching(
+                    config, fee_matching_state, interval["trade_date"]
+                )
                 if fee_matching_state and fee_matching_state["last_at"] is not None:
                     if timestamp(fee_matching_state["last_at"]) > timestamp(
                         prior["as_of"]
@@ -304,7 +463,7 @@ def calculate(config, prior, interval, packet, *, available_at):
             "fee_model_version": config.get("fee_model", {}).get(
                 "version", "uniform-bps-v1"
             ),
-            "signal_date": target["signal_date"],
+            "signal_date": None if target is None else target["signal_date"],
             "execution_at": interval["execution_at"],
             "settlement_at": interval["end_at"],
             "pretrade_nav": pretrade_nav,
@@ -315,5 +474,15 @@ def calculate(config, prior, interval, packet, *, available_at):
             "target_policy": None if pinned is None else pinned["mode"],
             "execution_margin": execution_margin,
             "settlement_rule": config["valuation_rule"],
+            **(
+                {}
+                if daily is None
+                else {
+                    "target_status": "missing" if missing else "valid",
+                    "target_missing": target_missing,
+                    "untradable": untradable,
+                    "fee_matching_rebased": rebased,
+                }
+            ),
         },
     }

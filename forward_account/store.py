@@ -37,18 +37,27 @@ def engine_fingerprint():
 
 
 @contextmanager
-def connection(path, *, create=False):
+def connection(path, *, create=False, readonly=False):
     path = Path(path)
     if create:
         path.parent.mkdir(parents=True, exist_ok=True)
     elif not path.is_file():
         raise ValueError("account store does not exist; initialize explicitly")
-    con = sqlite3.connect(path, timeout=30, isolation_level=None)
+    if readonly:
+        # Readers take no write lock, so a sealed (read-only) store stays readable.
+        con = sqlite3.connect(
+            f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=30, isolation_level=None
+        )
+    else:
+        con = sqlite3.connect(path, timeout=30, isolation_level=None)
     con.row_factory = sqlite3.Row
     try:
         con.execute("PRAGMA foreign_keys=ON")
-        con.execute("PRAGMA synchronous=FULL")
-        con.execute("BEGIN IMMEDIATE")
+        if readonly:
+            con.execute("BEGIN")
+        else:
+            con.execute("PRAGMA synchronous=FULL")
+            con.execute("BEGIN IMMEDIATE")
         yield con
         con.commit()
     except BaseException:
@@ -75,7 +84,8 @@ def _schema(con):
         content_hash TEXT PRIMARY KEY, payload TEXT NOT NULL)""")
     con.execute("""CREATE TABLE IF NOT EXISTS reference_updates (
         seq INTEGER PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(account_id),
-        calendar TEXT NOT NULL, instruments TEXT NOT NULL, recorded_at TEXT NOT NULL)""")
+        calendar TEXT NOT NULL, instruments TEXT NOT NULL, recorded_at TEXT NOT NULL,
+        fee_rules TEXT)""")
 
 
 def initialize(path, config, calendar):
@@ -168,17 +178,17 @@ def _state(con, account):
 
 
 def read_state(path, account_id):
-    with connection(path) as con:
+    with connection(path, readonly=True) as con:
         return _state(con, _account(con, account_id))
 
 
 def read_config(path, account_id):
-    with connection(path) as con:
+    with connection(path, readonly=True) as con:
         return json.loads(_account(con, account_id)["config"])
 
 
 def read_status(path, account_id):
-    with connection(path) as con:
+    with connection(path, readonly=True) as con:
         account = _account(con, account_id)
         failure = con.execute(
             "SELECT * FROM attempts WHERE account_id IN (?, '*') ORDER BY rowid DESC LIMIT 1",
@@ -206,16 +216,22 @@ def _references(con, account):
     ).fetchone()
     if latest:
         config["instruments"] = json.loads(latest["instruments"])
+        # Stores created before fee-rule extension have no such column.
+        if "fee_rules" in latest.keys() and latest["fee_rules"] is not None:
+            config["fee_model"]["rules"] = json.loads(latest["fee_rules"])
         return config, json.loads(latest["calendar"]), latest["seq"]
     return config, json.loads(account["calendar"]), 0
 
 
-def extend_references(path, account_id, calendar, instruments):
+def extend_references(path, account_id, calendar, instruments, fee_rules=None):
     """Append future sessions/contracts without resetting NAV or series identity.
 
     Existing session mappings and contract economics cannot be rewritten here.
     Validity may be extended only with the same specification/source. Changes
     to rates/multipliers require a separately designed effective-dated migration.
+    fee_rules (daily_policy accounts only) may add schedules for new contracts;
+    every existing contract's schedule must come back byte-identical, because
+    position lots and fee matching bind each rule's digest.
     """
     with connection(path) as con:
         account = _account(con, account_id)
@@ -239,14 +255,37 @@ def extend_references(path, account_id, calendar, instruments):
                 or new["valid_to"] < old["valid_to"]
             ):
                 raise ValueError("existing contract economics are immutable")
+        old_rules = config.get("fee_model", {}).get("rules")
+        if fee_rules is not None:
+            if "daily_policy" not in config or old_rules is None:
+                raise ValueError("fee rule extension requires a daily_policy fee model")
+            for contract, schedule in old_rules.items():
+                if fee_rules.get(contract) != schedule:
+                    raise ValueError("existing contract fee schedules are immutable")
+            config["fee_model"]["rules"] = fee_rules
         config["instruments"] = instruments
         config["calendar_sha256"] = digest(calendar)
         validate_config(config, calendar)
-        if calendar == old_calendar and instruments == old_instruments:
+        if (
+            calendar == old_calendar
+            and instruments == old_instruments
+            and (fee_rules is None or fee_rules == old_rules)
+        ):
             return
         con.execute(
-            "INSERT INTO reference_updates (account_id,calendar,instruments,recorded_at) VALUES (?,?,?,?)",
-            (account_id, canonical(calendar), canonical(instruments), now_iso()),
+            "INSERT INTO reference_updates "
+            "(account_id,calendar,instruments,recorded_at,fee_rules) VALUES (?,?,?,?,?)",
+            (
+                account_id,
+                canonical(calendar),
+                canonical(instruments),
+                now_iso(),
+                # Carry the full current schedule on every daily_policy row so
+                # a later calendar-only extension cannot fall back to genesis.
+                canonical(config["fee_model"]["rules"])
+                if "daily_policy" in config and "fee_model" in config
+                else None,
+            ),
         )
 
 

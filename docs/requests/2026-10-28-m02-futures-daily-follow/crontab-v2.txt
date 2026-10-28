@@ -1,0 +1,22 @@
+# Replaces the whole "M02 FUTURES NIGHTLY 20261027" block (begin to end) in
+# the elfbob crontab on Debian 100.65.111.79. Install as early as convenient
+# (the rehearsal account starts 2026-10-30; its 08:30 package needs this
+# block), at the latest before 2026-11-09 08:30 (shadow, R8).
+# Other blocks are untouched. `%` is escaped as cron requires.
+#
+#  - v1: same line as before, date-guarded to stop after the 2026-11-13 night;
+#        sealed at 22:30 on 2026-11-13 (refuses unless 11-13 is the last row)
+#  - v2 morning target package 08:30 (internal retry 09:05), shared by shadow
+#        and production
+#  - v2 shadow nightly 21:10, active 2026-11-09..2026-11-13 only (R8)
+#  - v2 rehearsal nightly 21:20, active until 2026-11-06 (pre-shadow real nights;
+#        needs its genesis first, logs a skip otherwise)
+#  - v2 production nightly 21:05, retry 21:35 (pre-genesis: logs a skip; SKIP until 11-16)
+# BEGIN M02 FUTURES NIGHTLY 20261106
+5 21 * * 1-5 [ "$(date +\%Y\%m\%d)" -le 20261113 ] && M02_FUTURES_STATE_DIR=/home/elfbob/jobs/m02-futures/state /bin/bash /home/elfbob/jobs/m02-futures/current/scripts/m02_futures_nightly.sh
+30 22 13 11 * [ "$(date +\%Y)" = 2026 ] && cd /home/elfbob/jobs/m02-futures-v2/current && .venv/bin/python -B scripts/m02_seal.py --state /home/elfbob/jobs/m02-futures/state/account.sqlite --account m02-futures-observation --feed /home/elfbob/jobs/m02-futures/state/feed/latest.json --expect-last 2026-11-13 --reason "v1 closed per user ruling 2026-10-28 (daily-follow v2 replaces the frozen batch)" >> /home/elfbob/jobs/m02-futures/state/logs/seal.log 2>&1
+30 8 * * 1-5 M02_V2_ROOT=/home/elfbob/jobs/m02-futures-v2 M02_V2_CALENDAR=/home/elfbob/jobs/m02-futures-v2/config/targets-calendar.json M02_V2_STORE=/home/elfbob/jobs/m02-futures-v2/state-production/account.sqlite M02_V2_ACCOUNT=m02-futures-observation-v2 /bin/bash /home/elfbob/jobs/m02-futures-v2/current/scripts/m02_v2_morning.sh
+10 21 * * 1-5 [ "$(date +\%Y\%m\%d)" -ge 20261109 ] && [ "$(date +\%Y\%m\%d)" -le 20261113 ] && M02_V2_STATE_DIR=/home/elfbob/jobs/m02-futures-v2/state-shadow M02_V2_ACCOUNT=m02-futures-observation-v2-shadow M02_V2_TARGETS=/home/elfbob/jobs/m02-futures-v2/targets /bin/bash /home/elfbob/jobs/m02-futures-v2/current/scripts/m02_v2_nightly.sh
+5 21 * * 1-5 M02_V2_STATE_DIR=/home/elfbob/jobs/m02-futures-v2/state-production M02_V2_ACCOUNT=m02-futures-observation-v2 M02_V2_TARGETS=/home/elfbob/jobs/m02-futures-v2/targets M02_V2_FEED=/home/elfbob/jobs/m02-futures-v2/state-production/feed/latest.json /bin/bash /home/elfbob/jobs/m02-futures-v2/current/scripts/m02_v2_nightly.sh
+20 21 * * 1-5 [ "$(date +\%Y\%m\%d)" -le 20261106 ] && M02_V2_STATE_DIR=/home/elfbob/jobs/m02-futures-v2/state-rehearsal M02_V2_ACCOUNT=m02-futures-observation-v2-rehearsal M02_V2_TARGETS=/home/elfbob/jobs/m02-futures-v2/targets /bin/bash /home/elfbob/jobs/m02-futures-v2/current/scripts/m02_v2_nightly.sh
+# END M02 FUTURES NIGHTLY 20261106

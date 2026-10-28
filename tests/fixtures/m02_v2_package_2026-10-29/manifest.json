@@ -1,0 +1,309 @@
+{
+  "schema": "m02-v2-target-package.v1",
+  "status": "ready",
+  "reason": null,
+  "trade_date": "2026-10-29",
+  "signal_date": "2026-10-28",
+  "interval": {
+    "trade_date": "2026-10-29",
+    "signal_date": "2026-10-28",
+    "start_at": "2026-10-28T15:00:00+08:00",
+    "execution_at": "2026-10-29T09:30:00+08:00",
+    "end_at": "2026-10-29T15:00:00+08:00"
+  },
+  "calendar_id": "scratch",
+  "adapter": "citic027_r150_t1",
+  "started_at": "2026-10-28T19:32:48.277436+08:00",
+  "available_at": "2026-10-28T19:34:37.465778+08:00",
+  "memory_limit_bytes": 2048000000,
+  "observer": {
+    "host": "elfbob-ThinkPad-X1-Carbon-Gen-8",
+    "checkout": "/home/elfbob/claude-code/futures_strategies",
+    "git_head": "412c79b7232d60c67c98feaffd860f1d6c3c2081"
+  },
+  "weight_files": {
+    "citic_index/__init__.py": "b75945e1fd1f9ef703b33d3d3328cc7621914feeca7b9170d0d4833499c8e3b4",
+    "citic_index/book.py": "ae4918d49d70b2e7b8420c36a81d32421740e6b61cedc64632c6bd7dfdb28bea",
+    "citic_index/daily.py": "73036f709f0307ed27775808a92481642442b8abb4e2b5bf373038743e6beb6e",
+    "citic_index/pipeline.py": "a2a1db61a6d407785d2dac4534107c0869a4dd9cf9b110e570a235bf8607e822",
+    "citic_index/universe.py": "8762091a3ad0f23e4bcf55a0ddd4f1b059d9165f7cee21d948838571e317092d",
+    "citic_index/factor.py": "a43eba52ff65e11b905d610e448eb5f4c6232b475b170fb8582ac7e524a07666",
+    "citic_index/returns.py": "ca8018f8cc864d2b7406c57e6b814c15007a18adc3f182b32f338c271c9e9492",
+    "citic_index/legs.py": "65c21eadfaa28952ad9ed9d7b7634193cb3f69ed82881eec24d13b886514bd58",
+    "citic_index/weights.py": "83bca123fd164c4855ef98fa3de41203d00d7f3557dae9082c9f4c8173f29111",
+    "citic_index/index.py": "53c716ff0154d28584ca21197a12c114d163f61483de24b280fc5fff0d70e4de",
+    "citic_index/data.py": "a97442a35c68792fcf70fcf9f10d380d4f32e997f754e610c189719dba75abc4",
+    "citic_index/pg_source.py": "51fb05b98a31226296e94d24b20afe1f4c435236bda6fd3b22b2b71a456e554a",
+    "cta_carry/__init__.py": "d356ae136e8cd9f921b392fdc8b538e88de0802753f39b8217047aa7d96051c1",
+    "cta_carry/legreturns.py": "b93bb95f236883bcc7c5004a998c45ce4e3a391c273e576338b19536d84d9d06",
+    "cta_carry/data.py": "a8ac0e412e399b2df10db1cd2f200e59a892ee3b3159f154aa42c2028c9d752d",
+    "cta_carry/risk.py": "6dbdda6ed3115ab16036ccbe9ecdc85760e2e0c60487376d41b145175ff68baa",
+    "cta_carry/targets.py": "7b2117496fc7dc7ecdfe903021a0ee5e240b4f316c6136cdb5ae620a1d689694",
+    "cta_carry/config.py": "867cbfb257500734a1a5c090f5b9658d0d6726179f4cd9cbd333da6137a9faeb",
+    "cta_carry/curve.py": "7283dc4aff60c64392f3c6761bc1f800cfbd52617cff28be02cc3499cad65672",
+    "cta_carry/signals.py": "2e231dd73f8fe0bd86c1f3804c5455efe8288be97bd2d28566791ea450b971da",
+    "common/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "common/config.py": "2702ed67a8d072e972d43bf1b766f9903ef75dfabd6bede9ae2f11fbb0ded02d",
+    "common/db.py": "9feee0efdff8abccb5e054d12f09fb0a733b811fa2e6d5d92014dd4b8738318b",
+    "scripts/citic027_daily.sh": "55b93146d5767488b850b402c76aedaf5963bb5d92a38acb5605e3c0378d258c",
+    "forward_inputs/m01.py": "2b9d17ac15a8b67c0e761e9bd7e7085dadd368ec9838707e80dae8a95a142362"
+  },
+  "source_version": "citic027_r150_t1::m02-v2::c59b6eb430d9ee1d",
+  "lookback_days": 900,
+  "data_frontier": {
+    "CZC": "2026-10-28",
+    "DCE": "2026-10-28",
+    "GFE": "2026-10-28",
+    "INE": "2026-10-28",
+    "SHF": "2026-10-28"
+  },
+  "source_window": {
+    "start": "2024-05-11",
+    "end": "2026-10-28",
+    "normalized_rows": 390681,
+    "observed_at": "2026-10-28T19:34:23.828124+08:00"
+  },
+  "calculation_started_at": "2026-10-28T19:34:23.828150+08:00",
+  "calculation_completed_at": "2026-10-28T19:34:37.225954+08:00",
+  "row_count": 67,
+  "gross_target_weight": 2.251044851367434,
+  "precheck_ok": true,
+  "source_receipt": {
+    "source_version": "citic027_r150_t1::m02-v2::c59b6eb430d9ee1d",
+    "available_at": "2026-10-28T19:34:37.465778+08:00",
+    "csv_sha256": "04ab85bd86dd90717239a2d5d62777680eb4658ff373973eef0c41dcea146f91",
+    "metadata_sha256": "c541acbe7113f977a1f8f0c50a1bf7d44c16af42cd481c761f272e531aede8af",
+    "row_count": 67,
+    "signal_date": "2026-10-28",
+    "synthetic": false
+  },
+  "queries": [
+    {
+      "sql": "SELECT split_part(symbol, '.', 2) AS exchange, max(trade_date) AS max_date FROM public.futures_daily WHERE trade_date >= %(lo)s AND trade_date <= %(hi)s AND split_part(symbol, '.', 2) = ANY(%(exchanges)s) GROUP BY 1 ORDER BY 1",
+      "params": {
+        "lo": "2026-09-28",
+        "hi": "2026-10-28",
+        "exchanges": [
+          "CZC",
+          "DCE",
+          "GFE",
+          "INE",
+          "SHF"
+        ]
+      },
+      "started_at": "2026-10-28T19:32:48.434837+08:00",
+      "observed_at": "2026-10-28T19:32:48.467659+08:00",
+      "rows": 5
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2024-05-11",
+        "hi": "2024-07-09"
+      },
+      "started_at": "2026-10-28T19:32:48.469723+08:00",
+      "observed_at": "2026-10-28T19:32:49.129944+08:00",
+      "rows": 29100
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2024-07-10",
+        "hi": "2024-09-07"
+      },
+      "started_at": "2026-10-28T19:32:49.129984+08:00",
+      "observed_at": "2026-10-28T19:32:49.580381+08:00",
+      "rows": 30593
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2024-09-08",
+        "hi": "2024-11-06"
+      },
+      "started_at": "2026-10-28T19:32:49.580432+08:00",
+      "observed_at": "2026-10-28T19:32:49.932315+08:00",
+      "rows": 25839
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2024-11-07",
+        "hi": "2025-01-05"
+      },
+      "started_at": "2026-10-28T19:32:49.932358+08:00",
+      "observed_at": "2026-10-28T19:32:50.366198+08:00",
+      "rows": 29656
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2025-01-06",
+        "hi": "2025-03-06"
+      },
+      "started_at": "2026-10-28T19:32:50.366232+08:00",
+      "observed_at": "2026-10-28T19:32:50.745529+08:00",
+      "rows": 27871
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2025-03-07",
+        "hi": "2025-05-05"
+      },
+      "started_at": "2026-10-28T19:32:50.745567+08:00",
+      "observed_at": "2026-10-28T19:32:51.163504+08:00",
+      "rows": 27987
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2025-05-06",
+        "hi": "2025-07-04"
+      },
+      "started_at": "2026-10-28T19:32:51.163544+08:00",
+      "observed_at": "2026-10-28T19:32:51.603782+08:00",
+      "rows": 31892
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2025-07-05",
+        "hi": "2025-09-02"
+      },
+      "started_at": "2026-10-28T19:32:51.603820+08:00",
+      "observed_at": "2026-10-28T19:32:52.071848+08:00",
+      "rows": 31794
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2025-09-03",
+        "hi": "2025-11-01"
+      },
+      "started_at": "2026-10-28T19:32:52.071883+08:00",
+      "observed_at": "2026-10-28T19:32:52.480526+08:00",
+      "rows": 28571
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2025-11-02",
+        "hi": "2025-12-31"
+      },
+      "started_at": "2026-10-28T19:32:52.480561+08:00",
+      "observed_at": "2026-10-28T19:32:52.961199+08:00",
+      "rows": 34302
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2026-01-01",
+        "hi": "2026-03-01"
+      },
+      "started_at": "2026-10-28T19:32:52.961244+08:00",
+      "observed_at": "2026-10-28T19:32:53.413434+08:00",
+      "rows": 28492
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2026-03-02",
+        "hi": "2026-04-30"
+      },
+      "started_at": "2026-10-28T19:32:53.413478+08:00",
+      "observed_at": "2026-10-28T19:32:53.972288+08:00",
+      "rows": 36326
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2026-05-01",
+        "hi": "2026-06-29"
+      },
+      "started_at": "2026-10-28T19:32:53.972332+08:00",
+      "observed_at": "2026-10-28T19:32:54.419575+08:00",
+      "rows": 31958
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2026-06-30",
+        "hi": "2026-08-28"
+      },
+      "started_at": "2026-10-28T19:32:54.419612+08:00",
+      "observed_at": "2026-10-28T19:32:54.949872+08:00",
+      "rows": 36961
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2026-08-29",
+        "hi": "2026-10-27"
+      },
+      "started_at": "2026-10-28T19:32:54.949919+08:00",
+      "observed_at": "2026-10-28T19:32:55.481299+08:00",
+      "rows": 30264
+    },
+    {
+      "sql": "SELECT \n    trade_date,\n    symbol AS contract,\n    open::float AS open,\n    high::float AS high,\n    low::float AS low,\n    close::float AS close,\n    volume::float AS volume,\n    oi::float AS oi,\n    turnover::float AS turnover,\n    settle::float AS settle\n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n ORDER BY trade_date, symbol",
+      "params": {
+        "lo": "2026-10-28",
+        "hi": "2026-10-28"
+      },
+      "started_at": "2026-10-28T19:32:55.481342+08:00",
+      "observed_at": "2026-10-28T19:32:55.509803+08:00",
+      "rows": 842
+    },
+    {
+      "sql": "SELECT to_char(trade_date, 'YYYY-MM') AS month, COUNT(*) AS n FROM public.futures_daily WHERE \n    trade_date >= %(lo)s\n      AND trade_date <= %(hi)s\n      AND split_part(symbol, '.', 2) <> 'CFE'\n GROUP BY 1",
+      "params": {
+        "lo": "2024-05-11",
+        "hi": "2026-10-28"
+      },
+      "started_at": "2026-10-28T19:32:56.084316+08:00",
+      "observed_at": "2026-10-28T19:32:56.451983+08:00",
+      "rows": 30
+    },
+    {
+      "sql": "SELECT exchange, trade_date, upper(contract_id) AS contract_id, product_id, product_name, open_fee, offset_fee, short_open_fee, short_offset_fee, fee_style, fee_scale, spec_buy_rate, spec_sell_rate, source_url, source_sha256, fetched_at FROM exchange_data.futures_settle_param WHERE trade_date = %(day)s AND exchange = ANY(%(exchanges)s)",
+      "params": {
+        "day": "2026-10-28",
+        "exchanges": [
+          "CZCE",
+          "DCE",
+          "GFEX",
+          "INE",
+          "SHFE"
+        ]
+      },
+      "started_at": "2026-10-28T19:34:37.227310+08:00",
+      "observed_at": "2026-10-28T19:34:37.309436+08:00",
+      "rows": 842
+    },
+    {
+      "sql": "SELECT \"交易所代码\" AS exchange, \"交易日期\" AS trade_date, upper(\"合约代码\") AS contract_id, \"合约乘数\" AS multiplier, \"最后日期\" AS last_date, \"涨停价\" AS limit_up, \"跌停价\" AS limit_down FROM public.futures_contract_info WHERE \"交易日期\" = %(day)s AND \"交易所代码\" = ANY(%(exchanges)s)",
+      "params": {
+        "day": "2026-10-28",
+        "exchanges": [
+          "CZCE",
+          "DCE",
+          "GFEX",
+          "INE",
+          "SHFE"
+        ]
+      },
+      "started_at": "2026-10-28T19:34:37.331440+08:00",
+      "observed_at": "2026-10-28T19:34:37.406145+08:00",
+      "rows": 4373
+    }
+  ],
+  "completed_at": "2026-10-28T19:34:37.466197+08:00",
+  "peak_rss_kib": 746780,
+  "files": {
+    "precheck.json": "6062014027b9dcfe257ce6a2c9a5ed813b5553d2d2fcad132ebe7bdb41d17612",
+    "source-daily.csv.gz": "e50390356c2c37f576af226897d50f004aae0df969806bbd37f88c006a29dc36",
+    "source-parameters.json": "c541acbe7113f977a1f8f0c50a1bf7d44c16af42cd481c761f272e531aede8af",
+    "targets.csv": "04ab85bd86dd90717239a2d5d62777680eb4658ff373973eef0c41dcea146f91"
+  }
+}
