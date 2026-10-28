@@ -29,9 +29,13 @@ if [ -n "${M02_V2_STORE:-}" ] && [ -f "$M02_V2_STORE" ]; then
 fi
 
 run() {
-  # 2 GB address-space cap (native window + panel peak ~0.75 GB RSS); one
+  # 2 GB address-space cap (native window + panel peak ~1.0 GB RSS); one
   # BLAS thread so the run never competes with the PG backend on this box.
+  # Arrow's default mimalloc pool reserves enough address space to hit the
+  # cap on Debian (MemoryError at 0.75 GB RSS, 2026-10-28); the system
+  # allocator does not, and the targets come out byte-identical.
   ( ulimit -v 2000000
+    ARROW_DEFAULT_MEMORY_POOL=system \
     OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
       "$repo/.venv/bin/python" -B -m forward_inputs.m02_daily \
       --trade-date "$today" --calendar "$calendar" \
