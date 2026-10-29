@@ -15,12 +15,14 @@ order gate, not stop at "initialized". Each gate gets an explicit verdict:
   G3 identity        stored config/calendar/engine fingerprints == this build
   G4 target window   the first target must land in [start_at, 09:30]
 
-Refuses to initialize when G1 would fail. Writes <state>.genesis.json.
+Refuses to initialize when G1 would fail. Writes <state>.genesis.json, which
+also names the release commit and the spec table the store started on.
 """
 
 import argparse
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -28,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from forward_account import advance, initialize  # noqa: E402
+from forward_inputs import m02_v2_specs as specs  # noqa: E402
 from forward_account.contracts import canonical, digest, now_iso, timestamp  # noqa: E402
 from forward_account.store import (  # noqa: E402
     _account,
@@ -35,6 +38,21 @@ from forward_account.store import (  # noqa: E402
     engine_fingerprint,
     read_status,
 )
+
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def release_commit():
+    try:
+        return subprocess.run(
+            ["git", "-C", str(REPO), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
 
 
 def main(argv=None):
@@ -103,6 +121,8 @@ def main(argv=None):
         "calendar_sha256": digest(calendar),
         "engine_hash": engine_hash,
         "source_version": config["source_version"],
+        "release": {"path": str(REPO), "commit": release_commit()},
+        "spec_table_sha256": specs.load_table(specs.TABLE_PATH)["table_sha256"],
         "gates": gates,
         "all_pass": all(g["pass"] for g in gates.values()),
     }

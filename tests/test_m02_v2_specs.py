@@ -95,20 +95,59 @@ def test_pending_product_and_bad_rows_raise(table, rows):
         specs.derive("ZZ2701.CZC", "2026-11-16", table, settle[key], info[key])
 
 
-def test_ruling_reaches_only_the_products_it_named(v1, rows):
-    """A new DCE ratio-style product (LG) stays pending: generalizing the
-    2026-10-16 ruling beyond the five named products is a user decision."""
+def _with_product(rows, exchange, contract_id, product_id, fee_style, multiplier):
     settle = deepcopy(rows["settle"]) + [
-        {**rows["settle"][0], "exchange": "DCE", "contract_id": "LG2701", "product_id": "lg",
-         "fee_style": "比例值", "fee_scale": None}
+        {**rows["settle"][0], "exchange": exchange, "contract_id": contract_id,
+         "product_id": product_id, "fee_style": fee_style, "fee_scale": None}
     ]
     info = deepcopy(rows["info"]) + [
-        {**rows["info"][0], "exchange": "DCE", "contract_id": "LG2701", "multiplier": 90}
+        {**rows["info"][0], "exchange": exchange, "contract_id": contract_id,
+         "multiplier": multiplier}
     ]
+    return settle, info
+
+
+def test_ruling_reaches_only_the_products_it_named(v1, rows):
+    """A DCE ratio-style product no ruling named stays pending: generalizing a
+    ruling beyond the products it named is a user decision."""
+    settle, info = _with_product(rows, "DCE", "QQ2701", "qq", "比例值", 10)
     table = specs.build_table(settle, info, as_of="2026-10-15", v1_config=v1)
-    lg = table["products"]["DCE:LG"]
-    assert lg["status"] == "pending"
-    assert "ruling covered" in lg["pending"][0]
+    qq = table["products"]["DCE:QQ"]
+    assert qq["status"] == "pending" and qq["excluded"] is None
+    assert "rulings covered" in qq["pending"][0] and "LG" in qq["pending"][0]
+
+
+@pytest.mark.parametrize(
+    "exchange, contract_id, product, fee_style, unit",
+    [("DCE", "LG2701", "LG", "比例值", "PER_TEN_THOUSAND"),
+     ("DCE", "BB2701", "BB", "比例值", "PER_TEN_THOUSAND"),
+     ("CZCE", "CY701", "CY", "绝对值", "YUAN_PER_LOT"),
+     ("CZCE", "ZC701", "ZC", "绝对值", "YUAN_PER_LOT")],
+)
+def test_2026_10_29_ruling_closes_its_products(v1, rows, exchange, contract_id, product, fee_style, unit):
+    settle, info = _with_product(rows, exchange, contract_id, product.lower(), fee_style, 90)
+    table = specs.build_table(settle, info, as_of="2026-10-15", v1_config=v1)
+    row = table["products"][f"{exchange}:{product}"]
+    assert row["status"] == "closed" and row["pending"] == []
+    assert row["fee_unit_ruling"]["unit"] == unit
+    assert row["fee_unit_ruling"]["authority"].startswith("user_decision_2026-10-29")
+    assert "ruling-01.md" in row["fee_unit_ruling"]["source"]
+
+
+def test_monthly_average_products_are_excluded_not_pending(v1, rows):
+    settle, info = _with_product(rows, "DCE", "L-F2701", "l-f", "绝对值", 5)
+    settle[-1]["fee_scale"] = "YUAN_PER_LOT"
+    table = specs.build_table(settle, info, as_of="2026-10-15", v1_config=v1)
+    row = table["products"]["DCE:L-F"]
+    assert row["status"] == "excluded" and row["pending"] == []
+    assert row["excluded"]["reason"].startswith("user_decision_2026-10-29")
+    # an excluded product never derives, whatever its contract code looks like
+    fake = {"products": {"DCE:I": {**table["products"]["DCE:I"], "status": "excluded",
+                                   "excluded": row["excluded"]}}}
+    s_row = next(r for r in rows["settle"] if r["contract_id"] == "I2701")
+    i_row = next(r for r in rows["info"] if r["contract_id"] == "I2701")
+    with pytest.raises(specs.SpecMissing, match="product excluded .*monthly-average"):
+        specs.derive("I2701.DCE", "2026-11-16", fake, s_row, i_row)
 
 
 def test_precheck_reports_missing_specs_and_expiry(table, rows):

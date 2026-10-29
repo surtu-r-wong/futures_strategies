@@ -5,8 +5,9 @@
 Read-only: one REPEATABLE READ snapshot of exchange_data.futures_settle_param
 and public.futures_contract_info for `--as-of` (product listing) and for
 2026-10-15 (the v1 build day). Writes the sealed table plus a build receipt
-(query log, the v1 reproduction result, the pending product list). Refuses to
-write when any of the 67 v1 contracts does not re-derive identically.
+(query log, the v1 reproduction result, the rulings applied, the pending and
+excluded product lists). Refuses to write when any of the 67 v1 contracts does
+not re-derive identically.
 """
 
 import argparse
@@ -55,6 +56,12 @@ def main(argv=None):
         "products": len(table["products"]),
         "closed": sum(v["status"] == "closed" for v in table["products"].values()),
         "pending": pending,
+        "excluded": {
+            k: v["excluded"] for k, v in table["products"].items() if v["status"] == "excluded"
+        },
+        "unit_rulings": [
+            {**r, "products": sorted(r["products"])} for r in specs.UNIT_RULINGS
+        ],
         "v1_reproduction": {
             "day": V1_DAY,
             "contracts": len(v1["instruments"]),
@@ -66,7 +73,9 @@ def main(argv=None):
     out.with_name("build-receipt.json").write_text(
         json.dumps(receipt, ensure_ascii=False, indent=1, default=str) + "\n"
     )
-    print(json.dumps({k: receipt[k] for k in ("products", "closed", "table_sha256")}))
+    summary = {k: receipt[k] for k in ("products", "closed", "table_sha256")}
+    summary.update(pending=len(pending), excluded=len(receipt["excluded"]))
+    print(json.dumps(summary))
     for key, items in pending.items():
         print(f"PENDING {key}: {'; '.join(items)}")
     return 0

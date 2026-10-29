@@ -1,50 +1,105 @@
 {
- "built_at": "2026-10-28T19:31:21.636170+08:00",
+ "built_at": "2026-10-29T09:56:59.408447+08:00",
  "as_of": "2026-10-28",
- "table_sha256": "b8fc3a72cc002c4e2e403e53210761ed32a1d096f982965bff3df5cc104230cd",
+ "table_sha256": "2f1d9f11942bf3de42e6eb7c2c3cd6ea4cd114b5f676166cc439b4f4a51f42e9",
  "products": 82,
- "closed": 69,
- "pending": {
-  "CZCE:CY": [
-   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not CY"
-  ],
-  "CZCE:JR": [
-   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not JR"
-  ],
-  "CZCE:PM": [
-   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not PM"
-  ],
-  "CZCE:RI": [
-   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not RI"
-  ],
-  "CZCE:RS": [
-   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not RS"
-  ],
-  "CZCE:WH": [
-   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not WH"
-  ],
-  "CZCE:ZC": [
-   "fee unit undeclared (fee_style=绝对值); the YUAN_PER_LOT ruling covered ['AP', 'CF', 'CJ', 'FG', 'OI', 'PF', 'PK', 'PL', 'RM', 'SF', 'SM', 'SR', 'TA'], not ZC"
-  ],
-  "DCE:BB": [
-   "fee unit undeclared (fee_style=比例值); the PER_TEN_THOUSAND ruling covered ['I', 'J', 'JD', 'JM', 'LH'], not BB"
-  ],
-  "DCE:FB": [
-   "fee unit undeclared (fee_style=比例值); the PER_TEN_THOUSAND ruling covered ['I', 'J', 'JD', 'JM', 'LH'], not FB"
-  ],
-  "DCE:L-F": [
-   "non-standard product code (monthly-average contract)"
-  ],
-  "DCE:LG": [
-   "fee unit undeclared (fee_style=比例值); the PER_TEN_THOUSAND ruling covered ['I', 'J', 'JD', 'JM', 'LH'], not LG"
-  ],
-  "DCE:PP-F": [
-   "non-standard product code (monthly-average contract)"
-  ],
-  "DCE:V-F": [
-   "non-standard product code (monthly-average contract)"
-  ]
+ "closed": 79,
+ "pending": {},
+ "excluded": {
+  "DCE:L-F": {
+   "reason": "user_decision_2026-10-29: monthly-average contract, not a standard product code; not admitted",
+   "source": "docs/requests/2026-10-28-m02-futures-daily-follow/ruling-01.md (sha256 7fdac6f9bdafd53a55c121105c183cd14a25d160b020f00514dc08091d40be12)"
+  },
+  "DCE:PP-F": {
+   "reason": "user_decision_2026-10-29: monthly-average contract, not a standard product code; not admitted",
+   "source": "docs/requests/2026-10-28-m02-futures-daily-follow/ruling-01.md (sha256 7fdac6f9bdafd53a55c121105c183cd14a25d160b020f00514dc08091d40be12)"
+  },
+  "DCE:V-F": {
+   "reason": "user_decision_2026-10-29: monthly-average contract, not a standard product code; not admitted",
+   "source": "docs/requests/2026-10-28-m02-futures-daily-follow/ruling-01.md (sha256 7fdac6f9bdafd53a55c121105c183cd14a25d160b020f00514dc08091d40be12)"
+  }
  },
+ "unit_rulings": [
+  {
+   "exchange": "DCE",
+   "fee_style": "比例值",
+   "unit": "PER_TEN_THOUSAND",
+   "products": [
+    "I",
+    "J",
+    "JD",
+    "JM",
+    "LH"
+   ],
+   "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+   "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+  },
+  {
+   "exchange": "CZCE",
+   "fee_style": "比例值",
+   "unit": "PER_TEN_THOUSAND",
+   "products": [
+    "MA",
+    "PR",
+    "PX",
+    "SA",
+    "SH",
+    "UR"
+   ],
+   "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+   "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+  },
+  {
+   "exchange": "CZCE",
+   "fee_style": "绝对值",
+   "unit": "YUAN_PER_LOT",
+   "products": [
+    "AP",
+    "CF",
+    "CJ",
+    "FG",
+    "OI",
+    "PF",
+    "PK",
+    "PL",
+    "RM",
+    "SF",
+    "SM",
+    "SR",
+    "TA"
+   ],
+   "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are CNY yuan/lot, value-matched to the official CZCE fee schedule",
+   "source": "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
+  },
+  {
+   "exchange": "DCE",
+   "fee_style": "比例值",
+   "unit": "PER_TEN_THOUSAND",
+   "products": [
+    "BB",
+    "FB",
+    "LG"
+   ],
+   "authority": "user_decision_2026-10-29: DCE ratio-style fees of BB/FB/LG are PER_TEN_THOUSAND (1 = 1/10000 of notional), same as the 2026-10-16 ruling",
+   "source": "docs/requests/2026-10-28-m02-futures-daily-follow/ruling-01.md (sha256 7fdac6f9bdafd53a55c121105c183cd14a25d160b020f00514dc08091d40be12)"
+  },
+  {
+   "exchange": "CZCE",
+   "fee_style": "绝对值",
+   "unit": "YUAN_PER_LOT",
+   "products": [
+    "CY",
+    "JR",
+    "PM",
+    "RI",
+    "RS",
+    "WH",
+    "ZC"
+   ],
+   "authority": "user_decision_2026-10-29: CZCE absolute fees of CY/JR/PM/RI/RS/WH/ZC are CNY yuan/lot, same as the 2026-10-16 round 2 ruling",
+   "source": "docs/requests/2026-10-28-m02-futures-daily-follow/ruling-01.md (sha256 7fdac6f9bdafd53a55c121105c183cd14a25d160b020f00514dc08091d40be12)"
+  }
+ ],
  "v1_reproduction": {
   "day": "2026-10-15",
   "contracts": 67,
@@ -64,8 +119,8 @@
      "SHFE"
     ]
    },
-   "started_at": "2026-10-28T19:31:21.229799+08:00",
-   "observed_at": "2026-10-28T19:31:21.312180+08:00",
+   "started_at": "2026-10-29T09:56:58.993942+08:00",
+   "observed_at": "2026-10-29T09:56:59.087968+08:00",
    "rows": 842
   },
   {
@@ -80,8 +135,8 @@
      "SHFE"
     ]
    },
-   "started_at": "2026-10-28T19:31:21.335809+08:00",
-   "observed_at": "2026-10-28T19:31:21.394798+08:00",
+   "started_at": "2026-10-29T09:56:59.109485+08:00",
+   "observed_at": "2026-10-29T09:56:59.172531+08:00",
    "rows": 4373
   },
   {
@@ -96,8 +151,8 @@
      "SHFE"
     ]
    },
-   "started_at": "2026-10-28T19:31:21.440745+08:00",
-   "observed_at": "2026-10-28T19:31:21.482849+08:00",
+   "started_at": "2026-10-29T09:56:59.213066+08:00",
+   "observed_at": "2026-10-29T09:56:59.272395+08:00",
    "rows": 842
   },
   {
@@ -112,8 +167,8 @@
      "SHFE"
     ]
    },
-   "started_at": "2026-10-28T19:31:21.501536+08:00",
-   "observed_at": "2026-10-28T19:31:21.558774+08:00",
+   "started_at": "2026-10-29T09:56:59.292863+08:00",
+   "observed_at": "2026-10-29T09:56:59.350878+08:00",
    "rows": 4365
   }
  ]

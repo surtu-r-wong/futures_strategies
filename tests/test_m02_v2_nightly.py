@@ -386,6 +386,35 @@ def test_missing_settle_fails_closed(env):
     _assert_zero_write(env, before)
 
 
+@pytest.mark.parametrize(
+    "day2",
+    [
+        # no 10-14 package: the day only marks the held book to settle
+        lambda env: None,
+        # valid package, but the held I2701 has no 09:30 bar (untradable, lots carry)
+        lambda env: (
+            write_package(env["targets"], "2026-10-14", "2026-10-13",
+                          {"CU2612.SHF": 0.5, "I2701.DCE": -0.8}),
+            env["fake"].opens["2026-10-14"].pop("I2701.DCE"),
+        ),
+    ],
+    ids=["target_missing", "held_untradable"],
+)
+def test_missing_settle_of_a_held_contract_is_the_settle_gate(env, day2):
+    """The settle gate checks held contracts, not just the new target's: a held
+    contract that does not trade today still needs today's settle to be marked
+    (ruling-01 item 2; the engine would also refuse, but the gate names it)."""
+    write_package(env["targets"], "2026-10-13", "2026-10-12", {"CU2612.SHF": 0.5, "I2701.DCE": -0.4})
+    assert env["run"]()[0] == 0
+    day2(env)
+    del env["fake"].settle["2026-10-14"]["I2701.DCE"]
+    before = store_sha(env["store"])
+    rc, verdict = env["run"](today="2026-10-14")
+    assert rc == 2 and verdict["stage"] == "settle_gate", verdict
+    assert verdict["error"] == "futures_daily settle missing for: I2701.DCE"
+    _assert_zero_write(env, before)
+
+
 def test_dry_run_only_writes_nothing(env):
     write_package(env["targets"], "2026-10-13", "2026-10-12", {"CU2612.SHF": 0.5, "I2701.DCE": -0.4})
     before = store_sha(env["store"])
@@ -436,6 +465,56 @@ def test_sealed_store_never_advances(env):
             advance(env["store"], ACCOUNT, deepcopy(packet))
     with pytest.raises(ValueError, match="already sealed"):
         m02_seal.seal(env["store"], ACCOUNT, feed, "2026-10-13", "again")
+
+
+def test_closeout_catches_up_to_the_last_day_only_then_seals(env):
+    """Both evening runs of the last day failed: a later evening's close-out
+    advances exactly the missing last day (never the next one) and seals."""
+    write_package(env["targets"], "2026-10-13", "2026-10-12", {"CU2612.SHF": 0.5})
+    write_package(env["targets"], "2026-10-14", "2026-10-13", {"CU2612.SHF": 0.5})
+    write_package(env["targets"], "2026-10-15", "2026-10-14", {"CU2612.SHF": 0.5})
+    env["run"]()
+    feed = env["tmp"] / "feed" / "latest.json"
+    calls = []
+
+    def catch_up():  # the v1 nightly with --today capped at the last day
+        calls.append(env["run"](today="2026-10-14")[0])
+
+    record = m02_seal.closeout(env["store"], ACCOUNT, feed, "2026-10-14", "close", catch_up)
+    assert calls == [0] and record["status"] == "sealed"
+    assert record["last_trade_date"] == "2026-10-14"
+    assert not os.stat(env["store"]).st_mode & stat.S_IWUSR
+    # every later evening is a no-op
+    again = m02_seal.closeout(env["store"], ACCOUNT, feed, "2026-10-14", "close", catch_up)
+    assert again["status"] == "already_sealed" and calls == [0]
+
+
+def test_closeout_refuses_when_catch_up_falls_short_or_head_overshot(env):
+    write_package(env["targets"], "2026-10-13", "2026-10-12", {"CU2612.SHF": 0.5})
+    env["run"]()
+    feed = env["tmp"] / "feed" / "latest.json"
+    calls = []
+    with pytest.raises(ValueError, match="after catch-up, expected 2026-10-14"):
+        m02_seal.closeout(env["store"], ACCOUNT, feed, "2026-10-14", "c", lambda: calls.append(1))
+    assert calls == [1] and not m02_seal.Path(str(env["store"]) + ".sealed.json").exists()
+    assert os.stat(env["store"]).st_mode & stat.S_IWUSR
+    with pytest.raises(ValueError, match="past 2026-10-12"):
+        m02_seal.closeout(env["store"], ACCOUNT, feed, "2026-10-12", "c", lambda: calls.append(2))
+    assert calls == [1]
+
+
+def test_closeout_runs_the_v1_nightly_capped_at_the_last_day(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(m02_seal.subprocess, "run",
+                        lambda argv, env, check: seen.update(argv=argv, env=env))
+    m02_seal.v1_catch_up("/r/scripts/m02_futures_nightly.sh", "/s/state/account.sqlite",
+                         "2026-11-13")()
+    assert seen["argv"] == ["/bin/bash", "/r/scripts/m02_futures_nightly.sh"]
+    assert seen["env"]["M02_FUTURES_STATE_DIR"] == "/s/state"
+    assert seen["env"]["M02_FUTURES_RETRY_AT"] == "0000"
+    extra = seen["env"]["M02_FUTURES_EXTRA_ARGS"].split()
+    assert extra[:2] == ["--today", "2026-11-13"]
+    assert extra[2] == "--verdict-dir" and extra[3].startswith("/s/state/verdicts-closeout/")
 
 
 def test_position_past_last_trading_day_raises_an_alert(env):

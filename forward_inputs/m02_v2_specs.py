@@ -24,8 +24,9 @@ fee matching bind each rule's digest, so an exchange fee change applies to
 contracts the account adds after the change, not to rules already registered.
 
 Products whose fee unit is not declared by the source and not covered by a
-ruling are `pending`: deriving a contract of a pending product raises, and the
-morning precheck names it. Nothing here writes to any database.
+ruling are `pending`; products the user ruled out are `excluded`. Deriving a
+contract of either raises, and the morning precheck names it. Nothing here
+writes to any database.
 """
 
 import json
@@ -52,29 +53,71 @@ MARGIN_ADD = 0.02
 BROKER_RATIO = 0.1
 SLIPPAGE = {"value": 4, "unit": "PER_TEN_THOUSAND"}
 
-# 2026-10-16 user unit rulings, exactly as far as they reached. Generalizing a
-# ruling to another product of the same fee style is a user decision.
+# User unit rulings, exactly as far as each reached. Generalizing a ruling to
+# another product of the same fee style is a user decision, recorded as its own
+# entry with its own authority and source.
 RULING_SOURCE = (
     "docs/requests/2026-10-16-m02-futures-rule-clarification/unit-decisions.json; "
     "docs/requests/2026-10-17-m02-initialization (round 2 ruling 1)"
 )
-UNIT_RULINGS = {
-    ("DCE", "比例值"): (
-        "PER_TEN_THOUSAND",
-        {"I", "J", "JD", "JM", "LH"},
-        "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
-    ),
-    ("CZCE", "比例值"): (
-        "PER_TEN_THOUSAND",
-        {"MA", "PR", "PX", "SA", "SH", "UR"},
-        "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
-    ),
-    ("CZCE", "绝对值"): (
-        "YUAN_PER_LOT",
-        {"AP", "CF", "CJ", "FG", "OI", "PF", "PK", "PL", "RM", "SF", "SM", "SR", "TA"},
-        "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are "
+RULING_SOURCE_1029 = (
+    "docs/requests/2026-10-28-m02-futures-daily-follow/ruling-01.md "
+    "(sha256 7fdac6f9bdafd53a55c121105c183cd14a25d160b020f00514dc08091d40be12)"
+)
+UNIT_RULINGS = (
+    {
+        "exchange": "DCE",
+        "fee_style": "比例值",
+        "unit": "PER_TEN_THOUSAND",
+        "products": {"I", "J", "JD", "JM", "LH"},
+        "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+        "source": RULING_SOURCE,
+    },
+    {
+        "exchange": "CZCE",
+        "fee_style": "比例值",
+        "unit": "PER_TEN_THOUSAND",
+        "products": {"MA", "PR", "PX", "SA", "SH", "UR"},
+        "authority": "user ruling 2026-10-16: 比例的单位均为万分，1就代表成交额的万分之一",
+        "source": RULING_SOURCE,
+    },
+    {
+        "exchange": "CZCE",
+        "fee_style": "绝对值",
+        "unit": "YUAN_PER_LOT",
+        "products": {"AP", "CF", "CJ", "FG", "OI", "PF", "PK", "PL", "RM", "SF", "SM", "SR", "TA"},
+        "authority": "user ruling 2026-10-16 round 2 ruling 1: CZCE absolute fee values are "
         "CNY yuan/lot, value-matched to the official CZCE fee schedule",
-    ),
+        "source": RULING_SOURCE,
+    },
+    {
+        "exchange": "DCE",
+        "fee_style": "比例值",
+        "unit": "PER_TEN_THOUSAND",
+        "products": {"BB", "FB", "LG"},
+        "authority": "user_decision_2026-10-29: DCE ratio-style fees of BB/FB/LG are "
+        "PER_TEN_THOUSAND (1 = 1/10000 of notional), same as the 2026-10-16 ruling",
+        "source": RULING_SOURCE_1029,
+    },
+    {
+        "exchange": "CZCE",
+        "fee_style": "绝对值",
+        "unit": "YUAN_PER_LOT",
+        "products": {"CY", "JR", "PM", "RI", "RS", "WH", "ZC"},
+        "authority": "user_decision_2026-10-29: CZCE absolute fees of CY/JR/PM/RI/RS/WH/ZC "
+        "are CNY yuan/lot, same as the 2026-10-16 round 2 ruling",
+        "source": RULING_SOURCE_1029,
+    },
+)
+# Products the user ruled out of the account. Deriving their contracts raises
+# exactly like a pending product (morning precheck names it, spec_gate fails).
+EXCLUSIONS = {
+    product_code: {
+        "reason": "user_decision_2026-10-29: monthly-average contract, not a standard "
+        "product code; not admitted",
+        "source": RULING_SOURCE_1029,
+    }
+    for product_code in ("DCE:L-F", "DCE:PP-F", "DCE:V-F")
 }
 BROKER_SOURCE = (
     "user ruling 2026-10-16 4-1: exchange fee x1.1, no minimum; broker leg = 10% "
@@ -148,9 +191,8 @@ def derive(contract, trade_date, table, settle_row, info_row):
     if product_row is None:
         raise SpecMissing(f"{contract}: product not in the M02 v2 table")
     if product_row["status"] != "closed":
-        raise SpecMissing(
-            f"{contract}: product pending ({'; '.join(product_row['pending'])})"
-        )
+        reasons = product_row["pending"] or [product_row["excluded"]["reason"]]
+        raise SpecMissing(f"{contract}: product {product_row['status']} ({'; '.join(reasons)})")
     if settle_row is None or info_row is None:
         raise SpecMissing(f"{contract}: no settlement-parameter/contract-info row")
     multiplier = float(info_row["multiplier"])
@@ -221,7 +263,8 @@ def build_table(settle_rows, info_rows, *, as_of, v1_config):
 
     settle_rows / info_rows: dict rows for every commodity contract on `as_of`.
     A product is closed when its fee unit is declared by the source or covered
-    by a ruling, and its multiplier is a single value across listed contracts.
+    by a ruling, and its multiplier is a single value across listed contracts;
+    a product in EXCLUSIONS is `excluded` whatever its source rows say.
     """
     v1_products = {}
     for contract in v1_config["instruments"]:
@@ -252,21 +295,26 @@ def build_table(settle_rows, info_rows, *, as_of, v1_config):
         ruling = None
         if "NULL" in scales:
             style = styles[0] if len(styles) == 1 else None
-            covered = UNIT_RULINGS.get((exchange, style))
-            if covered and product in covered[1]:
-                ruling = {
-                    "fee_style": style,
-                    "unit": covered[0],
-                    "authority": covered[2],
-                    "source": RULING_SOURCE,
-                }
-            elif covered:
+            rulings = [
+                r for r in UNIT_RULINGS if (r["exchange"], r["fee_style"]) == (exchange, style)
+            ]
+            covered = [r for r in rulings if product in r["products"]]
+            if covered:
+                (match,) = covered
+                ruling = {k: match[k] for k in ("fee_style", "unit", "authority", "source")}
+            elif rulings:
+                named = sorted(set().union(*(r["products"] for r in rulings)))
                 pending.append(
-                    f"fee unit undeclared (fee_style={style}); the {covered[0]} "
-                    f"ruling covered {sorted(covered[1])}, not {product}"
+                    f"fee unit undeclared (fee_style={style}); the {rulings[0]['unit']} "
+                    f"rulings covered {named}, not {product}"
                 )
             else:
                 pending.append(f"fee unit undeclared (fee_style={styles})")
+        excluded = EXCLUSIONS.get(key)
+        if excluded:
+            status, pending = "excluded", []
+        else:
+            status = "pending" if pending else "closed"
         products[key] = {
             "exchange": exchange,
             "product": product,
@@ -280,8 +328,9 @@ def build_table(settle_rows, info_rows, *, as_of, v1_config):
             "price_limit": "per-day exchange limit prices, public.futures_contract_info "
             "涨停价/跌停价 of the trade date",
             "v1_closed_contract": v1_products.get(key),
-            "status": "pending" if pending else "closed",
+            "status": status,
             "pending": pending,
+            "excluded": excluded,
         }
     missing_v1 = sorted(set(v1_products) - set(products))
     if missing_v1:
