@@ -111,7 +111,7 @@ def capture(codes, trade_date):
         "window": [WINDOW_BEGIN, WINDOW_END],
         "bar_size": "1",
         "fields_requested": FIELDS,
-        "captured_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "captured_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "czce_code_mapping": (
             "wsi queried in Wind's one-digit-year CZCE spelling (TA701.CZC); "
             "keys below stay database-style (TA2701.CZC)"

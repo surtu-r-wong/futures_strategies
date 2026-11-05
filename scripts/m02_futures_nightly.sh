@@ -11,6 +11,8 @@
 #   M02_FUTURES_RETRY_AT   optional HHMM, default 2135; <= start minute = no retry
 #   M02_FUTURES_EXTRA_ARGS optional extra driver args (rehearsal: --today ...)
 set -u
+# Retry wall times and log dates use the same market timezone as the driver.
+export TZ=Asia/Shanghai
 umask 077
 state_dir=${M02_FUTURES_STATE_DIR:?M02_FUTURES_STATE_DIR is required}
 repo=$(cd "$(dirname "$0")/.." && pwd)

@@ -16,6 +16,8 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from common.config import load_config, resolve_settings_path
+from common.db import MARKET_PG_OPTIONS
+from common.market_time import shanghai_today
 
 
 PRODUCTS = ["AL", "BU", "CU", "M", "MA", "PP", "RB", "RU", "TA"]
@@ -153,7 +155,7 @@ def collect(connection):
             out["build"] = dict(build)
             params = {"build": build["build_version"], "catalog": build["catalog_version"],
                       "cutoff": build["source_recorded_cutoff"], "products": PRODUCTS,
-                      "as_of": datetime.now(timezone.utc).date()}
+                      "as_of": shanghai_today()}
             out["results"] = {}
             for name, query in QUERIES.items():
                 cursor.execute(query, params)
@@ -194,7 +196,8 @@ def main():
     connection = None
     try:
         connection = psycopg2.connect(host=cfg["host"], port=cfg["port"], dbname=cfg["name"],
-                                     user=cfg["user"], password=cfg["password"], connect_timeout=8)
+                                     user=cfg["user"], password=cfg["password"], connect_timeout=8,
+                                     options=MARKET_PG_OPTIONS)
         result = collect(connection)
     except Exception as exc:
         # Connection exceptions can contain credentials/DSNs; never print them.

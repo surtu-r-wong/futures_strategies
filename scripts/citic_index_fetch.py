@@ -35,7 +35,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from citic_index.data import date_chunks, monthly_counts, reconcile  # noqa: E402
 from citic_index.universe import NAMED_37  # noqa: E402
 from common.config import load_config, resolve_settings_path  # noqa: E402
-from common.db import pg_config_from  # noqa: E402
+from common.db import MARKET_PG_OPTIONS, pg_config_from  # noqa: E402
+from common.market_time import shanghai_today  # noqa: E402
 
 
 # Same expression the production public-pg path uses, so "which product is this
@@ -131,6 +132,7 @@ def _dsn(config_path=None) -> dict:
         dbname=pg["name"],
         user=pg["user"],
         password=pg["password"],
+        options=MARKET_PG_OPTIONS,
         connect_timeout=45,
         keepalives=1,
         keepalives_idle=15,
@@ -165,7 +167,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="citic_index_fetch")
     parser.add_argument("--out", default="data/citic_index")
     parser.add_argument("--start", type=date.fromisoformat, default=date(2009, 1, 1))
-    parser.add_argument("--end", type=date.fromisoformat, default=date.today())
+    parser.add_argument("--end", type=date.fromisoformat, default=None,
+                        help="last date to fetch (default: today in Asia/Shanghai)")
     parser.add_argument("--chunk-days", type=int, default=60)
     parser.add_argument("--attempts", type=int, default=6)
     parser.add_argument("--config", default=None)
@@ -177,6 +180,8 @@ def main(argv=None) -> int:
     parser.add_argument("--no-receipts", action="store_true",
                         help="skip the warehouse receipt pull (023's factor input)")
     args = parser.parse_args(argv)
+    if args.end is None:
+        args.end = shanghai_today()
 
     dsn = _dsn(args.config)
     # 3.2's liquidity and listing filters are the actual universe; the

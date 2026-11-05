@@ -2,6 +2,9 @@ from contextlib import contextmanager
 import psycopg2
 from psycopg2 import sql
 
+# Startup options apply to every new connection and survive transaction rollback.
+MARKET_PG_OPTIONS = "-c timezone=Asia/Shanghai"
+
 
 def pg_config_from(cfg: dict, use_test: bool = False) -> dict:
     key = "test_database" if use_test else "database"
@@ -16,6 +19,7 @@ def get_connection(pg_cfg: dict):
         dbname=pg_cfg["name"],
         user=pg_cfg["user"],
         password=pg_cfg["password"],
+        options=MARKET_PG_OPTIONS,
         # Long multi-step flows (e.g. universe_filter's 9 sequential queries)
         # leave the socket idle between Python-side steps; over Tailscale/NAT an
         # idle socket gets reaped mid-flow, surfacing as "server closed the

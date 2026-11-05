@@ -45,6 +45,11 @@ data-collecter + 连续合约生成器（用户领域，已归档 `~/claude-code
 `config/settings.yaml`（gitignored，明文 PG 密码，单机惯例）；模板 `config/settings.example.yaml`。
 代码只用 `database:` / `test_database:` 两节，schema 在读取层强制 `public`。
 
+本机系统可使用 `America/New_York`；中国市场默认日期、日更包装脚本及 PostgreSQL
+连接会话显式使用 `Asia/Shanghai`。显式日期和交易所日历优先，不能把自然日当成夜盘交易日。
+本轮本地修复、离线验证和远端调度待核实项见
+[`时区核查反馈`](docs/operations/2026-11-05-timezone-impact-response.md)。
+
 ## 运行
 
 ```bash

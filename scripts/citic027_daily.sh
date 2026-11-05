@@ -19,6 +19,8 @@
 #
 # After a run, check the sheet: scripts/check_citic027_sheet.py <prefix>
 set -u
+# Business dates follow the Chinese market on every host.
+export TZ=Asia/Shanghai
 cd "$(dirname "$0")/.." || exit 9
 CAPITAL=${1:?capital in CNY required}
 AS_OF=${2:-$(date +%F)}

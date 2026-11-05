@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 import sys
 
+from common.market_time import shanghai_today
 
 COMMODITY_EXCHANGES = ("CZC", "DCE", "GFE", "INE", "SHF")
 
@@ -50,10 +51,13 @@ def main(
         prog="cta_carry.coverage",
         description="print the last trade_date every commodity exchange has reached",
     )
-    parser.add_argument("--as-of", type=date.fromisoformat, default=date.today())
+    parser.add_argument("--as-of", type=date.fromisoformat, default=None,
+                        help="reference date (default: today in Asia/Shanghai)")
     parser.add_argument("--lookback-days", type=int, default=30)
     parser.add_argument("--config", default=None)
     args = parser.parse_args(argv)
+    if args.as_of is None:
+        args.as_of = shanghai_today()
 
     if loader is None:
         from .pg_source import load_public_exchange_coverage

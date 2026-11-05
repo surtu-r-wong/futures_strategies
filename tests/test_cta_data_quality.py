@@ -338,7 +338,7 @@ def test_main_strict_prints_reasons_and_exits_one(monkeypatch, capsys):
     report = _strict_report(
         raw_ohlc_nonpos=1,
         suspicious_bar_count=1,
-        last_trade_date=date.today(),
+        last_trade_date=date(2026, 7, 20),
     )
     monkeypatch.setattr(
         data_quality,
@@ -348,7 +348,7 @@ def test_main_strict_prints_reasons_and_exits_one(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["data_quality", "--rule-type", "standard", "--strict"],
+        ["data_quality", "--rule-type", "standard", "--strict", "--as-of", "2026-07-20"],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -390,7 +390,7 @@ def test_main_strict_writes_csv_before_exit(monkeypatch, tmp_path):
     report = _strict_report(
         raw_ohlc_nonpos=1,
         suspicious_bar_count=1,
-        last_trade_date=date.today(),
+        last_trade_date=date(2026, 7, 20),
     )
     csv_path = tmp_path / "quality.csv"
     monkeypatch.setattr(
@@ -406,6 +406,8 @@ def test_main_strict_writes_csv_before_exit(monkeypatch, tmp_path):
             "--rule-type",
             "standard",
             "--strict",
+            "--as-of",
+            "2026-07-20",
             "--csv",
             str(csv_path),
         ],
@@ -425,7 +427,7 @@ def test_main_strict_healthy_report_honors_custom_max_lag(
     monkeypatch, capsys
 ):
     report = _strict_report(
-        last_trade_date=date.today() - timedelta(days=11),
+        last_trade_date=date(2026, 7, 20) - timedelta(days=11),
     )
     monkeypatch.setattr(
         data_quality,
@@ -442,6 +444,8 @@ def test_main_strict_healthy_report_honors_custom_max_lag(
             "--strict",
             "--max-lag-days",
             "11",
+            "--as-of",
+            "2026-07-20",
         ],
     )
 

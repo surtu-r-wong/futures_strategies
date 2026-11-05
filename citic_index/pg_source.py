@@ -17,7 +17,7 @@ import pandas as pd
 import psycopg2
 
 from common.config import load_config, resolve_settings_path
-from common.db import pg_config_from
+from common.db import MARKET_PG_OPTIONS, pg_config_from
 from cta_carry.data import normalize_contract_daily
 
 from citic_index.data import date_chunks, monthly_counts, reconcile
@@ -53,6 +53,7 @@ def _dsn(config_path=None) -> dict:
     return dict(
         host=pg["host"], port=pg["port"], dbname=pg["name"],
         user=pg["user"], password=pg["password"],
+        options=MARKET_PG_OPTIONS,
         connect_timeout=45, keepalives=1, keepalives_idle=15,
         keepalives_interval=5, keepalives_count=5,
     )

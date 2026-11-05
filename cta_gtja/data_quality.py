@@ -14,6 +14,8 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from common.market_time import shanghai_today
+
 _LINEAGES = ("raw", "ba", "fa")
 _OHLC_FIELDS = ("open", "high", "low", "close")
 _HEALTH_COLUMNS = [
@@ -426,6 +428,8 @@ def main() -> None:
     parser.add_argument("--rule-type", default="standard")
     parser.add_argument("--use-test", action="store_true")
     parser.add_argument("--csv", default=None, help="optional path to write the full report")
+    parser.add_argument("--as-of", type=date.fromisoformat, default=None,
+                        help="freshness reference date (default: today in Asia/Shanghai)")
     parser.add_argument(
         "--strict",
         action="store_true",
@@ -441,7 +445,7 @@ def main() -> None:
     if args.max_lag_days < 0:
         parser.error("--max-lag-days must be non-negative")
 
-    as_of = date.today()
+    as_of = args.as_of if args.as_of is not None else shanghai_today()
 
     report = scan_continuous_contract_quality(rule_type=args.rule_type, use_test=args.use_test)
     affected = report[report["status"] != "ok"].sort_values("fa_nonpos", ascending=False)

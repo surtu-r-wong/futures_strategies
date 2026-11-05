@@ -84,7 +84,7 @@ morning)
   run_remote "M02_V2_ROOT=$BASE M02_V2_CALENDAR=$BASE/config/targets-calendar.json \
     M02_V2_RETRY_AT=0000 ${DAY:+M02_V2_TODAY=$DAY} \
     bash $BASE/current/scripts/m02_v2_morning.sh; rc=\$?; \
-    tail -3 $BASE/logs/morning-\$(date +%F).log; exit \$rc"
+    tail -3 $BASE/logs/morning-\$(TZ=Asia/Shanghai date +%F).log; exit \$rc"
   ;;
 
 nightly)

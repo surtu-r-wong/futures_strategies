@@ -32,6 +32,8 @@
 # five refusals being listings younger than 500 days). An all-False column means
 # the gate starved and the blend silently fell back to carry alone.
 set -u
+# Business dates and date arithmetic follow the Chinese market on every host.
+export TZ=Asia/Shanghai
 cd "$(dirname "$0")/.." || exit 9
 CAPITAL=${1:?capital in CNY required}
 AS_OF=${2:-$(date +%F)}

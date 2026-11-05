@@ -14,6 +14,8 @@
 #   M02_V2_RETRY_AT   optional HHMM, default 0905; <= start minute = no retry
 #   M02_V2_TODAY      optional override (rehearsal only)
 set -u
+# Today's target date and retry wall time are Chinese-market time.
+export TZ=Asia/Shanghai
 umask 077
 root=${M02_V2_ROOT:?M02_V2_ROOT is required}
 calendar=${M02_V2_CALENDAR:?M02_V2_CALENDAR is required}

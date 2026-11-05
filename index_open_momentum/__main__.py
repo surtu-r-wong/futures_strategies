@@ -170,6 +170,7 @@ def resolve_options(namespace: argparse.Namespace) -> Options:
 def _fetch(sql: str, params: tuple, pg: dict):
     import pandas as pd
     import psycopg2
+    from common.db import MARKET_PG_OPTIONS
 
     connection = psycopg2.connect(
         host=pg["host"],
@@ -177,6 +178,7 @@ def _fetch(sql: str, params: tuple, pg: dict):
         dbname=pg["name"],
         user=pg["user"],
         password=pg["password"],
+        options=MARKET_PG_OPTIONS,
     )
     try:
         with connection.cursor() as cursor:

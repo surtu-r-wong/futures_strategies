@@ -19,7 +19,6 @@ seal if the head reached it; otherwise exit 2 and try again the next evening.
 """
 
 import argparse
-import datetime as dt
 import hashlib
 import json
 import os
@@ -32,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from forward_account.contracts import now_iso  # noqa: E402
 from forward_account.store import read_status  # noqa: E402
+from common.market_time import shanghai_today  # noqa: E402
 
 
 def sha(path):
@@ -104,7 +104,7 @@ def closeout(state, account, feed, last, reason, catch_up):
 def v1_catch_up(script, state, last):
     """One run of the v1 nightly capped at `last`, verdicts kept apart per night."""
     state_dir = Path(state).parent
-    night = dt.date.today().isoformat()
+    night = shanghai_today().isoformat()
     env = {
         **os.environ,
         "M02_FUTURES_STATE_DIR": str(state_dir),

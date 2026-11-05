@@ -11,6 +11,8 @@
 #   M02_V2_RETRY_AT     optional HHMM, default 2135
 #   M02_V2_EXTRA_ARGS   optional extra driver args (--dry-run-only, --today ...)
 set -u
+# Retry wall times and log dates use the same market timezone as the driver.
+export TZ=Asia/Shanghai
 umask 077
 state_dir=${M02_V2_STATE_DIR:?M02_V2_STATE_DIR is required}
 account=${M02_V2_ACCOUNT:?M02_V2_ACCOUNT is required}

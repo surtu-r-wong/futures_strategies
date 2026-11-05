@@ -44,7 +44,8 @@ from citic_index.exchange_receipts import (  # noqa: E402
     normalise_records,
 )
 from common.config import load_config, resolve_settings_path  # noqa: E402
-from common.db import pg_config_from  # noqa: E402
+from common.db import MARKET_PG_OPTIONS, pg_config_from  # noqa: E402
+from common.market_time import shanghai_today  # noqa: E402
 
 METRICS = sorted(RECEIPT_METRICS | FORECAST_METRICS)
 
@@ -145,6 +146,7 @@ def _dsn(config_path=None) -> dict:
         dbname=pg["name"],
         user=pg["user"],
         password=pg["password"],
+        options=MARKET_PG_OPTIONS,
         connect_timeout=45,
         keepalives=1,
         keepalives_idle=15,
@@ -181,7 +183,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="citic_receipts_exchange_fetch")
     parser.add_argument("--out", default="data/citic_023")
     parser.add_argument("--start", type=date.fromisoformat, default=date(2008, 1, 1))
-    parser.add_argument("--end", type=date.fromisoformat, default=date.today())
+    parser.add_argument("--end", type=date.fromisoformat, default=None,
+                        help="last date to fetch (default: today in Asia/Shanghai)")
     parser.add_argument("--chunk-days", type=int, default=120)
     parser.add_argument("--attempts", type=int, default=6)
     parser.add_argument("--config", default=None)
@@ -192,6 +195,8 @@ def main(argv=None) -> int:
         help="capture kinds to read; SHFE_DAILY needs its three eras first",
     )
     args = parser.parse_args(argv)
+    if args.end is None:
+        args.end = shanghai_today()
 
     sources = sorted({s.strip() for s in args.sources.split(",") if s.strip()})
     unknown = sorted(set(sources) - set(TOTAL_ROW_KIND))
